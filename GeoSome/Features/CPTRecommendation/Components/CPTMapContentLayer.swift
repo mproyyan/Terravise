@@ -7,6 +7,7 @@ struct CPTMapContentLayer: View {
   var coordinates: [CLLocationCoordinate2D]
   var isSatelliteStyle: Bool
   var recommendedCoordinate: CLLocationCoordinate2D?
+  var cptPoints: [CPTPointEntry]
 
   @Environment(\.colorSchemeContrast) private var contrast
 
@@ -14,12 +15,14 @@ struct CPTMapContentLayer: View {
     cameraPosition: Binding<MapCameraPosition>,
     coordinates: [CLLocationCoordinate2D] = [],
     isSatelliteStyle: Bool = false,
-    recommendedCoordinate: CLLocationCoordinate2D? = nil
+    recommendedCoordinate: CLLocationCoordinate2D? = nil,
+    cptPoints: [CPTPointEntry] = []
   ) {
     _cameraPosition = cameraPosition
     self.coordinates = coordinates
     self.isSatelliteStyle = isSatelliteStyle
     self.recommendedCoordinate = recommendedCoordinate
+    self.cptPoints = cptPoints
   }
 
   var body: some View {
@@ -43,6 +46,24 @@ struct CPTMapContentLayer: View {
           )
       }
 
+      // Uploaded CPT Points Annotations (Orange Circle with Number)
+      ForEach(Array(cptPoints.enumerated()), id: \.element.id) { index, point in
+        Annotation("CPT Point \(index + 1)", coordinate: point.coordinate) {
+          ZStack {
+            Circle()
+              .fill(Color.orange)
+              .frame(width: 28, height: 28)
+              .shadow(color: .black.opacity(0.25), radius: 3, y: 1.5)
+
+            Text("\(index + 1)")
+              .font(.caption.weight(.bold))
+              .foregroundStyle(Color.white)
+          }
+          .accessibilityLabel("CPT Point \(index + 1)")
+        }
+      }
+
+      // Recommended Point Annotation (Green Circle with X)
       if let recommendedCoordinate {
         Annotation("Recommended Point", coordinate: recommendedCoordinate) {
           ZStack {
@@ -66,7 +87,7 @@ struct CPTMapContentLayer: View {
     )
     .mapControlVisibility(.hidden)
     .accessibilityElement(children: .contain)
-    .accessibilityLabel("Map with project boundary")
+    .accessibilityLabel("Map with project boundary and CPT points")
   }
 }
 
@@ -79,6 +100,12 @@ struct CPTMapContentLayer: View {
       CLLocationCoordinate2D(latitude: -6.2435, longitude: 106.8338),
       CLLocationCoordinate2D(latitude: -6.2430, longitude: 106.8292)
     ],
-    recommendedCoordinate: CLLocationCoordinate2D(latitude: -6.2415, longitude: 106.8315)
+    recommendedCoordinate: CLLocationCoordinate2D(latitude: -6.2415, longitude: 106.8315),
+    cptPoints: [
+      CPTPointEntry(
+        coordinate: CLLocationCoordinate2D(latitude: -6.2410, longitude: 106.8300),
+        file: CPTUploadedFile(name: "CPT1.csv")
+      )
+    ]
   )
 }

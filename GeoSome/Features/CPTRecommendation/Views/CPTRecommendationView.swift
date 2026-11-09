@@ -37,22 +37,33 @@ struct CPTRecommendationView: View {
         if viewModel.isUploadSheetPresented {
           return .uploadData
         }
+        if viewModel.isCPTListPresented {
+          return .cptDataList
+        }
         return viewModel.hasUploadedCPTData ? .recommendedPoint : .emptyState
       },
       set: { newValue in
         switch newValue {
         case .emptyState:
           viewModel.isUploadSheetPresented = false
+          viewModel.isCPTListPresented = false
           viewModel.isSheetPresented = true
         case .uploadData:
           viewModel.isUploadSheetPresented = true
+          viewModel.isCPTListPresented = false
           viewModel.isSheetPresented = true
         case .recommendedPoint:
           viewModel.isUploadSheetPresented = false
+          viewModel.isCPTListPresented = false
+          viewModel.isSheetPresented = true
+        case .cptDataList:
+          viewModel.isUploadSheetPresented = false
+          viewModel.isCPTListPresented = true
           viewModel.isSheetPresented = true
         case nil:
-          if viewModel.isUploadSheetPresented {
+          if viewModel.isUploadSheetPresented || viewModel.isCPTListPresented {
             viewModel.isUploadSheetPresented = false
+            viewModel.isCPTListPresented = false
             viewModel.isSheetPresented = false
             Task { @MainActor in
               try? await Task.sleep(for: .milliseconds(100))
@@ -72,12 +83,13 @@ struct CPTRecommendationView: View {
     @Bindable var viewModel = viewModel
 
     ZStack {
-      // Fullscreen Map Content Layer with Boundary (Tanpa Titik) + Recommended Point Annotation
+      // Fullscreen Map Content Layer with Boundary + Uploaded CPT Points + Recommended Point Annotation
       CPTMapContentLayer(
         cameraPosition: $viewModel.cameraPosition,
         coordinates: viewModel.coordinates,
         isSatelliteStyle: viewModel.isSatelliteStyle,
-        recommendedCoordinate: viewModel.recommendedCoordinateOnMap
+        recommendedCoordinate: viewModel.recommendedCoordinateOnMap,
+        cptPoints: viewModel.cptPoints
       )
       .ignoresSafeArea()
     }
@@ -181,6 +193,27 @@ struct CPTRecommendationView: View {
         .presentationDetents(
           [
             CPTRecommendationViewModel.uploadSheetDetent,
+            .large
+          ]
+        )
+        .presentationDragIndicator(.visible)
+        .presentationBackgroundInteraction(.enabled)
+        .presentationContentInteraction(.scrolls)
+
+      case .cptDataList:
+        CPTDataListSheetView(
+          points: viewModel.cptPoints,
+          onCloseTap: {
+            viewModel.dismissCPTDataList()
+          },
+          onDeletePoint: { id in
+            viewModel.deleteCPTPoint(id: id)
+          }
+        )
+        .presentationPlacement(.leading)
+        .presentationDetents(
+          [
+            CPTRecommendationViewModel.cptDataListSheetDetent,
             .large
           ]
         )

@@ -8,6 +8,7 @@ enum ActiveCPTSheet: Identifiable, Equatable {
   case emptyState
   case uploadData
   case recommendedPoint
+  case cptDataList
 
   var id: String {
     switch self {
@@ -17,6 +18,8 @@ enum ActiveCPTSheet: Identifiable, Equatable {
       "uploadData"
     case .recommendedPoint:
       "recommendedPoint"
+    case .cptDataList:
+      "cptDataList"
     }
   }
 }
@@ -34,6 +37,7 @@ final class CPTRecommendationViewModel {
   static let collapsedSheetDetent: PresentationDetent = .height(68)
   static let defaultSheetDetent: PresentationDetent = .height(260)
   static let populatedSheetDetent: PresentationDetent = .height(420)
+  static let cptDataListSheetDetent: PresentationDetent = .height(560)
   static let recommendationSheetDetent: PresentationDetent = .height(620)
   static let uploadSheetDetent: PresentationDetent = .height(640)
 
@@ -42,6 +46,7 @@ final class CPTRecommendationViewModel {
   var isSatelliteStyle: Bool
   var isSheetPresented: Bool
   var isUploadSheetPresented: Bool
+  var isCPTListPresented: Bool
   var selectedSheetDetent: PresentationDetent
 
   // Recommendation & Uploaded Points State
@@ -69,6 +74,7 @@ final class CPTRecommendationViewModel {
     self.isSatelliteStyle = isSatelliteStyle
     isSheetPresented = false
     isUploadSheetPresented = false
+    isCPTListPresented = false
     selectedSheetDetent = Self.defaultSheetDetent
   }
 
@@ -76,6 +82,9 @@ final class CPTRecommendationViewModel {
     guard isSheetPresented else { return nil }
     if isUploadSheetPresented {
       return .uploadData
+    }
+    if isCPTListPresented {
+      return .cptDataList
     }
     return hasUploadedCPTData ? .recommendedPoint : .emptyState
   }
@@ -103,6 +112,7 @@ final class CPTRecommendationViewModel {
 
   func presentInitialSheet() {
     isUploadSheetPresented = false
+    isCPTListPresented = false
     isSheetPresented = true
     selectedSheetDetent = hasUploadedCPTData ? Self.recommendationSheetDetent : Self.defaultSheetDetent
   }
@@ -113,6 +123,7 @@ final class CPTRecommendationViewModel {
 
   func dismissSheet() {
     isUploadSheetPresented = false
+    isCPTListPresented = false
     isSheetPresented = false
   }
 
@@ -121,6 +132,7 @@ final class CPTRecommendationViewModel {
       uploadCoordinatesText = "-6.215432, 106.845321"
     }
     isUploadSheetPresented = true
+    isCPTListPresented = false
     isSheetPresented = true
     selectedSheetDetent = Self.uploadSheetDetent
   }
@@ -147,9 +159,33 @@ final class CPTRecommendationViewModel {
     )
 
     isUploadSheetPresented = false
+    isCPTListPresented = false
     selectedSheetDetent = Self.recommendationSheetDetent
 
     AccessibilityCaptionCenter.shared.announce("CPT data uploaded successfully. Recommended point generated.")
+  }
+
+  func openCPTDataList() {
+    isUploadSheetPresented = false
+    isCPTListPresented = true
+    selectedSheetDetent = Self.cptDataListSheetDetent
+  }
+
+  func dismissCPTDataList() {
+    isCPTListPresented = false
+    selectedSheetDetent = hasUploadedCPTData ? Self.recommendationSheetDetent : Self.defaultSheetDetent
+  }
+
+  func deleteCPTPoint(id: UUID) {
+    cptPoints.removeAll(where: { $0.id == id })
+    if cptPoints.isEmpty {
+      hasUploadedCPTData = false
+      isCPTListPresented = false
+      selectedSheetDetent = Self.defaultSheetDetent
+      AccessibilityCaptionCenter.shared.announce("Deleted CPT Point. No CPT points remaining.")
+    } else {
+      AccessibilityCaptionCenter.shared.announce("CPT Point deleted. \(cptPoints.count) remaining.")
+    }
   }
 
   func resolveProject(with id: Project.ID?, from projectViewModel: ProjectViewModel?) {
@@ -186,10 +222,6 @@ final class CPTRecommendationViewModel {
 
   func seeSupportingData() {
     AccessibilityCaptionCenter.shared.announce("See Supporting Data opened.")
-  }
-
-  func openCPTDataList() {
-    AccessibilityCaptionCenter.shared.announce("CPT Data List opened.")
   }
 
   // MARK: - Helpers

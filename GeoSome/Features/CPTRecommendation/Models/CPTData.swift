@@ -54,25 +54,74 @@ struct CPTUploadedFile: Identifiable, Hashable, Codable, Sendable {
   }
 }
 
+struct CPTRowData: Identifiable, Hashable, Sendable {
+  let id: UUID
+  var depth: Double
+  var coneResistance: Double
+  var localFriction: Double
+  var porePressure: Double?
+
+  init(
+    id: UUID = UUID(),
+    depth: Double,
+    coneResistance: Double,
+    localFriction: Double,
+    porePressure: Double? = nil
+  ) {
+    self.id = id
+    self.depth = depth
+    self.coneResistance = coneResistance
+    self.localFriction = localFriction
+    self.porePressure = porePressure
+  }
+
+  static let sampleRows: [CPTRowData] = [
+    CPTRowData(depth: 0.02, coneResistance: 0.00, localFriction: 0.00, porePressure: 0.00),
+    CPTRowData(depth: 0.02, coneResistance: 0.00, localFriction: 0.00, porePressure: 0.00),
+    CPTRowData(depth: 0.02, coneResistance: 0.00, localFriction: 0.00, porePressure: 0.00),
+    CPTRowData(depth: 0.02, coneResistance: 0.00, localFriction: 0.00, porePressure: 0.00),
+    CPTRowData(depth: 0.02, coneResistance: 0.00, localFriction: 0.00, porePressure: 0.00),
+    CPTRowData(depth: 0.02, coneResistance: 0.00, localFriction: 0.00, porePressure: 0.00),
+    CPTRowData(depth: 0.02, coneResistance: 0.00, localFriction: 0.00, porePressure: 0.00),
+    CPTRowData(depth: 0.02, coneResistance: 0.00, localFriction: 0.00, porePressure: 0.00),
+    CPTRowData(depth: 0.02, coneResistance: 0.00, localFriction: 0.00, porePressure: 0.00)
+  ]
+}
+
 struct CPTPointEntry: Identifiable, Hashable, Sendable {
   let id: UUID
   var type: CPTType
   var coordinate: CLLocationCoordinate2D
   var file: CPTUploadedFile
+  var rows: [CPTRowData]
   var uploadedAt: Date
 
   init(
     id: UUID = UUID(),
-    type: CPTType,
+    type: CPTType = .electrical,
     coordinate: CLLocationCoordinate2D,
     file: CPTUploadedFile,
+    rows: [CPTRowData] = CPTRowData.sampleRows,
     uploadedAt: Date = Date()
   ) {
     self.id = id
     self.type = type
     self.coordinate = coordinate
     self.file = file
+    self.rows = rows
     self.uploadedAt = uploadedAt
+  }
+
+  var formattedCoordinate: String {
+    String(format: "%.6f, %.6f", coordinate.latitude, coordinate.longitude)
+  }
+
+  var formattedLatitude: String {
+    String(format: "%.6f", coordinate.latitude)
+  }
+
+  var formattedLongitude: String {
+    String(format: "%.6f", coordinate.longitude)
   }
 
   func hash(into hasher: inout Hasher) {
