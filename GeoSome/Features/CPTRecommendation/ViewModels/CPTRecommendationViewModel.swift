@@ -4,6 +4,20 @@ import MapKit
 import Observation
 import SwiftUI
 
+enum ActiveCPTSheet: Identifiable {
+  case emptyState
+  case uploadData
+
+  var id: String {
+    switch self {
+    case .emptyState:
+      "emptyState"
+    case .uploadData:
+      "uploadData"
+    }
+  }
+}
+
 @MainActor
 @Observable
 final class CPTRecommendationViewModel {
@@ -17,14 +31,19 @@ final class CPTRecommendationViewModel {
   static let collapsedSheetDetent: PresentationDetent = .height(68)
   static let defaultSheetDetent: PresentationDetent = .height(260)
   static let populatedSheetDetent: PresentationDetent = .height(420)
+  static let uploadSheetDetent: PresentationDetent = .height(640)
 
   var project: Project
   var cameraPosition: MapCameraPosition
   var isSatelliteStyle: Bool
-  var isUploadAlertPresented: Bool
-  var isUploadSheetPresented: Bool
   var isSheetPresented: Bool
+  var isUploadSheetPresented: Bool
   var selectedSheetDetent: PresentationDetent
+
+  // Upload Sheet State
+  var selectedCPTType: CPTType = .electrical
+  var uploadCoordinatesText: String = ""
+  var uploadedCPTFile: CPTUploadedFile?
 
   init(
     project: Project? = nil,
@@ -39,10 +58,14 @@ final class CPTRecommendationViewModel {
     self.project = resolvedProject
     self.cameraPosition = cameraPosition ?? .region(resolvedProject.boundaryRegion)
     self.isSatelliteStyle = isSatelliteStyle
-    isUploadAlertPresented = false
-    isUploadSheetPresented = false
     isSheetPresented = false
+    isUploadSheetPresented = false
     selectedSheetDetent = Self.defaultSheetDetent
+  }
+
+  var activeSheet: ActiveCPTSheet? {
+    guard isSheetPresented else { return nil }
+    return isUploadSheetPresented ? .uploadData : .emptyState
   }
 
   var coordinates: [CLLocationCoordinate2D] {
@@ -62,12 +85,35 @@ final class CPTRecommendationViewModel {
 
   // MARK: - Intents
 
-  func presentSheet() {
+  func presentEmptyStateSheet() {
+    isUploadSheetPresented = false
     isSheetPresented = true
+    selectedSheetDetent = Self.defaultSheetDetent
   }
 
   func dismissSheet() {
+    isUploadSheetPresented = false
     isSheetPresented = false
+  }
+
+  func presentUploadSheet() {
+    if uploadCoordinatesText.isEmpty {
+      uploadCoordinatesText = "-6.215432, 106.845321"
+    }
+    isUploadSheetPresented = true
+    isSheetPresented = true
+    selectedSheetDetent = Self.uploadSheetDetent
+  }
+
+  func dismissUploadSheet() {
+    isUploadSheetPresented = false
+    selectedSheetDetent = Self.defaultSheetDetent
+  }
+
+  func submitCPTUpload() {
+    AccessibilityCaptionCenter.shared.announce("CPT data uploaded successfully.")
+    isUploadSheetPresented = false
+    selectedSheetDetent = Self.defaultSheetDetent
   }
 
   func resolveProject(with id: Project.ID?, from projectViewModel: ProjectViewModel?) {
@@ -99,7 +145,6 @@ final class CPTRecommendationViewModel {
   }
 
   func uploadCPTData() {
-    AccessibilityCaptionCenter.shared.announce("Upload CPT Data opened.")
-    isUploadAlertPresented = true
+    presentUploadSheet()
   }
 }

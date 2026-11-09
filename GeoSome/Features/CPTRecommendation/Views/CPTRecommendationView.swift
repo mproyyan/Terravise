@@ -30,6 +30,41 @@ struct CPTRecommendationView: View {
     return false
   }
 
+  private var activeSheetBinding: Binding<ActiveCPTSheet?> {
+    Binding(
+      get: {
+        guard isCurrentDestination, viewModel.isSheetPresented else { return nil }
+        if viewModel.isUploadSheetPresented {
+          return .uploadData
+        }
+        return .emptyState
+      },
+      set: { newValue in
+        switch newValue {
+        case .emptyState:
+          viewModel.isUploadSheetPresented = false
+          viewModel.isSheetPresented = true
+        case .uploadData:
+          viewModel.isUploadSheetPresented = true
+          viewModel.isSheetPresented = true
+        case nil:
+          if viewModel.isUploadSheetPresented {
+            viewModel.isUploadSheetPresented = false
+            viewModel.isSheetPresented = false
+            Task { @MainActor in
+              try? await Task.sleep(for: .milliseconds(100))
+              if isCurrentDestination {
+                viewModel.presentEmptyStateSheet()
+              }
+            }
+          } else {
+            viewModel.isSheetPresented = false
+          }
+        }
+      }
+    )
+  }
+
   var body: some View {
     @Bindable var viewModel = viewModel
 
@@ -72,28 +107,54 @@ struct CPTRecommendationView: View {
       .padding(.trailing, 20)
       .padding(.bottom, 28)
     }
-    // Native Sheet with .presentationPlacement(.leading) matching BoundaryCreationView
-    .sheet(isPresented: $viewModel.isSheetPresented) {
-      CPTEmptyStateSheetView(
-        onUploadTap: {
-          viewModel.uploadCPTData()
-        }
-      )
-      .presentationPlacement(.leading)
-      .presentationDetents(
-        [
-          CPTRecommendationViewModel.collapsedSheetDetent,
-          CPTRecommendationViewModel.defaultSheetDetent,
-          CPTRecommendationViewModel.populatedSheetDetent,
-          .medium,
-          .large
-        ],
-        selection: $viewModel.selectedSheetDetent
-      )
-      .presentationDragIndicator(.visible)
-      .presentationBackgroundInteraction(.enabled)
-      .presentationContentInteraction(.scrolls)
-      .interactiveDismissDisabled()
+    // Native Sheet with .presentationPlacement(.leading)
+    .sheet(item: activeSheetBinding) { destination in
+      switch destination {
+      case .emptyState:
+        CPTEmptyStateSheetView(
+          onUploadTap: {
+            viewModel.uploadCPTData()
+          }
+        )
+        .presentationPlacement(.leading)
+        .presentationDetents(
+          [
+            CPTRecommendationViewModel.collapsedSheetDetent,
+            CPTRecommendationViewModel.defaultSheetDetent,
+            CPTRecommendationViewModel.populatedSheetDetent,
+            .medium,
+            .large
+          ],
+          selection: $viewModel.selectedSheetDetent
+        )
+        .presentationDragIndicator(.visible)
+        .presentationBackgroundInteraction(.enabled)
+        .presentationContentInteraction(.scrolls)
+        .interactiveDismissDisabled()
+
+      case .uploadData:
+        CPTUploadDataSheetView(
+          selectedCPTType: $viewModel.selectedCPTType,
+          coordinatesText: $viewModel.uploadCoordinatesText,
+          uploadedFile: $viewModel.uploadedCPTFile,
+          onCloseTap: {
+            viewModel.dismissUploadSheet()
+          },
+          onSubmitTap: {
+            viewModel.submitCPTUpload()
+          }
+        )
+        .presentationPlacement(.leading)
+        .presentationDetents(
+          [
+            CPTRecommendationViewModel.uploadSheetDetent,
+            .large
+          ]
+        )
+        .presentationDragIndicator(.visible)
+        .presentationBackgroundInteraction(.enabled)
+        .presentationContentInteraction(.scrolls)
+      }
     }
     .toolbar {
       CPTRecommendationToolbarContent(
@@ -110,11 +171,6 @@ struct CPTRecommendationView: View {
     .toolbarBackground(.visible, for: .navigationBar)
     .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
     .ignoresSafeArea(.keyboard)
-    .alert("Upload CPT Data", isPresented: $viewModel.isUploadAlertPresented) {
-      Button("OK", role: .cancel) {}
-    } message: {
-      Text("CPT data uploader will be configured here. Your uploaded data will help identify areas where additional CPT testing may be useful.")
-    }
     .task {
       if let projectId {
         viewModel.resolveProject(with: projectId, from: projectViewModel)
@@ -124,7 +180,7 @@ struct CPTRecommendationView: View {
 
       try? await Task.sleep(for: .milliseconds(450))
       if !Task.isCancelled, isCurrentDestination {
-        viewModel.presentSheet()
+        viewModel.presentEmptyStateSheet()
       }
     }
     .onDisappear {
