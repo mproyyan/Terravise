@@ -37,7 +37,7 @@ struct CPTRecommendationView: View {
         if viewModel.isUploadSheetPresented {
           return .uploadData
         }
-        return .emptyState
+        return viewModel.hasUploadedCPTData ? .recommendedPoint : .emptyState
       },
       set: { newValue in
         switch newValue {
@@ -47,6 +47,9 @@ struct CPTRecommendationView: View {
         case .uploadData:
           viewModel.isUploadSheetPresented = true
           viewModel.isSheetPresented = true
+        case .recommendedPoint:
+          viewModel.isUploadSheetPresented = false
+          viewModel.isSheetPresented = true
         case nil:
           if viewModel.isUploadSheetPresented {
             viewModel.isUploadSheetPresented = false
@@ -54,7 +57,7 @@ struct CPTRecommendationView: View {
             Task { @MainActor in
               try? await Task.sleep(for: .milliseconds(100))
               if isCurrentDestination {
-                viewModel.presentEmptyStateSheet()
+                viewModel.presentInitialSheet()
               }
             }
           } else {
@@ -69,11 +72,12 @@ struct CPTRecommendationView: View {
     @Bindable var viewModel = viewModel
 
     ZStack {
-      // Fullscreen Map Content Layer with Boundary (Tanpa Titik)
+      // Fullscreen Map Content Layer with Boundary (Tanpa Titik) + Recommended Point Annotation
       CPTMapContentLayer(
         cameraPosition: $viewModel.cameraPosition,
         coordinates: viewModel.coordinates,
-        isSatelliteStyle: viewModel.isSatelliteStyle
+        isSatelliteStyle: viewModel.isSatelliteStyle,
+        recommendedCoordinate: viewModel.recommendedCoordinateOnMap
       )
       .ignoresSafeArea()
     }
@@ -132,6 +136,35 @@ struct CPTRecommendationView: View {
         .presentationContentInteraction(.scrolls)
         .interactiveDismissDisabled()
 
+      case .recommendedPoint:
+        CPTRecommendedPointSheetView(
+          recommendation: viewModel.recommendation,
+          cptPointsCount: max(viewModel.cptPoints.count, 1),
+          onUploadTap: {
+            viewModel.uploadCPTData()
+          },
+          onSeeSupportingDataTap: {
+            viewModel.seeSupportingData()
+          },
+          onCPTDataListTap: {
+            viewModel.openCPTDataList()
+          }
+        )
+        .presentationPlacement(.leading)
+        .presentationDetents(
+          [
+            CPTRecommendationViewModel.collapsedSheetDetent,
+            CPTRecommendationViewModel.populatedSheetDetent,
+            CPTRecommendationViewModel.recommendationSheetDetent,
+            .large
+          ],
+          selection: $viewModel.selectedSheetDetent
+        )
+        .presentationDragIndicator(.visible)
+        .presentationBackgroundInteraction(.enabled)
+        .presentationContentInteraction(.scrolls)
+        .interactiveDismissDisabled()
+
       case .uploadData:
         CPTUploadDataSheetView(
           selectedCPTType: $viewModel.selectedCPTType,
@@ -180,7 +213,7 @@ struct CPTRecommendationView: View {
 
       try? await Task.sleep(for: .milliseconds(450))
       if !Task.isCancelled, isCurrentDestination {
-        viewModel.presentEmptyStateSheet()
+        viewModel.presentInitialSheet()
       }
     }
     .onDisappear {

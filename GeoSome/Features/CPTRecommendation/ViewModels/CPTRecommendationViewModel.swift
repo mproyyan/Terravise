@@ -4,9 +4,10 @@ import MapKit
 import Observation
 import SwiftUI
 
-enum ActiveCPTSheet: Identifiable {
+enum ActiveCPTSheet: Identifiable, Equatable {
   case emptyState
   case uploadData
+  case recommendedPoint
 
   var id: String {
     switch self {
@@ -14,6 +15,8 @@ enum ActiveCPTSheet: Identifiable {
       "emptyState"
     case .uploadData:
       "uploadData"
+    case .recommendedPoint:
+      "recommendedPoint"
     }
   }
 }
@@ -31,6 +34,7 @@ final class CPTRecommendationViewModel {
   static let collapsedSheetDetent: PresentationDetent = .height(68)
   static let defaultSheetDetent: PresentationDetent = .height(260)
   static let populatedSheetDetent: PresentationDetent = .height(420)
+  static let recommendationSheetDetent: PresentationDetent = .height(620)
   static let uploadSheetDetent: PresentationDetent = .height(640)
 
   var project: Project
@@ -39,6 +43,11 @@ final class CPTRecommendationViewModel {
   var isSheetPresented: Bool
   var isUploadSheetPresented: Bool
   var selectedSheetDetent: PresentationDetent
+
+  // Recommendation & Uploaded Points State
+  var hasUploadedCPTData: Bool = false
+  var cptPoints: [CPTPointEntry] = []
+  var recommendation: CPTRecommendationResult = .init()
 
   // Upload Sheet State
   var selectedCPTType: CPTType = .electrical
@@ -65,7 +74,10 @@ final class CPTRecommendationViewModel {
 
   var activeSheet: ActiveCPTSheet? {
     guard isSheetPresented else { return nil }
-    return isUploadSheetPresented ? .uploadData : .emptyState
+    if isUploadSheetPresented {
+      return .uploadData
+    }
+    return hasUploadedCPTData ? .recommendedPoint : .emptyState
   }
 
   var coordinates: [CLLocationCoordinate2D] {
@@ -83,12 +95,20 @@ final class CPTRecommendationViewModel {
     return project.boundaryRegion
   }
 
+  var recommendedCoordinateOnMap: CLLocationCoordinate2D? {
+    hasUploadedCPTData ? recommendation.coordinate : nil
+  }
+
   // MARK: - Intents
 
-  func presentEmptyStateSheet() {
+  func presentInitialSheet() {
     isUploadSheetPresented = false
     isSheetPresented = true
-    selectedSheetDetent = Self.defaultSheetDetent
+    selectedSheetDetent = hasUploadedCPTData ? Self.recommendationSheetDetent : Self.defaultSheetDetent
+  }
+
+  func presentEmptyStateSheet() {
+    presentInitialSheet()
   }
 
   func dismissSheet() {
@@ -107,13 +127,29 @@ final class CPTRecommendationViewModel {
 
   func dismissUploadSheet() {
     isUploadSheetPresented = false
-    selectedSheetDetent = Self.defaultSheetDetent
+    selectedSheetDetent = hasUploadedCPTData ? Self.recommendationSheetDetent : Self.defaultSheetDetent
   }
 
   func submitCPTUpload() {
-    AccessibilityCaptionCenter.shared.announce("CPT data uploaded successfully.")
+    let coordinate = Self.parseCoordinate(from: uploadCoordinatesText)
+      ?? CLLocationCoordinate2D(latitude: -6.215432, longitude: 106.845321)
+    let file = uploadedCPTFile ?? CPTUploadedFile(name: "CPTResultFile.csv", byteSize: 24 * 1024, rowCount: 52)
+    let entry = CPTPointEntry(type: selectedCPTType, coordinate: coordinate, file: file)
+    cptPoints.append(entry)
+
+    hasUploadedCPTData = true
+    recommendation = CPTRecommendationResult(
+      coordinate: coordinate,
+      rmse: 0.0064,
+      confidenceLevel: 90,
+      spotName: "Spot B",
+      nearestCPTDistance: 16.2
+    )
+
     isUploadSheetPresented = false
-    selectedSheetDetent = Self.defaultSheetDetent
+    selectedSheetDetent = Self.recommendationSheetDetent
+
+    AccessibilityCaptionCenter.shared.announce("CPT data uploaded successfully. Recommended point generated.")
   }
 
   func resolveProject(with id: Project.ID?, from projectViewModel: ProjectViewModel?) {
@@ -146,5 +182,28 @@ final class CPTRecommendationViewModel {
 
   func uploadCPTData() {
     presentUploadSheet()
+  }
+
+  func seeSupportingData() {
+    AccessibilityCaptionCenter.shared.announce("See Supporting Data opened.")
+  }
+
+  func openCPTDataList() {
+    AccessibilityCaptionCenter.shared.announce("CPT Data List opened.")
+  }
+
+  // MARK: - Helpers
+
+  static func parseCoordinate(from text: String) -> CLLocationCoordinate2D? {
+    let parts = text.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+    guard parts.count == 2,
+          let lat = Double(parts[0]),
+          let lon = Double(parts[1]),
+          (-90.0 ... 90.0).contains(lat),
+          (-180.0 ... 180.0).contains(lon)
+    else {
+      return nil
+    }
+    return CLLocationCoordinate2D(latitude: lat, longitude: lon)
   }
 }

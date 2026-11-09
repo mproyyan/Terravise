@@ -1,3 +1,4 @@
+import CoreLocation
 import MapKit
 import SwiftUI
 
@@ -5,17 +6,20 @@ struct CPTMapContentLayer: View {
   @Binding var cameraPosition: MapCameraPosition
   var coordinates: [CLLocationCoordinate2D]
   var isSatelliteStyle: Bool
+  var recommendedCoordinate: CLLocationCoordinate2D?
 
   @Environment(\.colorSchemeContrast) private var contrast
 
   init(
     cameraPosition: Binding<MapCameraPosition>,
     coordinates: [CLLocationCoordinate2D] = [],
-    isSatelliteStyle: Bool = false
+    isSatelliteStyle: Bool = false,
+    recommendedCoordinate: CLLocationCoordinate2D? = nil
   ) {
     _cameraPosition = cameraPosition
     self.coordinates = coordinates
     self.isSatelliteStyle = isSatelliteStyle
+    self.recommendedCoordinate = recommendedCoordinate
   }
 
   var body: some View {
@@ -38,6 +42,22 @@ struct CPTMapContentLayer: View {
             )
           )
       }
+
+      if let recommendedCoordinate {
+        Annotation("Recommended Point", coordinate: recommendedCoordinate) {
+          ZStack {
+            Circle()
+              .fill(Color.green)
+              .frame(width: 32, height: 32)
+              .shadow(color: .black.opacity(0.25), radius: 4, y: 2)
+
+            Image(systemName: "xmark")
+              .font(.system(size: 13, weight: .bold))
+              .foregroundStyle(.white)
+          }
+          .accessibilityLabel("Recommended CPT Point")
+        }
+      }
     }
     .mapStyle(
       isSatelliteStyle
@@ -58,6 +78,7 @@ struct CPTMapContentLayer: View {
       CLLocationCoordinate2D(latitude: -6.2402, longitude: 106.8336),
       CLLocationCoordinate2D(latitude: -6.2435, longitude: 106.8338),
       CLLocationCoordinate2D(latitude: -6.2430, longitude: 106.8292)
-    ]
+    ],
+    recommendedCoordinate: CLLocationCoordinate2D(latitude: -6.2415, longitude: 106.8315)
   )
 }
