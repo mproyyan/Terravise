@@ -60,6 +60,13 @@ final class ProjectViewModel {
     selectedProject = project
   }
 
+  func updateProject(_ project: Project) {
+    if let index = projects.firstIndex(where: { $0.id == project.id }) {
+      projects[index] = project
+      storage?.saveProjects(projects)
+    }
+  }
+
   func addProject(_ project: Project) {
     projects.insert(project, at: 0)
     storage?.saveProjects(projects)

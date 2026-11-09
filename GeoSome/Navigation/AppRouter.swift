@@ -38,9 +38,8 @@ extension View {
       switch route {
       case .boundaryCreation:
         BoundaryCreationView()
-      case .projectDetail:
-        EmptyView()
-          .toolbar(.visible, for: .navigationBar)
+      case let .projectDetail(id):
+        CPTRecommendationView(projectId: id)
       }
     }
   }
