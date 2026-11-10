@@ -19,18 +19,28 @@ struct BoundaryCreationView: View {
     }
   }
 
+  var editingProjectId: Project.ID?
   @Environment(AppRouter.self) private var router
   @Environment(ProjectViewModel.self) private var projectViewModel: ProjectViewModel?
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var viewModel: BoundaryCreationViewModel
   @State private var captionCenter = AccessibilityCaptionCenter.shared
 
-  init(viewModel: BoundaryCreationViewModel? = nil) {
+  init(
+    editingProjectId: Project.ID? = nil,
+    viewModel: BoundaryCreationViewModel? = nil
+  ) {
+    self.editingProjectId = editingProjectId
     _viewModel = State(initialValue: viewModel ?? BoundaryCreationViewModel())
   }
 
   private var isCurrentDestination: Bool {
-    router.currentRoute == .boundaryCreation
+    switch router.currentRoute {
+    case .boundaryCreation, .editBoundary:
+      return true
+    default:
+      return false
+    }
   }
 
   private var projectNameBinding: Binding<String> {
@@ -247,6 +257,11 @@ struct BoundaryCreationView: View {
       }
     }
     .task {
+      if let editingProjectId,
+         let foundProject = projectViewModel?.projects.first(where: { $0.id == editingProjectId })
+      {
+        viewModel.loadExistingProject(foundProject)
+      }
       try? await Task.sleep(for: .milliseconds(450))
       if !Task.isCancelled, isCurrentDestination {
         viewModel.presentCoordinateSheet()
@@ -279,13 +294,18 @@ struct BoundaryCreationView: View {
           viewModel.redo()
         },
         onCreateProjectTap: {
-          guard let newProject = viewModel.createProject() else { return }
-          projectViewModel?.addProject(newProject)
+          guard let savedProject = viewModel.createProject() else { return }
+          if editingProjectId != nil {
+            projectViewModel?.updateProject(savedProject)
+          } else {
+            projectViewModel?.addProject(savedProject)
+          }
+          projectViewModel?.selectProject(savedProject)
           AccessibilityCaptionCenter.shared.announce(
-            "Created project \(newProject.name) with \(newProject.boundaryPoints.count) boundary points."
+            "\(editingProjectId != nil ? "Updated" : "Created") project \(savedProject.name) with \(savedProject.boundaryPoints.count) boundary points."
           )
           viewModel.dismissCoordinateSheet()
-          router.popToRoot()
+          router.replacePath(with: .projectDetail(id: savedProject.id))
         }
       )
     }

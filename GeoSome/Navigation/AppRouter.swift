@@ -30,6 +30,10 @@ final class AppRouter {
   func popToRoot() {
     path = []
   }
+
+  func replacePath(with route: AppRoute) {
+    path = [route]
+  }
 }
 
 extension View {
@@ -38,6 +42,8 @@ extension View {
       switch route {
       case .boundaryCreation:
         BoundaryCreationView()
+      case let .editBoundary(id):
+        BoundaryCreationView(editingProjectId: id)
       case let .projectDetail(id):
         CPTRecommendationView(projectId: id)
       }

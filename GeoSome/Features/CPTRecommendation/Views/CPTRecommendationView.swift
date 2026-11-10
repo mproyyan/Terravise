@@ -228,6 +228,8 @@ struct CPTRecommendationView: View {
         projectName: viewModel.project.name,
         onEditAreaTap: {
           viewModel.editArea()
+          viewModel.dismissSheet()
+          router.navigate(to: .editBoundary(id: viewModel.project.id))
         },
         onViewAnalysis3DTap: {
           viewModel.viewAnalysis3D()

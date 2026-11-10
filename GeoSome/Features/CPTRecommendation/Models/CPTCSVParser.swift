@@ -6,16 +6,24 @@ struct CPTCSVParseResult: Sendable {
 }
 
 enum CPTCSVParser {
-  static func parse(url: URL, cptType: CPTType) -> CPTCSVParseResult {
+  static func parse(
+    url: URL,
+    cptType: CPTType,
+    equipment: CPTEquipmentParameters = CPTEquipmentParameters()
+  ) -> CPTCSVParseResult {
     guard let rawText = (try? String(contentsOf: url, encoding: .utf8))
       ?? (try? String(contentsOf: url, encoding: .ascii))
     else {
       return CPTCSVParseResult(rows: [], matchedRequiredColumns: [])
     }
-    return parse(text: rawText, cptType: cptType)
+    return parse(text: rawText, cptType: cptType, equipment: equipment)
   }
 
-  static func parse(text: String, cptType: CPTType) -> CPTCSVParseResult {
+  static func parse(
+    text: String,
+    cptType: CPTType,
+    equipment: CPTEquipmentParameters = CPTEquipmentParameters()
+  ) -> CPTCSVParseResult {
     let cleanedText = text.replacingOccurrences(of: "\u{FEFF}", with: "")
     let rawLines = cleanedText
       .components(separatedBy: .newlines)
@@ -29,6 +37,10 @@ enum CPTCSVParser {
     let delimiter: Character = headerLine.contains(";") && !headerLine.contains(",") ? ";" : ","
     let headers = splitCSVRow(headerLine, delimiter: delimiter)
       .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+
+    if cptType == .cptmBicone {
+      return parseBiconeCSV(rawLines: rawLines, headers: headers, delimiter: delimiter, equipment: equipment)
+    }
 
     var depthIndex: Int?
     var qcIndex: Int?
@@ -103,6 +115,7 @@ enum CPTCSVParser {
       }()
 
       let u2: Double? = {
+        guard cptType == .cptu else { return nil }
         if let uIdx = u2Index, uIdx < fields.count, let val = parseDouble(fields[uIdx]), val.isFinite {
           return val
         }
@@ -123,7 +136,9 @@ enum CPTCSVParser {
         coneResistance: qc,
         localFriction: fs,
         porePressure: u2,
-        explicitIc: explicitIc
+        explicitIc: explicitIc,
+        cptType: cptType,
+        netAreaRatio: cptType == .cptu ? equipment.netAreaRatio : nil
       )
     }
 
@@ -131,10 +146,120 @@ enum CPTCSVParser {
     return CPTCSVParseResult(rows: sortedRows, matchedRequiredColumns: matchedColumns)
   }
 
-  private static func parseDouble(_ raw: String) -> Double? {
+  private static func parseBiconeCSV(
+    rawLines: [String],
+    headers: [String],
+    delimiter: Character,
+    equipment: CPTEquipmentParameters
+  ) -> CPTCSVParseResult {
+    var depthCmIndex: Int?
+    var cwIndex: Int?
+    var twIndex: Int?
+    var icIndex: Int?
+
+    for (idx, header) in headers.enumerated() {
+      let normalized = header.replacingOccurrences(of: " ", with: "")
+      if depthCmIndex == nil,
+         normalized == "depth_(cm)" || normalized == "depth_cm" || normalized == "depth(cm)" || normalized.hasPrefix("depth")
+      {
+        depthCmIndex = idx
+      } else if cwIndex == nil,
+                normalized == "cw_(kg/cm2)" || normalized == "cw(kg/cm2)" || normalized == "cw" || normalized.hasPrefix("cw")
+      {
+        cwIndex = idx
+      } else if twIndex == nil,
+                normalized == "tw_(kg/cm2)" || normalized == "tw(kg/cm2)" || normalized == "tw" || normalized.hasPrefix("tw")
+      {
+        twIndex = idx
+      } else if icIndex == nil,
+                normalized == "ic" || normalized == "robertson_ic"
+      {
+        icIndex = idx
+      }
+    }
+
+    var matchedColumns: [String] = []
+    if depthCmIndex != nil {
+      matchedColumns.append("depth_(cm)")
+    }
+    if cwIndex != nil {
+      matchedColumns.append("Cw_(kg/cm2)")
+    }
+    if twIndex != nil {
+      matchedColumns.append("Tw_(kg/cm2)")
+    }
+
+    guard let dIdx = depthCmIndex, let cIdx = cwIndex else {
+      return CPTCSVParseResult(rows: [], matchedRequiredColumns: matchedColumns)
+    }
+
+    let dpi = max(equipment.pistonDiameterCm, 0.1)
+    let dc = max(equipment.coneDiameterCm, 0.1)
+    let ds = max(equipment.frictionSleeveDiameterCm, 0.1)
+    let ls = max(equipment.frictionSleeveLengthCm, 0.1)
+
+    let coneAreaRatio = (dpi / dc) * (dpi / dc)
+    let sleeveAreaRatio = (dpi * dpi) / (4.0 * ds * ls)
+
+    var parsedByDepth: [Int: CPTRowData] = [:]
+
+    for line in rawLines.dropFirst() {
+      let fields = splitCSVRow(line, delimiter: delimiter)
+      guard dIdx < fields.count, cIdx < fields.count else { continue }
+
+      guard
+        let depthCm = parseDouble(fields[dIdx]),
+        let cwKgCm2 = parseDouble(fields[cIdx]),
+        depthCm.isFinite,
+        cwKgCm2.isFinite,
+        depthCm >= 0,
+        cwKgCm2 >= 0
+      else {
+        continue
+      }
+
+      let twKgCm2: Double = {
+        if let tIdx = twIndex, tIdx < fields.count, let val = parseDouble(fields[tIdx]), val.isFinite {
+          return max(val, 0.0)
+        }
+        return cwKgCm2
+      }()
+
+      let explicitIc: Double? = {
+        if let iIdx = icIndex, iIdx < fields.count, let val = parseDouble(fields[iIdx]), val.isFinite, val > 0 {
+          return val
+        }
+        return nil
+      }()
+
+      let depthM = depthCm / 100.0
+      let qcKgCm2 = cwKgCm2 * coneAreaRatio
+      let qcMPa = qcKgCm2 * 0.0980665
+
+      let deltaPw = twKgCm2 >= cwKgCm2 ? (twKgCm2 - cwKgCm2) : max(twKgCm2, 0.0)
+      let fsKgCm2 = deltaPw * sleeveAreaRatio
+      let fsKPa = fsKgCm2 * 98.0665
+
+      let depthKey = Int((depthM * 1000.0).rounded())
+      parsedByDepth[depthKey] = CPTRowData(
+        depth: depthM,
+        coneResistance: qcMPa,
+        localFriction: fsKPa,
+        porePressure: nil,
+        explicitIc: explicitIc,
+        cptType: .cptmBicone
+      )
+    }
+
+    let sortedRows = parsedByDepth.values.sorted { $0.depth < $1.depth }
+    return CPTCSVParseResult(rows: sortedRows, matchedRequiredColumns: matchedColumns)
+  }
+
+  static func parseDouble(_ raw: String) -> Double? {
     let trimmed = raw
       .trimmingCharacters(in: .whitespacesAndNewlines)
       .replacingOccurrences(of: "\"", with: "")
+      .replacingOccurrences(of: ",", with: ".")
     return Double(trimmed)
   }
 

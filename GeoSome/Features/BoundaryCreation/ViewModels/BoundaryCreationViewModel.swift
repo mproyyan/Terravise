@@ -35,6 +35,7 @@ final class BoundaryCreationViewModel {
   }
 
   private(set) var points: [BoundaryPoint]
+  private var editingProject: Project?
   private var undoStack: [EditorSnapshot] = []
   private var redoStack: [EditorSnapshot] = []
   private var isEditingNameSession = false
@@ -581,10 +582,39 @@ final class BoundaryCreationViewModel {
     finishEditingProjectName()
     let trimmedName = projectName.trimmingCharacters(in: .whitespacesAndNewlines)
     let finalName = trimmedName.isEmpty ? "Project name" : trimmedName
+
+    if var existing = editingProject {
+      existing.name = finalName
+      existing.boundaryPoints = points
+      existing.lastEdited = Date()
+      if !existing.cptPoints.isEmpty {
+        let recomputed = CPTPipelineCoordinator.recomputeFromScratch(
+          boundaryCoordinates: existing.boundaryCoordinates,
+          cptPoints: existing.cptPoints
+        )
+        existing.latestRecommendation = recomputed
+        existing.consecutiveSufficientCount = recomputed.consecutiveSufficientCount
+      }
+      return existing
+    }
+
     return Project(
       name: finalName,
       lastEdited: Date(),
       boundaryPoints: points
     )
+  }
+
+  func loadExistingProject(_ project: Project) {
+    guard editingProject?.id != project.id else { return }
+    editingProject = project
+    projectName = project.name
+    points = project.boundaryPoints
+    undoStack.removeAll()
+    redoStack.removeAll()
+    selectedSheetDetent = points.count >= 3 ? Self.populatedSheetDetent : Self.defaultSheetDetent
+    if !points.isEmpty {
+      cameraPosition = .region(project.boundaryRegion)
+    }
   }
 }

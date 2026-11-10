@@ -59,7 +59,7 @@ enum SchemaGANService {
       let sourceRows = point.rows.isEmpty ? CPTRowData.sampleRows : point.rows
       let sortedRows = sourceRows.sorted { $0.depth < $1.depth }
       let depths = sortedRows.map(\.depth)
-      let icValues = sortedRows.map(\.ic)
+      let icValues = sortedRows.map { $0.ic(for: point.type) }
 
       let minDepth = depths.first ?? 0.0
       let maxDepth = depths.last ?? (Double(nz - 1) * dz)

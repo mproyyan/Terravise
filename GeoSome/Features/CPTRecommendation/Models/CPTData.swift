@@ -23,11 +23,35 @@ enum CPTType: String, CaseIterable, Identifiable, Codable, Sendable {
 
   var requiredColumns: [String] {
     switch self {
-    case .electrical, .cptmBicone:
+    case .electrical:
       ["depth_(m)", "qc_mpa(mPa)", "fs_kpa(kPa)"]
+    case .cptmBicone:
+      ["depth_(cm)", "Cw_(kg/cm2)", "Tw_(kg/cm2)"]
     case .cptu:
       ["depth_(m)", "qc_mpa(mPa)", "fs_kpa(kPa)", "u2_kpa(kPa)"]
     }
+  }
+}
+
+struct CPTEquipmentParameters: Hashable, Codable, Sendable {
+  var netAreaRatio: Double
+  var pistonDiameterCm: Double
+  var coneDiameterCm: Double
+  var frictionSleeveDiameterCm: Double
+  var frictionSleeveLengthCm: Double
+
+  init(
+    netAreaRatio: Double = 0.80,
+    pistonDiameterCm: Double = 3.57,
+    coneDiameterCm: Double = 3.57,
+    frictionSleeveDiameterCm: Double = 3.57,
+    frictionSleeveLengthCm: Double = 13.3
+  ) {
+    self.netAreaRatio = netAreaRatio
+    self.pistonDiameterCm = pistonDiameterCm
+    self.coneDiameterCm = coneDiameterCm
+    self.frictionSleeveDiameterCm = frictionSleeveDiameterCm
+    self.frictionSleeveLengthCm = frictionSleeveLengthCm
   }
 }
 
@@ -68,6 +92,8 @@ struct CPTRowData: Identifiable, Hashable, Codable, Sendable {
   var localFriction: Double
   var porePressure: Double?
   var explicitIc: Double?
+  var cptType: CPTType?
+  var netAreaRatio: Double?
 
   init(
     id: UUID = UUID(),
@@ -75,7 +101,9 @@ struct CPTRowData: Identifiable, Hashable, Codable, Sendable {
     coneResistance: Double,
     localFriction: Double,
     porePressure: Double? = nil,
-    explicitIc: Double? = nil
+    explicitIc: Double? = nil,
+    cptType: CPTType? = nil,
+    netAreaRatio: Double? = nil
   ) {
     self.id = id
     self.depth = depth
@@ -83,10 +111,18 @@ struct CPTRowData: Identifiable, Hashable, Codable, Sendable {
     self.localFriction = localFriction
     self.porePressure = porePressure
     self.explicitIc = explicitIc
+    self.cptType = cptType
+    self.netAreaRatio = netAreaRatio
   }
 
-  /// Computes Robertson (2009) Soil Behavior Type Index (Ic) from depth (m), qc (MPa), fs (kPa), and optional u2 (kPa).
+  /// Computes Soil Behavior Type Index (Ic) using the row's CPTType (or inferred from porePressure if nil).
   var ic: Double {
+    let resolvedType = cptType ?? (porePressure != nil ? .cptu : .electrical)
+    return ic(for: resolvedType)
+  }
+
+  /// Computes Soil Behavior Type Index (Ic) tailored to the specific CPT instrument type.
+  func ic(for type: CPTType) -> Double {
     if let explicitIc, explicitIc.isFinite, explicitIc > 0 {
       return min(max(explicitIc, 1.0), 4.5)
     }
@@ -94,54 +130,101 @@ struct CPTRowData: Identifiable, Hashable, Codable, Sendable {
       depth: depth,
       qcMPa: coneResistance,
       fsKPa: localFriction,
-      u2KPa: porePressure
+      u2KPa: porePressure,
+      cptType: type,
+      netAreaRatio: netAreaRatio ?? 0.80
     )
   }
 
+  /// Calculates Robertson Soil Behavior Type Index (Ic) for the 3 supported CPT types:
+  /// - `.cptu`: Robertson (2009) stress-normalized Ic with pore-pressure correction `qt = qc + (1 - a) * u2`.
+  /// - `.electrical`: Robertson (2010) non-normalized SBT index `I_SBT` using `qc` and `Rf = (fs / qc) * 100%` (no `u2`, no net area ratio).
+  /// - `.cptmBicone`: Applies Begemann mechanical-to-electrical sleeve conversion (`fs_eq = 0.75 * fs`, no `u2`, no net area ratio) before computing Robertson (2010) `I_SBT`.
   static func calculateRobertsonIc(
     depth: Double,
     qcMPa: Double,
     fsKPa: Double,
-    u2KPa: Double? = nil
+    u2KPa: Double? = nil,
+    cptType: CPTType = .cptu,
+    netAreaRatio: Double = 0.80
   ) -> Double {
-    let z = max(depth, 0.1)
     let paKPa = 100.0
     let paMPa = 0.10
 
-    // Corrected cone resistance qt (MPa), net area ratio a = 0.80
-    let u2MPa = max((u2KPa ?? 0.0) / 1000.0, 0.0)
-    let qtMPa = max(qcMPa + 0.20 * u2MPa, 0.05)
+    switch cptType {
+    case .cptu:
+      let z = max(depth, 0.1)
+      let clampedA = min(max(netAreaRatio, 0.40), 1.0)
+      let u2MPa = max((u2KPa ?? 0.0) / 1000.0, 0.0)
+      let qtMPa = max(qcMPa + (1.0 - clampedA) * u2MPa, 0.05)
 
-    // Total and effective vertical overburden stress assuming unit weight = 18 kN/m³
-    let sigmaV0KPa = 18.0 * z
-    let u0KPa = 9.81 * max(z - 1.0, 0.0)
-    let sigmaPrimeV0KPa = max(sigmaV0KPa - u0KPa, 10.0)
+      // Total and effective vertical overburden stress assuming unit weight = 18 kN/m³
+      let sigmaV0KPa = 18.0 * z
+      let u0KPa = 9.81 * max(z - 1.0, 0.0)
+      let sigmaPrimeV0KPa = max(sigmaV0KPa - u0KPa, 10.0)
 
-    let netQtMPa = max(qtMPa - (sigmaV0KPa / 1000.0), 0.02)
-    let netQtKPa = netQtMPa * 1000.0
+      let netQtMPa = max(qtMPa - (sigmaV0KPa / 1000.0), 0.02)
+      let netQtKPa = netQtMPa * 1000.0
 
-    // Normalized friction ratio Fr (%)
-    let safeFsKPa = max(fsKPa, 0.1)
-    let frPercent = min(max((safeFsKPa / netQtKPa) * 100.0, 0.05), 15.0)
+      // Normalized friction ratio Fr (%)
+      let safeFsKPa = max(fsKPa, 0.1)
+      let frPercent = min(max((safeFsKPa / netQtKPa) * 100.0, 0.05), 15.0)
 
-    // Two-pass stress exponent n refinement (Robertson 2009)
-    var n = 1.0
-    var icValue = 2.5
-    let stressRatio = sigmaPrimeV0KPa / paKPa
+      // Two-pass stress exponent n refinement (Robertson 2009)
+      var n = 1.0
+      var icValue = 2.5
+      let stressRatio = sigmaPrimeV0KPa / paKPa
 
-    for _ in 0 ..< 2 {
-      let cFactor = min(max(pow(paKPa / sigmaPrimeV0KPa, n), 0.2), 1.7)
-      let qtn = min(max((netQtMPa / paMPa) * cFactor, 1.0), 1000.0)
-      let termQ = 3.47 - log10(qtn)
-      let termF = log10(frPercent) + 1.22
-      icValue = sqrt(termQ * termQ + termF * termF)
-      n = min(max(0.381 * icValue + 0.05 * stressRatio - 0.15, 0.5), 1.0)
+      for _ in 0 ..< 2 {
+        let cFactor = min(max(pow(paKPa / sigmaPrimeV0KPa, n), 0.2), 1.7)
+        let qtn = min(max((netQtMPa / paMPa) * cFactor, 1.0), 1000.0)
+        let termQ = 3.47 - log10(qtn)
+        let termF = log10(frPercent) + 1.22
+        icValue = sqrt(termQ * termQ + termF * termF)
+        n = min(max(0.381 * icValue + 0.05 * stressRatio - 0.15, 0.5), 1.0)
+      }
+
+      if !icValue.isFinite {
+        return 2.790332
+      }
+      return min(max(icValue, 1.0), 4.5)
+
+    case .electrical:
+      // Robertson (2010) non-normalized I_SBT using qc and Rf = (fs / qc) * 100% (no u2, no net area ratio)
+      let safeQcMPa = max(qcMPa, 0.05)
+      let safeQcKPa = safeQcMPa * 1000.0
+      let safeFsKPa = max(fsKPa, 0.1)
+      let rfPercent = min(max((safeFsKPa / safeQcKPa) * 100.0, 0.05), 15.0)
+
+      let qRatio = min(max(safeQcMPa / paMPa, 1.0), 1000.0)
+      let termQ = 3.47 - log10(qRatio)
+      let termF = log10(rfPercent) + 1.22
+      let icValue = sqrt(termQ * termQ + termF * termF)
+
+      if !icValue.isFinite {
+        return 2.790332
+      }
+      return min(max(icValue, 1.0), 4.5)
+
+    case .cptmBicone:
+      // Begemann Mechanical Bicone: no u2 and no net area ratio.
+      // Apply mechanical-to-electrical sleeve conversion (fs_eq = 0.75 * fs_mech) to remove lower-bevel bearing bias,
+      // then compute Robertson (2010) non-normalized I_SBT.
+      let safeQcMPa = max(qcMPa, 0.05)
+      let safeQcKPa = safeQcMPa * 1000.0
+      let equivalentFsKPa = max(fsKPa * 0.75, 0.1)
+      let rfPercent = min(max((equivalentFsKPa / safeQcKPa) * 100.0, 0.05), 15.0)
+
+      let qRatio = min(max(safeQcMPa / paMPa, 1.0), 1000.0)
+      let termQ = 3.47 - log10(qRatio)
+      let termF = log10(rfPercent) + 1.22
+      let icValue = sqrt(termQ * termQ + termF * termF)
+
+      if !icValue.isFinite {
+        return 2.790332
+      }
+      return min(max(icValue, 1.0), 4.5)
     }
-
-    if !icValue.isFinite {
-      return 2.790332
-    }
-    return min(max(icValue, 1.0), 4.5)
   }
 
   static func soilBehaviorType(forIc ic: Double) -> String {

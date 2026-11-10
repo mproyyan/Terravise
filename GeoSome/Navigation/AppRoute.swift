@@ -2,6 +2,7 @@ import Foundation
 
 enum AppRoute: Hashable {
   case boundaryCreation
+  case editBoundary(id: Project.ID)
   case projectDetail(id: Project.ID)
 }
 

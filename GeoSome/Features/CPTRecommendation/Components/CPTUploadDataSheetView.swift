@@ -17,6 +17,13 @@ struct CPTUploadDataSheetView: View {
   @State private var isShareTemplatePresented: Bool = false
   @State private var lastLoadedCSVText: String?
 
+  // CPTu & CPTm Bicone Equipment Parameter Inputs
+  @State private var netAreaRatioText: String = "0,8"
+  @State private var pistonDiameterText: String = "3,57"
+  @State private var coneDiameterText: String = "3,57"
+  @State private var frictionSleeveDiameterText: String = "3,57"
+  @State private var frictionSleeveLengthText: String = "13,3"
+
   init(
     selectedCPTType: Binding<CPTType>,
     coordinatesText: Binding<String>,
@@ -52,6 +59,16 @@ struct CPTUploadDataSheetView: View {
 
   private var csvTemplateString: String {
     selectedCPTType.requiredColumns.joined(separator: ",") + "\n"
+  }
+
+  private var currentEquipmentParameters: CPTEquipmentParameters {
+    CPTEquipmentParameters(
+      netAreaRatio: CPTCSVParser.parseDouble(netAreaRatioText) ?? 0.80,
+      pistonDiameterCm: CPTCSVParser.parseDouble(pistonDiameterText) ?? 3.57,
+      coneDiameterCm: CPTCSVParser.parseDouble(coneDiameterText) ?? 3.57,
+      frictionSleeveDiameterCm: CPTCSVParser.parseDouble(frictionSleeveDiameterText) ?? 3.57,
+      frictionSleeveLengthCm: CPTCSVParser.parseDouble(frictionSleeveLengthText) ?? 13.3
+    )
   }
 
   var body: some View {
@@ -182,7 +199,121 @@ struct CPTUploadDataSheetView: View {
             lineWidth: contrast == .increased ? 1.5 : 1
           )
       )
+
+      if selectedCPTType == .cptu {
+        cptuEquipmentCard
+      } else if selectedCPTType == .cptmBicone {
+        cptmBiconeEquipmentCard
+      }
     }
+    .onChange(of: netAreaRatioText) { _, _ in
+      revalidateCSVIfNeeded(for: selectedCPTType)
+    }
+    .onChange(of: pistonDiameterText) { _, _ in
+      revalidateCSVIfNeeded(for: selectedCPTType)
+    }
+    .onChange(of: coneDiameterText) { _, _ in
+      revalidateCSVIfNeeded(for: selectedCPTType)
+    }
+    .onChange(of: frictionSleeveDiameterText) { _, _ in
+      revalidateCSVIfNeeded(for: selectedCPTType)
+    }
+    .onChange(of: frictionSleeveLengthText) { _, _ in
+      revalidateCSVIfNeeded(for: selectedCPTType)
+    }
+  }
+
+  private var cptuEquipmentCard: some View {
+    equipmentParameterRow(
+      title: "Net Area Ratio (a)",
+      placeholder: "0,8",
+      text: $netAreaRatioText
+    )
+    .background(
+      RoundedRectangle(cornerRadius: 16, style: .continuous)
+        .fill(Color(.secondarySystemGroupedBackground))
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: 16, style: .continuous)
+        .stroke(
+          Color.primary.opacity(contrast == .increased ? 0.35 : 0.08),
+          lineWidth: contrast == .increased ? 1.5 : 1
+        )
+    )
+  }
+
+  private var cptmBiconeEquipmentCard: some View {
+    VStack(spacing: 0) {
+      equipmentParameterRow(
+        title: "Piston Diameter (Dpi)",
+        placeholder: "3,57",
+        text: $pistonDiameterText
+      )
+
+      Divider()
+        .padding(.horizontal, 16)
+
+      equipmentParameterRow(
+        title: "Cone Diameter (Dc)",
+        placeholder: "3,57",
+        text: $coneDiameterText
+      )
+
+      Divider()
+        .padding(.horizontal, 16)
+
+      equipmentParameterRow(
+        title: "Friction Sleeve Diameter (Ds)",
+        placeholder: "3,57",
+        text: $frictionSleeveDiameterText
+      )
+
+      Divider()
+        .padding(.horizontal, 16)
+
+      equipmentParameterRow(
+        title: "Friction Sleeve Length (Ls)",
+        placeholder: "13,3",
+        text: $frictionSleeveLengthText
+      )
+    }
+    .background(
+      RoundedRectangle(cornerRadius: 16, style: .continuous)
+        .fill(Color(.secondarySystemGroupedBackground))
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: 16, style: .continuous)
+        .stroke(
+          Color.primary.opacity(contrast == .increased ? 0.35 : 0.08),
+          lineWidth: contrast == .increased ? 1.5 : 1
+        )
+    )
+  }
+
+  private func equipmentParameterRow(
+    title: String,
+    placeholder: String,
+    text: Binding<String>
+  ) -> some View {
+    HStack(spacing: 12) {
+      Text(title)
+        .font(.body)
+        .foregroundStyle(Color.primary)
+        .lineLimit(1)
+
+      Spacer(minLength: 8)
+
+      TextField(placeholder, text: text)
+        .font(.body)
+        .foregroundStyle(Color.secondary)
+        .multilineTextAlignment(.trailing)
+        .keyboardType(.decimalPad)
+        .autocorrectionDisabled()
+        .textInputAutocapitalization(.never)
+        .frame(maxWidth: 110)
+    }
+    .padding(.horizontal, 16)
+    .frame(height: 52)
   }
 
   private var coordinatesSection: some View {
@@ -441,7 +572,11 @@ struct CPTUploadDataSheetView: View {
        let csvText = String(data: rawData, encoding: .utf8) ?? String(data: rawData, encoding: .isoLatin1)
     {
       lastLoadedCSVText = csvText
-      let parseResult = CPTCSVParser.parse(text: csvText, cptType: selectedCPTType)
+      let parseResult = CPTCSVParser.parse(
+        text: csvText,
+        cptType: selectedCPTType,
+        equipment: currentEquipmentParameters
+      )
       if !parseResult.matchedRequiredColumns.isEmpty {
         parsedRows = parseResult.rows
         uploadedFile = CPTUploadedFile(
@@ -468,7 +603,11 @@ struct CPTUploadDataSheetView: View {
   private func revalidateCSVIfNeeded(for cptType: CPTType) {
     guard let currentFile = uploadedFile else { return }
     if let csvText = lastLoadedCSVText {
-      let parseResult = CPTCSVParser.parse(text: csvText, cptType: cptType)
+      let parseResult = CPTCSVParser.parse(
+        text: csvText,
+        cptType: cptType,
+        equipment: currentEquipmentParameters
+      )
       parsedRows = parseResult.rows
       uploadedFile = CPTUploadedFile(
         name: currentFile.name,
@@ -487,8 +626,32 @@ struct CPTUploadDataSheetView: View {
   }
 }
 
-#Preview("Empty State") {
+#Preview("Electrical CPT") {
   @Previewable @State var type: CPTType = .electrical
+  @Previewable @State var coords = ""
+  @Previewable @State var file: CPTUploadedFile? = nil
+
+  CPTUploadDataSheetView(
+    selectedCPTType: $type,
+    coordinatesText: $coords,
+    uploadedFile: $file
+  )
+}
+
+#Preview("CPTu") {
+  @Previewable @State var type: CPTType = .cptu
+  @Previewable @State var coords = ""
+  @Previewable @State var file: CPTUploadedFile? = nil
+
+  CPTUploadDataSheetView(
+    selectedCPTType: $type,
+    coordinatesText: $coords,
+    uploadedFile: $file
+  )
+}
+
+#Preview("CPTm Bicone") {
+  @Previewable @State var type: CPTType = .cptmBicone
   @Previewable @State var coords = ""
   @Previewable @State var file: CPTUploadedFile? = nil
 
