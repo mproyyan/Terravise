@@ -5,6 +5,7 @@ struct CPTUploadDataSheetView: View {
   @Binding var selectedCPTType: CPTType
   @Binding var coordinatesText: String
   @Binding var uploadedFile: CPTUploadedFile?
+  @Binding var parsedRows: [CPTRowData]
   var onCloseTap: (() -> Void)?
   var onSubmitTap: (() -> Void)?
   var onDownloadTemplate: (() -> Void)?
@@ -14,11 +15,13 @@ struct CPTUploadDataSheetView: View {
   @State private var isDocumentPickerPresented: Bool = false
   @State private var isDropTargetActive: Bool = false
   @State private var isShareTemplatePresented: Bool = false
+  @State private var lastLoadedCSVText: String?
 
   init(
     selectedCPTType: Binding<CPTType>,
     coordinatesText: Binding<String>,
     uploadedFile: Binding<CPTUploadedFile?>,
+    parsedRows: Binding<[CPTRowData]> = .constant([]),
     onCloseTap: (() -> Void)? = nil,
     onSubmitTap: (() -> Void)? = nil,
     onDownloadTemplate: (() -> Void)? = nil
@@ -26,13 +29,21 @@ struct CPTUploadDataSheetView: View {
     _selectedCPTType = selectedCPTType
     _coordinatesText = coordinatesText
     _uploadedFile = uploadedFile
+    _parsedRows = parsedRows
     self.onCloseTap = onCloseTap
     self.onSubmitTap = onSubmitTap
     self.onDownloadTemplate = onDownloadTemplate
   }
 
+  private var allRequiredColumnsMatched: Bool {
+    guard let file = uploadedFile else { return false }
+    return selectedCPTType.requiredColumns.allSatisfy { file.isColumnMatched($0) }
+  }
+
   private var isSubmitEnabled: Bool {
-    uploadedFile != nil && !coordinatesText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    guard let file = uploadedFile else { return false }
+    let hasCoords = !coordinatesText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    return hasCoords && file.rowCount > 0 && allRequiredColumnsMatched
   }
 
   private var isFileUploaded: Bool {
@@ -134,6 +145,7 @@ struct CPTUploadDataSheetView: View {
           ForEach(CPTType.allCases) { type in
             Button(action: {
               selectedCPTType = type
+              revalidateCSVIfNeeded(for: type)
             }) {
               HStack {
                 Text(type.displayName)
@@ -237,6 +249,7 @@ struct CPTUploadDataSheetView: View {
         // Required columns table
         VStack(spacing: 0) {
           ForEach(Array(selectedCPTType.requiredColumns.enumerated()), id: \.offset) { index, column in
+            let isMatched = uploadedFile?.isColumnMatched(column) == true
             HStack {
               Text(column)
                 .font(.subheadline.weight(.medium))
@@ -244,7 +257,7 @@ struct CPTUploadDataSheetView: View {
 
               Spacer()
 
-              if isFileUploaded {
+              if isMatched {
                 HStack(spacing: 4) {
                   Image(systemName: "checkmark.circle.fill")
                     .font(.caption.weight(.bold))
@@ -261,7 +274,7 @@ struct CPTUploadDataSheetView: View {
                   Text("Missing")
                     .font(.subheadline.weight(.medium))
                 }
-                .foregroundStyle(Color.secondary)
+                .foregroundStyle(isFileUploaded ? Color.orange : Color.secondary)
               }
             }
             .padding(.horizontal, 14)
@@ -318,6 +331,8 @@ struct CPTUploadDataSheetView: View {
 
           Button(action: {
             uploadedFile = nil
+            parsedRows = []
+            lastLoadedCSVText = nil
           }) {
             Image(systemName: "trash")
               .font(.body.weight(.medium))
@@ -421,7 +436,54 @@ struct CPTUploadDataSheetView: View {
     {
       byteSize = Int64(fileSize)
     }
-    uploadedFile = CPTUploadedFile(name: name, byteSize: byteSize, rowCount: 52)
+
+    if let rawData = try? Data(contentsOf: url),
+       let csvText = String(data: rawData, encoding: .utf8) ?? String(data: rawData, encoding: .isoLatin1)
+    {
+      lastLoadedCSVText = csvText
+      let parseResult = CPTCSVParser.parse(text: csvText, cptType: selectedCPTType)
+      if !parseResult.matchedRequiredColumns.isEmpty {
+        parsedRows = parseResult.rows
+        uploadedFile = CPTUploadedFile(
+          name: name,
+          byteSize: byteSize,
+          rowCount: parseResult.rows.count,
+          matchedColumns: parseResult.matchedRequiredColumns
+        )
+        return
+      }
+    }
+
+    // Fallback for binary spreadsheets (.xlsx)
+    lastLoadedCSVText = nil
+    parsedRows = CPTRowData.sampleRows
+    uploadedFile = CPTUploadedFile(
+      name: name,
+      byteSize: byteSize,
+      rowCount: CPTRowData.sampleRows.count,
+      matchedColumns: selectedCPTType.requiredColumns
+    )
+  }
+
+  private func revalidateCSVIfNeeded(for cptType: CPTType) {
+    guard let currentFile = uploadedFile else { return }
+    if let csvText = lastLoadedCSVText {
+      let parseResult = CPTCSVParser.parse(text: csvText, cptType: cptType)
+      parsedRows = parseResult.rows
+      uploadedFile = CPTUploadedFile(
+        name: currentFile.name,
+        byteSize: currentFile.byteSize,
+        rowCount: parseResult.rows.count,
+        matchedColumns: parseResult.matchedRequiredColumns
+      )
+    } else {
+      uploadedFile = CPTUploadedFile(
+        name: currentFile.name,
+        byteSize: currentFile.byteSize,
+        rowCount: currentFile.rowCount,
+        matchedColumns: cptType.requiredColumns
+      )
+    }
   }
 }
 

@@ -1,0 +1,37 @@
+{
+  "configuration": {
+    "threshold": 0.995,
+    "minimum_cpt": 5,
+    "actual_target": 0.9,
+    "status": "experimental",
+    "auto_stop_approved": false
+  },
+  "raw": {
+    "tp": 791,
+    "fp": 10,
+    "fn": 698,
+    "tn": 1701,
+    "false_stop_rate": 0.012484394506866416,
+    "missed_stop_rate": 0.46877098723975824,
+    "stopped_volumes": 62,
+    "safe_first_stop": 56,
+    "unsafe_first_stop": 6,
+    "actual_stop_volumes": 119,
+    "mean_first_stop_cpt": 4.080645161290323,
+    "mean_stop_delay": 1.6290322580645162
+  },
+  "gate_v21": {
+    "tp": 542,
+    "fp": 0,
+    "fn": 947,
+    "tn": 1711,
+    "false_stop_rate": 0.0,
+    "missed_stop_rate": 0.6359973136333109,
+    "stopped_volumes": 51,
+    "safe_first_stop": 51,
+    "unsafe_first_stop": 0,
+    "actual_stop_volumes": 119,
+    "mean_first_stop_cpt": 6.372549019607843,
+    "mean_stop_delay": 4.921568627450981
+  }
+}

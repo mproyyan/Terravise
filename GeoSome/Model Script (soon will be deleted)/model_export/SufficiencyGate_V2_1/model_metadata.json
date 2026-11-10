@@ -1,0 +1,27 @@
+{
+  "model": "Probabilistic Sufficiency Gate V2",
+  "features": [
+    "predicted_coverage",
+    "n_cpt",
+    "estimated_mean_bound",
+    "estimated_p90_bound",
+    "delta_predicted",
+    "delta_p90"
+  ],
+  "training": [
+    1300,
+    1499
+  ],
+  "calibration": [
+    1500,
+    1599
+  ],
+  "validation": [
+    1600,
+    1699
+  ],
+  "actual_coverage_target": 0.9,
+  "max_cpt": 16,
+  "status": "experimental",
+  "auto_stop_approved": false
+}

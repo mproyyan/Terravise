@@ -1,0 +1,26 @@
+{
+  "acceptance_report.json": {
+    "sha256": "a9d849d629627a42e62289ce4dbcc455bc4b82fece85dab6841449cac973e9d3",
+    "size_bytes": 858
+  },
+  "gate_v21_final.json": {
+    "sha256": "39ac48041e33315d1c6893fcdc3d645eeae97ea8d66c6cfd04239155fcc850af",
+    "size_bytes": 883
+  },
+  "gate_v21_swift_parameters.json": {
+    "sha256": "af901844d96953cef5c8946c642fb518386bae024aeda575269df9eb4699d22e",
+    "size_bytes": 1196
+  },
+  "gate_v2_classifier.joblib": {
+    "sha256": "9927bae5e0072d20882967813bebc1598623ebf52dc5587d12ac5931a7920e0b",
+    "size_bytes": 1886
+  },
+  "gate_v2_platt.joblib": {
+    "sha256": "af3a1026280ab9afd27c9b706449c378fbe2b60e57874784df2ab3f4c2b98993",
+    "size_bytes": 879
+  },
+  "model_metadata.json": {
+    "sha256": "97ab17828a54bf42831279dec622156e6a093efa7f772416499264c77c0ee01a",
+    "size_bytes": 438
+  }
+}

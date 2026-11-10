@@ -35,12 +35,12 @@ struct CPTRecommendedPointSheetView: View {
     ScrollView(.vertical, showsIndicators: false) {
       VStack(alignment: .leading, spacing: 18) {
         // Sheet Title
-        Text("Recommended Point")
+        Text(recommendation.isSufficient ? "Sufficiency Reached" : "Recommended Point")
           .font(.title2.weight(.bold))
           .foregroundStyle(Color.primary)
           .accessibilityAddTraits(.isHeader)
 
-        // Top Card: Recommendation Coordinate & Run CPT Warning
+        // Top Card: Recommendation Coordinate & Run CPT Warning (or Sufficiency Banner)
         topRecommendationCard
 
         // Primary Action: Upload Data CPT
@@ -70,59 +70,115 @@ struct CPTRecommendedPointSheetView: View {
 
   private var topRecommendationCard: some View {
     VStack(alignment: .leading, spacing: 14) {
-      // Row 1: Green X/Cross Icon + Coordinate
-      HStack(spacing: 12) {
-        ZStack {
-          Circle()
-            .fill(Color.green)
-            .frame(width: 34, height: 34)
+      if recommendation.isSufficient {
+        // Row 1: Green Checkmark Icon + Sufficient Status
+        HStack(spacing: 12) {
+          ZStack {
+            Circle()
+              .fill(Color.green)
+              .frame(width: 34, height: 34)
 
-          Image(systemName: "xmark")
-            .font(.system(size: 14, weight: .bold))
-            .foregroundStyle(.white)
-        }
-        .accessibilityHidden(true)
-
-        VStack(alignment: .leading, spacing: 2) {
-          Text("CPT Point Recommendation")
-            .font(.caption.weight(.medium))
-            .foregroundStyle(Color.secondary)
-
-          Text(recommendation.formattedCoordinate)
-            .font(.subheadline.weight(.bold))
-            .foregroundStyle(Color.primary)
-        }
-
-        Spacer()
-      }
-      .accessibilityElement(children: .combine)
-      .accessibilityLabel("CPT Point Recommendation at \(recommendation.formattedCoordinate)")
-
-      Divider()
-
-      // Row 2: Warning Banner
-      HStack(alignment: .top, spacing: 12) {
-        Image(systemName: "exclamationmark.triangle.fill")
-          .font(.system(size: 20))
-          .foregroundStyle(Color.orange)
-          .padding(.top, 2)
+            Image(systemName: "checkmark")
+              .font(.system(size: 14, weight: .bold))
+              .foregroundStyle(.white)
+          }
           .accessibilityHidden(true)
 
-        VStack(alignment: .leading, spacing: 4) {
-          Text("Run a CPT at this point")
-            .font(.subheadline.weight(.bold))
-            .foregroundStyle(Color.primary)
+          VStack(alignment: .leading, spacing: 2) {
+            Text("CPT Investigation Status")
+              .font(.caption.weight(.medium))
+              .foregroundStyle(Color.secondary)
 
-          Text("Nearby CPT data is limited, so the local soil profile is uncertain.")
-            .font(.caption)
-            .foregroundStyle(Color.secondary)
-            .fixedSize(horizontal: false, vertical: true)
+            Text("Sufficient — No More CPT Needed")
+              .font(.subheadline.weight(.bold))
+              .foregroundStyle(Color.primary)
+          }
+
+          Spacer()
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("CPT Investigation Status: Sufficient, no more CPT needed")
 
-        Spacer()
+        Divider()
+
+        // Row 2: Sufficiency Banner
+        HStack(alignment: .top, spacing: 12) {
+          Image(systemName: "checkmark.seal.fill")
+            .font(.system(size: 20))
+            .foregroundStyle(Color.green)
+            .padding(.top, 2)
+            .accessibilityHidden(true)
+
+          VStack(alignment: .leading, spacing: 4) {
+            Text("Stopping criterion reached (\(recommendation.consecutiveSufficientCount)/3)")
+              .font(.subheadline.weight(.bold))
+              .foregroundStyle(Color.primary)
+
+            Text("3D subsurface reconstruction has met the ≥98% sufficiency threshold across 3 consecutive CPT evaluations.")
+              .font(.caption)
+              .foregroundStyle(Color.secondary)
+              .fixedSize(horizontal: false, vertical: true)
+          }
+
+          Spacer()
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Stopping criterion reached. 3D subsurface reconstruction has met the sufficiency threshold.")
+      } else {
+        // Row 1: Green X/Cross Icon + Coordinate
+        HStack(spacing: 12) {
+          ZStack {
+            Circle()
+              .fill(Color.green)
+              .frame(width: 34, height: 34)
+
+            Image(systemName: "xmark")
+              .font(.system(size: 14, weight: .bold))
+              .foregroundStyle(.white)
+          }
+          .accessibilityHidden(true)
+
+          VStack(alignment: .leading, spacing: 2) {
+            Text("CPT Point Recommendation")
+              .font(.caption.weight(.medium))
+              .foregroundStyle(Color.secondary)
+
+            Text(recommendation.formattedCoordinate)
+              .font(.subheadline.weight(.bold))
+              .foregroundStyle(Color.primary)
+          }
+
+          Spacer()
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("CPT Point Recommendation at \(recommendation.formattedCoordinate)")
+
+        Divider()
+
+        // Row 2: Warning Banner
+        HStack(alignment: .top, spacing: 12) {
+          Image(systemName: "exclamationmark.triangle.fill")
+            .font(.system(size: 20))
+            .foregroundStyle(Color.orange)
+            .padding(.top, 2)
+            .accessibilityHidden(true)
+
+          VStack(alignment: .leading, spacing: 4) {
+            Text("Run a CPT at this point")
+              .font(.subheadline.weight(.bold))
+              .foregroundStyle(Color.primary)
+
+            Text("Nearby CPT data is limited, so the local soil profile is uncertain.")
+              .font(.caption)
+              .foregroundStyle(Color.secondary)
+              .fixedSize(horizontal: false, vertical: true)
+          }
+
+          Spacer()
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Warning: Run a CPT at this point. Nearby CPT data is limited, so the local soil profile is uncertain.")
       }
-      .accessibilityElement(children: .combine)
-      .accessibilityLabel("Warning: Run a CPT at this point. Nearby CPT data is limited, so the local soil profile is uncertain.")
     }
     .padding(16)
     .background(
@@ -258,14 +314,18 @@ struct CPTRecommendedPointSheetView: View {
   }
 
   private var reasonsCard: some View {
-    VStack(alignment: .leading, spacing: 14) {
+    let nearbyCountText = recommendation.nearbyCountWithin4m == 0
+      ? "none within 4 m"
+      : "\(recommendation.nearbyCountWithin4m) within 4 m"
+
+    return VStack(alignment: .leading, spacing: 14) {
       // Reason 1
       VStack(alignment: .leading, spacing: 4) {
         Text("Fills a data gap")
           .font(.subheadline.weight(.bold))
           .foregroundStyle(Color.primary)
 
-        Text("Spot B is \(String(format: "%.1f", recommendation.nearestCPTDistance)) m from the nearest CPT, with none within 4 m. There is less nearby data to describe the ground in this area.")
+        Text("\(recommendation.spotName) is \(String(format: "%.1f", recommendation.nearestCPTDistance)) m from the nearest CPT, with \(nearbyCountText). There is less nearby data to describe the ground in this area.")
           .font(.caption)
           .foregroundStyle(Color.secondary)
           .fixedSize(horizontal: false, vertical: true)
@@ -279,7 +339,7 @@ struct CPTRecommendedPointSheetView: View {
           .font(.subheadline.weight(.bold))
           .foregroundStyle(Color.primary)
 
-        Text("The model predicts **sand** near the surface and **soft clay** deeper down. A CPT can check where that change occurs.")
+        Text("The model predicts **\(recommendation.shallowSoilType)** near the surface and **\(recommendation.deepSoilType)** deeper down. A CPT can check where that change occurs.")
           .font(.caption)
           .foregroundStyle(Color.secondary)
           .fixedSize(horizontal: false, vertical: true)
@@ -293,7 +353,7 @@ struct CPTRecommendedPointSheetView: View {
           .font(.subheadline.weight(.bold))
           .foregroundStyle(Color.primary)
 
-        Text("The predicted soil profile at **Spot B** differs from the average nearby profile within 4 m. Spot B may be close to a boundary between soil zones.")
+        Text("The predicted soil profile at **\(recommendation.spotName)** differs (ΔIc \(String(format: "%.2f", recommendation.lateralIcDifference))) from the average nearby profile within 4 m. \(recommendation.spotName) may be close to a boundary between soil zones.")
           .font(.caption)
           .foregroundStyle(Color.secondary)
           .fixedSize(horizontal: false, vertical: true)

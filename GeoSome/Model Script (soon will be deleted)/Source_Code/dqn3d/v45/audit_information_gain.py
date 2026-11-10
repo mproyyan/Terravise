@@ -1,0 +1,406 @@
+"""Counterfactual one-step CPT information-gain audit.
+
+Compares DQN V4.2 and V4.5 using native features.
+Does not train or modify either model.
+"""
+
+from pathlib import Path
+import numpy as np
+import pandas as pd
+
+from dqn3d.v45.runner import _entries, _case
+from dqn3d.v45.adapter import FrozenV4Reconstructor
+from dqn3d.v45.simulator import SyntheticCPTSimulator
+from dqn3d.v4.agent import CandidateDQNAgent as V42Agent
+from dqn3d.v45.agent import CandidateDQNAgent as V45Agent
+from dqn3d.v4.features import build_state as features_v42
+from dqn3d.v45.features import build_state as features_v45
+
+ROOT = Path("data/synthetic3d_v4_geosyn/full_24k")
+OUT = Path("results/dqn_v45_experimental/information_gain_audit")
+OUT.mkdir(parents=True, exist_ok=True)
+
+N_CASES = 3
+INITIAL_COUNTS = (1, 2, 3)
+MAX_CANDIDATES = 40
+SEED = 20261103
+
+
+def spearman_no_scipy(a, b):
+    ra = pd.Series(a).rank(method="average").to_numpy(
+        dtype=np.float64
+    )
+    rb = pd.Series(b).rank(method="average").to_numpy(
+        dtype=np.float64
+    )
+
+    if np.std(ra) == 0 or np.std(rb) == 0:
+        return float("nan")
+
+    return float(np.corrcoef(ra, rb)[0, 1])
+
+
+print("===== LOADING MODELS =====", flush=True)
+
+recon = FrozenV4Reconstructor(
+    "model_export/SchemaGAN_V4_2/SchemaGAN_V4_2.pt",
+    ROOT / "normalization.json",
+    device="cpu",
+)
+
+v42, _ = V42Agent.load(
+    "model_export/DQN/best_v42.pt",
+    map_location="cpu",
+)
+v45, _ = V45Agent.load(
+    "results/dqn_v45_experimental/training_300/best.pt",
+    map_location="cpu",
+)
+
+print("DQN V4.2: LOADED")
+print("DQN V4.5: LOADED")
+
+entries = _entries(ROOT, "validation", 30)[10:10 + N_CASES]
+assert len(entries) == N_CASES
+
+rows = []
+summaries = []
+
+
+def calc_rmse(pred, truth, mask):
+    diff = pred[mask].astype(np.float64) - truth[mask]
+    return float(np.sqrt(np.mean(diff ** 2)))
+
+
+def nearest_distances(grid, candidates, observed_xy):
+    candidate_m = np.asarray(
+        [grid.xy_m(int(x), int(y)) for x, y in candidates],
+        dtype=np.float64,
+    )
+    observed_m = np.asarray(
+        [grid.xy_m(int(x), int(y)) for x, y in observed_xy],
+        dtype=np.float64,
+    )
+    return np.linalg.norm(
+        candidate_m[:, None, :] - observed_m[None, :, :],
+        axis=2,
+    ).min(axis=1)
+
+
+def choose_sample(q42, q45, distance, rng):
+    n = len(distance)
+
+    if n <= MAX_CANDIDATES:
+        return np.arange(n, dtype=int)
+
+    chosen = set()
+
+    # Always include top DQN choices.
+    for q in (q42, q45):
+        chosen.update(np.argsort(-q, kind="stable")[:5].tolist())
+
+    # Include both close and distant sites.
+    chosen.update(np.argsort(distance)[:5].tolist())
+    chosen.update(np.argsort(-distance)[:5].tolist())
+
+    # Sample throughout the distance distribution.
+    edges = np.quantile(
+        distance, [0.0, 0.25, 0.5, 0.75, 1.0]
+    )
+
+    for i in range(4):
+        if i == 3:
+            pool = np.flatnonzero(
+                (distance >= edges[i]) &
+                (distance <= edges[i + 1])
+            )
+        else:
+            pool = np.flatnonzero(
+                (distance >= edges[i]) &
+                (distance < edges[i + 1])
+            )
+
+        pool = np.asarray(
+            [j for j in pool if j not in chosen],
+            dtype=int,
+        )
+
+        if len(pool):
+            take = min(5, len(pool))
+            chosen.update(
+                rng.choice(pool, take, replace=False).tolist()
+            )
+
+    # Fill remaining slots randomly.
+    if len(chosen) < MAX_CANDIDATES:
+        remaining = np.asarray(
+            [j for j in range(n) if j not in chosen],
+            dtype=int,
+        )
+        take = min(
+            MAX_CANDIDATES - len(chosen),
+            len(remaining),
+        )
+        if take:
+            chosen.update(
+                rng.choice(
+                    remaining, take, replace=False
+                ).tolist()
+            )
+
+    return np.asarray(sorted(chosen), dtype=int)
+
+
+print("\n===== COUNTERFACTUAL AUDIT =====", flush=True)
+
+for case_id, entry in enumerate(entries):
+    truth, valid, grid = _case(ROOT, entry)
+    eligible = np.argwhere(valid.any(axis=2))
+
+    rng_split = np.random.default_rng(10000 + case_id)
+    eligible = eligible[
+        rng_split.permutation(len(eligible))
+    ]
+
+    n_holdout = max(1, int(len(eligible) * 0.10))
+    reserved = eligible[:n_holdout]
+    available = eligible[n_holdout:]
+
+    evaluation_mask = np.zeros_like(valid, dtype=bool)
+
+    for x, y in reserved:
+        evaluation_mask[x, y] = valid[x, y]
+
+    for n_initial in INITIAL_COUNTS:
+        initial = [
+            tuple(map(int, p))
+            for p in available[:n_initial]
+        ]
+
+        sim = SyntheticCPTSimulator(
+            recon, truth, valid, grid,
+            evaluation_mask=evaluation_mask,
+        )
+
+        base_state = sim.reset(initial)
+        candidates = np.asarray(base_state.candidate_xy)
+
+        if len(candidates) == 0:
+            continue
+
+        original_prediction = sim.prediction.copy()
+        baseline = calc_rmse(
+            original_prediction, truth, evaluation_mask
+        )
+
+        kw = {
+            "mean": getattr(recon, "mean", 2.790332),
+            "std": getattr(recon, "std", 0.772378),
+        }
+
+        state42 = features_v42(
+            sim.prediction,
+            sim.observed_mask,
+            sim.valid,
+            grid,
+            sim.access_mask,
+            **kw,
+        )
+        state45 = features_v45(
+            sim.prediction,
+            sim.observed_mask,
+            sim.valid,
+            grid,
+            sim.access_mask,
+            **kw,
+        )
+
+        assert np.array_equal(
+            candidates, state42.candidate_xy
+        )
+        assert np.array_equal(
+            candidates, state45.candidate_xy
+        )
+
+        q42 = np.asarray(v42.scores(state42)).reshape(-1)
+        q45 = np.asarray(v45.scores(state45)).reshape(-1)
+
+        assert len(q42) == len(candidates)
+        assert len(q45) == len(candidates)
+        assert np.isfinite(q42).all()
+        assert np.isfinite(q45).all()
+
+        distances = nearest_distances(
+            grid, candidates, initial
+        )
+
+        rng = np.random.default_rng(
+            SEED + case_id * 100 + n_initial
+        )
+
+        sampled = choose_sample(
+            q42, q45, distances, rng
+        )
+
+        top42 = int(np.argmax(q42))
+        top45 = int(np.argmax(q45))
+
+        assert top42 in sampled
+        assert top45 in sampled
+
+        scenario_rows = []
+
+        for idx in sampled:
+            # Reset is essential: every candidate is
+            # evaluated from the identical initial CPTs.
+            reset_state = sim.reset(initial)
+
+            assert np.array_equal(
+                reset_state.candidate_xy, candidates
+            )
+            assert np.allclose(
+                sim.prediction,
+                original_prediction,
+                atol=1e-6,
+            )
+
+            _, reward, _, info = sim.step(int(idx))
+
+            after = calc_rmse(
+                sim.prediction, truth, evaluation_mask
+            )
+            gain = baseline - after
+
+            assert np.isclose(
+                reward, gain, atol=1e-6
+            )
+
+            x, y = map(int, candidates[idx])
+
+            row = {
+                "case": case_id,
+                "initial_count": n_initial,
+                "candidate_index": int(idx),
+                "x": x,
+                "y": y,
+                "distance_m": float(distances[idx]),
+                "q_v42": float(q42[idx]),
+                "q_v45": float(q45[idx]),
+                "rmse_before": baseline,
+                "rmse_after": after,
+                "actual_gain": gain,
+                "chosen_v42": int(idx == top42),
+                "chosen_v45": int(idx == top45),
+            }
+
+            rows.append(row)
+            scenario_rows.append(row)
+
+        sample_df = pd.DataFrame(scenario_rows)
+
+        best_tested = float(
+            sample_df["actual_gain"].max()
+        )
+
+        selected42 = sample_df[
+            sample_df.chosen_v42 == 1
+        ].iloc[0]
+        selected45 = sample_df[
+            sample_df.chosen_v45 == 1
+        ].iloc[0]
+
+        corr42 = spearman_no_scipy(
+            sample_df["q_v42"],
+            sample_df["actual_gain"]
+        )
+        corr45 = spearman_no_scipy(
+            sample_df["q_v45"],
+            sample_df["actual_gain"]
+        )
+        corr_distance = spearman_no_scipy(
+            sample_df["distance_m"],
+            sample_df["actual_gain"]
+        )
+
+        summaries.append({
+            "case": case_id,
+            "initial_count": n_initial,
+            "tested": len(sample_df),
+            "baseline_rmse": baseline,
+            "best_tested_gain": best_tested,
+            "gain_v42": float(selected42.actual_gain),
+            "gain_v45": float(selected45.actual_gain),
+            "regret_v42": max(
+                0.0, best_tested - selected42.actual_gain
+            ),
+            "regret_v45": max(
+                0.0, best_tested - selected45.actual_gain
+            ),
+            "spearman_q42_gain": corr42,
+            "spearman_q45_gain": corr45,
+            "spearman_distance_gain": corr_distance,
+            "distance_v42": float(selected42.distance_m),
+            "distance_v45": float(selected45.distance_m),
+        })
+
+        print(
+            f"Case {case_id + 1}/{N_CASES} | "
+            f"Initial CPT {n_initial} | "
+            f"Tested {len(sample_df)} | "
+            f"Best gain {best_tested:+.5f} | "
+            f"V4.2 {selected42.actual_gain:+.5f} | "
+            f"V4.5 {selected45.actual_gain:+.5f}",
+            flush=True,
+        )
+
+details = pd.DataFrame(rows)
+summary = pd.DataFrame(summaries)
+
+details.to_csv(OUT / "candidate_details.csv", index=False)
+summary.to_csv(OUT / "scenario_summary.csv", index=False)
+
+print("\n===== SUMMARY BY MODEL =====")
+
+for name, col, regret, corr in [
+    (
+        "V4.2",
+        "gain_v42",
+        "regret_v42",
+        "spearman_q42_gain",
+    ),
+    (
+        "V4.5",
+        "gain_v45",
+        "regret_v45",
+        "spearman_q45_gain",
+    ),
+]:
+    print(f"\n{name}")
+    print("Mean selected gain:", round(summary[col].mean(), 6))
+    print("Mean tested regret:", round(summary[regret].mean(), 6))
+    print("Mean Spearman Q vs gain:", round(summary[corr].mean(), 4))
+    print("Positive gain:", int((summary[col] > 0).sum()),
+          "/", len(summary))
+
+print("\n===== DISTANCE VS GAIN =====")
+print(
+    "Mean Spearman:",
+    round(summary.spearman_distance_gain.mean(), 4)
+)
+
+print("\n===== BY INITIAL CPT COUNT =====")
+print(
+    summary.groupby("initial_count")[
+        [
+            "gain_v42",
+            "gain_v45",
+            "regret_v42",
+            "regret_v45",
+            "spearman_q42_gain",
+            "spearman_q45_gain",
+        ]
+    ].mean().round(5).to_string()
+)
+
+print("\nSaved:", OUT)
+print("STATUS: INFORMATION GAIN COUNTERFACTUAL COMPLETE")

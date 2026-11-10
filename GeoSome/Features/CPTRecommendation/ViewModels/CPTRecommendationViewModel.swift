@@ -53,11 +53,13 @@ final class CPTRecommendationViewModel {
   var hasUploadedCPTData: Bool = false
   var cptPoints: [CPTPointEntry] = []
   var recommendation: CPTRecommendationResult = .init()
+  weak var projectViewModel: ProjectViewModel?
 
   // Upload Sheet State
   var selectedCPTType: CPTType = .electrical
   var uploadCoordinatesText: String = ""
   var uploadedCPTFile: CPTUploadedFile?
+  var uploadParsedRows: [CPTRowData] = []
 
   init(
     project: Project? = nil,
@@ -76,6 +78,7 @@ final class CPTRecommendationViewModel {
     isUploadSheetPresented = false
     isCPTListPresented = false
     selectedSheetDetent = Self.defaultSheetDetent
+    syncStateFromProject(resolvedProject)
   }
 
   var activeSheet: ActiveCPTSheet? {
@@ -105,7 +108,7 @@ final class CPTRecommendationViewModel {
   }
 
   var recommendedCoordinateOnMap: CLLocationCoordinate2D? {
-    hasUploadedCPTData ? recommendation.coordinate : nil
+    (hasUploadedCPTData && !recommendation.isSufficient) ? recommendation.coordinate : nil
   }
 
   // MARK: - Intents
@@ -128,8 +131,13 @@ final class CPTRecommendationViewModel {
   }
 
   func presentUploadSheet() {
-    if uploadCoordinatesText.isEmpty {
-      uploadCoordinatesText = "-6.215432, 106.845321"
+    uploadedCPTFile = nil
+    uploadParsedRows = []
+    if hasUploadedCPTData, !recommendation.isSufficient {
+      uploadCoordinatesText = recommendation.formattedCoordinate
+    } else if uploadCoordinatesText.isEmpty {
+      let center = resolvedBoundaryRegion.center
+      uploadCoordinatesText = String(format: "%.6f, %.6f", center.latitude, center.longitude)
     }
     isUploadSheetPresented = true
     isCPTListPresented = false
@@ -143,26 +151,53 @@ final class CPTRecommendationViewModel {
   }
 
   func submitCPTUpload() {
-    let coordinate = Self.parseCoordinate(from: uploadCoordinatesText)
-      ?? CLLocationCoordinate2D(latitude: -6.215432, longitude: 106.845321)
-    let file = uploadedCPTFile ?? CPTUploadedFile(name: "CPTResultFile.csv", byteSize: 24 * 1024, rowCount: 52)
-    let entry = CPTPointEntry(type: selectedCPTType, coordinate: coordinate, file: file)
+    let fallbackCoord = (hasUploadedCPTData && !recommendation.isSufficient)
+      ? recommendation.coordinate
+      : resolvedBoundaryRegion.center
+    let coordinate = Self.parseCoordinate(from: uploadCoordinatesText) ?? fallbackCoord
+    let rows = uploadParsedRows.isEmpty ? CPTRowData.sampleRows : uploadParsedRows
+    let file = uploadedCPTFile ?? CPTUploadedFile(
+      name: "CPTResultFile.csv",
+      byteSize: 24 * 1024,
+      rowCount: rows.count,
+      matchedColumns: selectedCPTType.requiredColumns
+    )
+    let entry = CPTPointEntry(
+      type: selectedCPTType,
+      coordinate: coordinate,
+      file: file,
+      rows: rows
+    )
     cptPoints.append(entry)
 
-    hasUploadedCPTData = true
-    recommendation = CPTRecommendationResult(
-      coordinate: coordinate,
-      rmse: 0.0064,
-      confidenceLevel: 90,
-      spotName: "Spot B",
-      nearestCPTDistance: 16.2
+    let previousConsecutive = project.consecutiveSufficientCount
+    let result = CPTPipelineCoordinator.runPipeline(
+      boundaryCoordinates: coordinates,
+      cptPoints: cptPoints,
+      previousConsecutiveSufficientCount: previousConsecutive
     )
+
+    hasUploadedCPTData = true
+    recommendation = result
+    persistCPTStateToProject()
+
+    uploadedCPTFile = nil
+    uploadParsedRows = []
+    uploadCoordinatesText = ""
 
     isUploadSheetPresented = false
     isCPTListPresented = false
     selectedSheetDetent = Self.recommendationSheetDetent
 
-    AccessibilityCaptionCenter.shared.announce("CPT data uploaded successfully. Recommended point generated.")
+    if result.isSufficient {
+      AccessibilityCaptionCenter.shared.announce(
+        "CPT data uploaded. Sufficiency criteria reached — no more CPT points needed."
+      )
+    } else {
+      AccessibilityCaptionCenter.shared.announce(
+        "CPT data uploaded successfully. Next recommended point: \(result.spotName) at \(result.formattedCoordinate)."
+      )
+    }
   }
 
   func openCPTDataList() {
@@ -180,15 +215,23 @@ final class CPTRecommendationViewModel {
     cptPoints.removeAll(where: { $0.id == id })
     if cptPoints.isEmpty {
       hasUploadedCPTData = false
+      recommendation = CPTRecommendationResult()
+      persistCPTStateToProject()
       isCPTListPresented = false
       selectedSheetDetent = Self.defaultSheetDetent
       AccessibilityCaptionCenter.shared.announce("Deleted CPT Point. No CPT points remaining.")
     } else {
+      recommendation = CPTPipelineCoordinator.recomputeFromScratch(
+        boundaryCoordinates: coordinates,
+        cptPoints: cptPoints
+      )
+      persistCPTStateToProject()
       AccessibilityCaptionCenter.shared.announce("CPT Point deleted. \(cptPoints.count) remaining.")
     }
   }
 
   func resolveProject(with id: Project.ID?, from projectViewModel: ProjectViewModel?) {
+    self.projectViewModel = projectViewModel
     guard let id, let projectViewModel else { return }
     if let foundProject = projectViewModel.projects.first(where: { $0.id == id }) {
       updateProject(foundProject)
@@ -198,6 +241,28 @@ final class CPTRecommendationViewModel {
   func updateProject(_ newProject: Project) {
     project = newProject
     cameraPosition = .region(resolvedBoundaryRegion)
+    syncStateFromProject(newProject)
+  }
+
+  private func syncStateFromProject(_ sourceProject: Project) {
+    cptPoints = sourceProject.cptPoints
+    hasUploadedCPTData = !sourceProject.cptPoints.isEmpty
+    if let savedRec = sourceProject.latestRecommendation {
+      recommendation = savedRec
+    } else if !sourceProject.cptPoints.isEmpty {
+      recommendation = CPTPipelineCoordinator.recomputeFromScratch(
+        boundaryCoordinates: coordinates,
+        cptPoints: sourceProject.cptPoints
+      )
+    }
+  }
+
+  private func persistCPTStateToProject() {
+    project.cptPoints = cptPoints
+    project.latestRecommendation = hasUploadedCPTData ? recommendation : nil
+    project.consecutiveSufficientCount = hasUploadedCPTData ? recommendation.consecutiveSufficientCount : 0
+    project.lastEdited = Date()
+    projectViewModel?.updateProject(project)
   }
 
   func toggleMapLayer() {

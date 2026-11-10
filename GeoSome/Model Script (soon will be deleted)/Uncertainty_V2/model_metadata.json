@@ -1,0 +1,51 @@
+{
+  "model": "Uncertainty_V2_Quantile",
+  "source": "GeoSyn V4 validation",
+  "features": [
+    "distance_to_cpt_m",
+    "depth_m",
+    "predicted_ic",
+    "lateral_gradient",
+    "vertical_gradient",
+    "nearby_cpt_fraction_25m",
+    "n_cpt",
+    "dx_m",
+    "dy_m",
+    "dz_m"
+  ],
+  "target": "absolute_Ic_reconstruction_error",
+  "quantile": 0.9,
+  "calibration_correction": 0.0,
+  "evaluation_coverage": 0.88818359375,
+  "train_volume_indices": [
+    164,
+    165,
+    166,
+    167,
+    168,
+    169,
+    170,
+    171,
+    172,
+    173,
+    174,
+    175
+  ],
+  "calibration_volume_indices": [
+    176,
+    177,
+    178,
+    179,
+    180,
+    181
+  ],
+  "evaluation_volume_indices": [
+    182,
+    183,
+    184,
+    185,
+    186,
+    187
+  ],
+  "note": "Experimental voxel error-bound estimator. No general coverage guarantee for new projects."
+}

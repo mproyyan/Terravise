@@ -1,0 +1,39 @@
+{
+  "format_version": 1,
+  "trees": 84,
+  "features": [
+    "distance_to_cpt_m",
+    "depth_m",
+    "predicted_ic",
+    "lateral_gradient",
+    "vertical_gradient",
+    "nearby_cpt_fraction_25m",
+    "n_cpt",
+    "dx_m",
+    "dy_m",
+    "dz_m"
+  ],
+  "tolerance": 1e-05,
+  "results": [
+    {
+      "split": "train",
+      "samples": 512,
+      "max_abs_diff": 0.0,
+      "mean_abs_diff": 0.0
+    },
+    {
+      "split": "calibration",
+      "samples": 512,
+      "max_abs_diff": 0.0,
+      "mean_abs_diff": 0.0
+    },
+    {
+      "split": "evaluation",
+      "samples": 512,
+      "max_abs_diff": 0.0,
+      "mean_abs_diff": 0.0
+    }
+  ],
+  "status": "PASS",
+  "note": "Python JSON interpreter parity only. Swift parity not yet tested."
+}

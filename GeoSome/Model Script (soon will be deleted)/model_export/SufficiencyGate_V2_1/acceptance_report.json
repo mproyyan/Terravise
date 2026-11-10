@@ -1,0 +1,32 @@
+{
+  "name": "Sufficiency Gate V2.1",
+  "status": "experimental_frozen",
+  "exported_at_utc": "2026-11-09T12:38:16.530640+00:00",
+  "evaluation": {
+    "dataset": "GeoSyn V4",
+    "volume_range": [
+      1700,
+      1899
+    ],
+    "volumes": 200,
+    "states": 3200,
+    "cpt_range": [
+      1,
+      16
+    ],
+    "auc": 0.9519,
+    "brier_score": 0.0933,
+    "unsafe_first_stop": 0,
+    "safe_first_stop": 51,
+    "stopped_volumes": 51,
+    "missed_stop_rate": 0.636
+  },
+  "limitations": [
+    "Only evaluated on synthetic GeoSyn data.",
+    "Zero observed unsafe stops does not guarantee zero risk.",
+    "Not validated for field geotechnical investigation.",
+    "Not a substitute for SNI 8460:2017 requirements.",
+    "Automatic field stopping is not approved.",
+    "Independence from upstream model-development data has not been fully audited."
+  ]
+}

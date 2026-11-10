@@ -7,17 +7,47 @@ struct Project: Identifiable, Hashable, Codable, Sendable {
   var name: String
   var lastEdited: Date
   var boundaryPoints: [BoundaryPoint]
+  var cptPoints: [CPTPointEntry]
+  var latestRecommendation: CPTRecommendationResult?
+  var consecutiveSufficientCount: Int
+
+  private enum CodingKeys: String, CodingKey {
+    case id
+    case name
+    case lastEdited
+    case boundaryPoints
+    case cptPoints
+    case latestRecommendation
+    case consecutiveSufficientCount
+  }
 
   init(
     id: UUID = UUID(),
     name: String,
     lastEdited: Date = Date(),
-    boundaryPoints: [BoundaryPoint] = []
+    boundaryPoints: [BoundaryPoint] = [],
+    cptPoints: [CPTPointEntry] = [],
+    latestRecommendation: CPTRecommendationResult? = nil,
+    consecutiveSufficientCount: Int = 0
   ) {
     self.id = id
     self.name = name
     self.lastEdited = lastEdited
     self.boundaryPoints = boundaryPoints
+    self.cptPoints = cptPoints
+    self.latestRecommendation = latestRecommendation
+    self.consecutiveSufficientCount = consecutiveSufficientCount
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    id = try container.decode(UUID.self, forKey: .id)
+    name = try container.decode(String.self, forKey: .name)
+    lastEdited = try container.decode(Date.self, forKey: .lastEdited)
+    boundaryPoints = try container.decode([BoundaryPoint].self, forKey: .boundaryPoints)
+    cptPoints = try container.decodeIfPresent([CPTPointEntry].self, forKey: .cptPoints) ?? []
+    latestRecommendation = try container.decodeIfPresent(CPTRecommendationResult.self, forKey: .latestRecommendation)
+    consecutiveSufficientCount = try container.decodeIfPresent(Int.self, forKey: .consecutiveSufficientCount) ?? 0
   }
 
   var boundaryCoordinates: [CLLocationCoordinate2D] {

@@ -182,6 +182,7 @@ struct CPTRecommendationView: View {
           selectedCPTType: $viewModel.selectedCPTType,
           coordinatesText: $viewModel.uploadCoordinatesText,
           uploadedFile: $viewModel.uploadedCPTFile,
+          parsedRows: $viewModel.uploadParsedRows,
           onCloseTap: {
             viewModel.dismissUploadSheet()
           },
@@ -238,6 +239,7 @@ struct CPTRecommendationView: View {
     .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
     .ignoresSafeArea(.keyboard)
     .task {
+      viewModel.projectViewModel = projectViewModel
       if let projectId {
         viewModel.resolveProject(with: projectId, from: projectViewModel)
       } else if let selected = projectViewModel?.selectedProject {

@@ -19,9 +19,94 @@
 		A65FBBFB309ADDE000B0796C /* .gitignore */ = {isa = PBXFileReference; lastKnownFileType = text; path = .gitignore; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		A60BFC993091A38700D1BA6E /* Exceptions for "GeoSome" folder in "GeoSome" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"Model Script (soon will be deleted)/docs/IOS_INTEGRATION.md",
+				"Model Script (soon will be deleted)/DQN_V4_5/DQN_V4_5_Extended.mlpackage",
+				"Model Script (soon will be deleted)/DQN_V4_5/DQN_V4_5_Extended.pt",
+				"Model Script (soon will be deleted)/DQN_V4_5/feature_manifest.json",
+				"Model Script (soon will be deleted)/model_export/DQN_V4_6_A_iOS/deployment_manifest.json",
+				"Model Script (soon will be deleted)/model_export/DQN_V4_6_A_iOS/DQN_V4_6_A_contract.json",
+				"Model Script (soon will be deleted)/model_export/DQN_V4_6_A_iOS/DQN_V4_6_A_parity.json",
+				"Model Script (soon will be deleted)/model_export/DQN_V4_6_A_iOS/DQN_V4_6_A.mlpackage",
+				"Model Script (soon will be deleted)/model_export/SufficiencyGate_V2_1/acceptance_report.json",
+				"Model Script (soon will be deleted)/model_export/SufficiencyGate_V2_1/gate_v2_classifier.joblib",
+				"Model Script (soon will be deleted)/model_export/SufficiencyGate_V2_1/gate_v2_platt.joblib",
+				"Model Script (soon will be deleted)/model_export/SufficiencyGate_V2_1/gate_v21_final.json",
+				"Model Script (soon will be deleted)/model_export/SufficiencyGate_V2_1/gate_v21_swift_parameters.json",
+				"Model Script (soon will be deleted)/model_export/SufficiencyGate_V2_1/manifest_sha256.json",
+				"Model Script (soon will be deleted)/model_export/SufficiencyGate_V2_1/model_metadata.json",
+				"Model Script (soon will be deleted)/model_export/Uncertainty_V3_1_iOS/deployment_manifest.json",
+				"Model Script (soon will be deleted)/model_export/Uncertainty_V3_1_iOS/SufficiencyV3_1.json",
+				"Model Script (soon will be deleted)/model_export/Uncertainty_V3_1_iOS/UncertaintyV3.json",
+				"Model Script (soon will be deleted)/README.md",
+				"Model Script (soon will be deleted)/Research/Hard_Layer_QC/README.md",
+				"Model Script (soon will be deleted)/Research/Hard_Layer_QC/results/criterion_sensitivity.csv",
+				"Model Script (soon will be deleted)/Research/Hard_Layer_QC/scripts/analyze_hard_layer_cpt.py",
+				"Model Script (soon will be deleted)/Research/Hard_Layer_QC/scripts/build_multiscale_pilot.py",
+				"Model Script (soon will be deleted)/Research/Hard_Layer_QC/scripts/build_qc_reconstruction_pilot.py",
+				"Model Script (soon will be deleted)/SchemaGAN_V4_2/normalization.json",
+				"Model Script (soon will be deleted)/SchemaGAN_V4_2/SchemaGAN_V4_2_Flexible.mlpackage",
+				"Model Script (soon will be deleted)/SchemaGAN_V4_2/SchemaGAN_V4_2.pt",
+				"Model Script (soon will be deleted)/Source_Code/dataset_generator/build_geosyn3d_dataset.py",
+				"Model Script (soon will be deleted)/Source_Code/dataset_generator/build_geosyn3d_pilot.py",
+				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45_selected/__init__.py",
+				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45_selected/adapter.py",
+				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45_selected/agent.py",
+				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45_selected/baselines.py",
+				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45_selected/evaluate_final_test.py",
+				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45_selected/features.py",
+				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45_selected/geological_features.py",
+				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45_selected/runner.py",
+				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45_selected/service.py",
+				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45_selected/simulator.py",
+				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45/__init__.py",
+				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45/adapter.py",
+				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45/agent.py",
+				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45/audit_information_gain_extended.py",
+				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45/audit_information_gain.py",
+				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45/audit_information_gain.py.bak",
+				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45/baselines.py",
+				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45/evaluate_ablation.py",
+				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45/evaluate_extended_comparison.py",
+				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45/evaluate_final_test.py",
+				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45/evaluate_flexibility.py",
+				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45/evaluate_fresh_validation.py",
+				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45/evaluate_v45_comparison.py",
+				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45/features_before_fix.py.bak",
+				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45/features.py",
+				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45/geological_features.py",
+				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45/runner.py",
+				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45/service.py",
+				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45/simulator.py",
+				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45/validation_v43.py",
+				"Model Script (soon will be deleted)/Source_Code/dqn3d/v46/features.py",
+				"Model Script (soon will be deleted)/Source_Code/schemagan_v42/evaluate_v4_final.py",
+				"Model Script (soon will be deleted)/Source_Code/schemagan_v42/flexible_cpt_preprocessing.py",
+				"Model Script (soon will be deleted)/Source_Code/schemagan_v42/test_flexible_cpt_v42_v4b.py",
+				"Model Script (soon will be deleted)/Source_Code/schemagan_v42/train_sgan_v42_full.py",
+				"Model Script (soon will be deleted)/Source_Code/train_sgan_v42.py",
+				"Model Script (soon will be deleted)/Source_Code/uncertainty_v2/export_json.py",
+				"Model Script (soon will be deleted)/Source_Code/uncertainty_v2/generate_3d_map.py",
+				"Model Script (soon will be deleted)/Source_Code/uncertainty_v2/prepare_dataset.py",
+				"Model Script (soon will be deleted)/Source_Code/uncertainty_v2/train_evaluate.py",
+				"Model Script (soon will be deleted)/Uncertainty_V2/model_metadata.json",
+				"Model Script (soon will be deleted)/Uncertainty_V2/parity_report.json",
+				"Model Script (soon will be deleted)/Uncertainty_V2/uncertainty_v2_quantile.joblib",
+				"Model Script (soon will be deleted)/Uncertainty_V2/uncertainty_v2_trees.json",
+			);
+			target = A60BFC1A3091A38700D1BA6E /* GeoSome */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		A60BFC1D3091A38700D1BA6E /* GeoSome */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				A60BFC993091A38700D1BA6E /* Exceptions for "GeoSome" folder in "GeoSome" target */,
+			);
 			path = GeoSome;
 			sourceTree = "<group>";
 		};
@@ -258,7 +343,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = L6M39L4GV8;
+				DEVELOPMENT_TEAM = 46PB5JVBMV;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -290,7 +375,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = L6M39L4GV8;
+				DEVELOPMENT_TEAM = 46PB5JVBMV;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
