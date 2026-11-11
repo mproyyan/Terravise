@@ -8,6 +8,8 @@ struct CPTMapContentLayer: View {
   var isSatelliteStyle: Bool
   var recommendedCoordinate: CLLocationCoordinate2D?
   var cptPoints: [CPTPointEntry]
+  var pendingUploadCoordinate: CLLocationCoordinate2D?
+  var onMapTap: ((CLLocationCoordinate2D) -> Void)?
 
   @Environment(\.colorSchemeContrast) private var contrast
 
@@ -16,78 +18,115 @@ struct CPTMapContentLayer: View {
     coordinates: [CLLocationCoordinate2D] = [],
     isSatelliteStyle: Bool = false,
     recommendedCoordinate: CLLocationCoordinate2D? = nil,
-    cptPoints: [CPTPointEntry] = []
+    cptPoints: [CPTPointEntry] = [],
+    pendingUploadCoordinate: CLLocationCoordinate2D? = nil,
+    onMapTap: ((CLLocationCoordinate2D) -> Void)? = nil
   ) {
     _cameraPosition = cameraPosition
     self.coordinates = coordinates
     self.isSatelliteStyle = isSatelliteStyle
     self.recommendedCoordinate = recommendedCoordinate
     self.cptPoints = cptPoints
+    self.pendingUploadCoordinate = pendingUploadCoordinate
+    self.onMapTap = onMapTap
   }
 
   var body: some View {
-    Map(position: $cameraPosition) {
-      UserAnnotation()
+    MapReader { proxy in
+      Map(position: $cameraPosition) {
+        UserAnnotation()
 
-      if coordinates.count >= 3 {
-        MapPolygon(coordinates: coordinates)
-          .foregroundStyle(Color.blue.opacity(contrast == .increased ? 0.35 : 0.20))
-          .stroke(Color.blue, lineWidth: contrast == .increased ? 3.5 : 2.5)
-      } else if coordinates.count == 2 {
-        MapPolyline(coordinates: coordinates)
-          .stroke(
-            Color.blue,
-            style: StrokeStyle(
-              lineWidth: contrast == .increased ? 3.5 : 2.5,
-              lineCap: .round,
-              lineJoin: .round,
-              dash: [8, 6]
+        if coordinates.count >= 3 {
+          MapPolygon(coordinates: coordinates)
+            .foregroundStyle(Color.blue.opacity(contrast == .increased ? 0.35 : 0.20))
+            .stroke(Color.blue, lineWidth: contrast == .increased ? 3.5 : 2.5)
+        } else if coordinates.count == 2 {
+          MapPolyline(coordinates: coordinates)
+            .stroke(
+              Color.blue,
+              style: StrokeStyle(
+                lineWidth: contrast == .increased ? 3.5 : 2.5,
+                lineCap: .round,
+                lineJoin: .round,
+                dash: [8, 6]
+              )
             )
-          )
-      }
+        }
 
-      // Uploaded CPT Points Annotations (Orange Circle with Number)
-      ForEach(Array(cptPoints.enumerated()), id: \.element.id) { index, point in
-        Annotation("CPT Point \(index + 1)", coordinate: point.coordinate) {
-          ZStack {
-            Circle()
-              .fill(Color.orange)
-              .frame(width: 28, height: 28)
-              .shadow(color: .black.opacity(0.25), radius: 3, y: 1.5)
+        // Uploaded CPT Points Annotations (Orange Circle with Number)
+        ForEach(Array(cptPoints.enumerated()), id: \.element.id) { index, point in
+          Annotation("CPT Point \(index + 1)", coordinate: point.coordinate) {
+            ZStack {
+              Circle()
+                .fill(Color.orange)
+                .frame(width: 28, height: 28)
+                .shadow(color: .black.opacity(0.25), radius: 3, y: 1.5)
 
-            Text("\(index + 1)")
-              .font(.caption.weight(.bold))
-              .foregroundStyle(Color.white)
+              Text("\(index + 1)")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(Color.white)
+            }
+            .accessibilityLabel("CPT Point \(index + 1)")
           }
-          .accessibilityLabel("CPT Point \(index + 1)")
+        }
+
+        // Pending / Selected CPT Upload Annotation
+        if let pendingUploadCoordinate {
+          Annotation("Selected Upload Location", coordinate: pendingUploadCoordinate) {
+            ZStack {
+              Circle()
+                .stroke(Color.orange, lineWidth: 2)
+                .frame(width: 38, height: 38)
+
+              Circle()
+                .fill(Color.orange)
+                .frame(width: 28, height: 28)
+                .shadow(color: .black.opacity(0.3), radius: 4, y: 2)
+
+              Text("\(cptPoints.count + 1)")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(Color.white)
+            }
+            .accessibilityLabel("Selected CPT location for upload, Point \(cptPoints.count + 1)")
+          }
+        }
+
+        // Recommended Point Annotation (Green Circle with X)
+        if let recommendedCoordinate {
+          Annotation("Recommended Point", coordinate: recommendedCoordinate) {
+            ZStack {
+              Circle()
+                .fill(Color.green)
+                .frame(width: 32, height: 32)
+                .shadow(color: .black.opacity(0.25), radius: 4, y: 2)
+
+              Image(systemName: "xmark")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(.white)
+            }
+            .accessibilityLabel("Recommended CPT Point")
+          }
         }
       }
-
-      // Recommended Point Annotation (Green Circle with X)
-      if let recommendedCoordinate {
-        Annotation("Recommended Point", coordinate: recommendedCoordinate) {
-          ZStack {
-            Circle()
-              .fill(Color.green)
-              .frame(width: 32, height: 32)
-              .shadow(color: .black.opacity(0.25), radius: 4, y: 2)
-
-            Image(systemName: "xmark")
-              .font(.system(size: 13, weight: .bold))
-              .foregroundStyle(.white)
-          }
-          .accessibilityLabel("Recommended CPT Point")
+      .mapStyle(
+        isSatelliteStyle
+          ? .hybrid(elevation: .realistic)
+          : .standard(elevation: .realistic)
+      )
+      .mapControlVisibility(.hidden)
+      .onTapGesture { screenPoint in
+        if let coordinate = proxy.convert(screenPoint, from: .local) {
+          onMapTap?(coordinate)
+        }
+      }
+      .accessibilityElement(children: .contain)
+      .accessibilityLabel("Map with project boundary and CPT points")
+      .accessibilityAction(named: "Select CPT location at boundary center") {
+        if let first = coordinates.first {
+          onMapTap?(first)
         }
       }
     }
-    .mapStyle(
-      isSatelliteStyle
-        ? .hybrid(elevation: .realistic)
-        : .standard(elevation: .realistic)
-    )
-    .mapControlVisibility(.hidden)
-    .accessibilityElement(children: .contain)
-    .accessibilityLabel("Map with project boundary and CPT points")
   }
 }
 

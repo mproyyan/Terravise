@@ -89,7 +89,11 @@ struct CPTRecommendationView: View {
         coordinates: viewModel.coordinates,
         isSatelliteStyle: viewModel.isSatelliteStyle,
         recommendedCoordinate: viewModel.recommendedCoordinateOnMap,
-        cptPoints: viewModel.cptPoints
+        cptPoints: viewModel.cptPoints,
+        pendingUploadCoordinate: viewModel.pendingUploadCoordinate,
+        onMapTap: { coordinate in
+          viewModel.handleMapTap(at: coordinate)
+        }
       )
       .ignoresSafeArea()
     }
@@ -193,9 +197,11 @@ struct CPTRecommendationView: View {
         .presentationPlacement(.leading)
         .presentationDetents(
           [
+            .medium,
             CPTRecommendationViewModel.uploadSheetDetent,
             .large
-          ]
+          ],
+          selection: $viewModel.selectedSheetDetent
         )
         .presentationDragIndicator(.visible)
         .presentationBackgroundInteraction(.enabled)

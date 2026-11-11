@@ -1,3 +1,4 @@
+import CoreGraphics
 import CoreLocation
 import Foundation
 import MapKit
@@ -111,7 +112,52 @@ final class CPTRecommendationViewModel {
     (hasUploadedCPTData && !recommendation.isSufficient) ? recommendation.coordinate : nil
   }
 
+  var pendingUploadCoordinate: CLLocationCoordinate2D? {
+    guard isUploadSheetPresented else { return nil }
+    guard let coordinate = Self.parseCoordinate(from: uploadCoordinatesText) else { return nil }
+    guard isCoordinateInsideBoundary(coordinate) else { return nil }
+    return coordinate
+  }
+
+  func isCoordinateInsideBoundary(_ coordinate: CLLocationCoordinate2D) -> Bool {
+    guard coordinates.count >= 3 else { return false }
+    let path = CGMutablePath()
+    let firstPoint = MKMapPoint(coordinates[0])
+    path.move(to: CGPoint(x: firstPoint.x, y: firstPoint.y))
+    for pt in coordinates.dropFirst() {
+      let mp = MKMapPoint(pt)
+      path.addLine(to: CGPoint(x: mp.x, y: mp.y))
+    }
+    path.closeSubpath()
+
+    let testPoint = MKMapPoint(coordinate)
+    let pt = CGPoint(x: testPoint.x, y: testPoint.y)
+    if path.contains(pt) {
+      return true
+    }
+    let stroked = path.copy(strokingWithWidth: 20, lineCap: .round, lineJoin: .round, miterLimit: 10)
+    return stroked.contains(pt)
+  }
+
   // MARK: - Intents
+
+  func handleMapTap(at coordinate: CLLocationCoordinate2D) {
+    guard isUploadSheetPresented else { return }
+
+    guard isCoordinateInsideBoundary(coordinate) else {
+      AccessibilityCaptionCenter.shared.announce(
+        "Selected location is outside the project boundary. Please tap inside the boundary area."
+      )
+      return
+    }
+
+    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    uploadCoordinatesText = String(format: "%.6f, %.6f", coordinate.latitude, coordinate.longitude)
+    AccessibilityCaptionCenter.shared.announce(
+      "Coordinate updated to \(uploadCoordinatesText).",
+      soundDescription: "Map tap"
+    )
+  }
 
   func presentInitialSheet() {
     isUploadSheetPresented = false

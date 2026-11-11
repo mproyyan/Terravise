@@ -343,6 +343,11 @@ struct CPTUploadDataSheetView: View {
             lineWidth: contrast == .increased ? 1.5 : 1
           )
       )
+      .accessibilityHint("Enter coordinates manually or tap inside the boundary area on the map")
+
+      Text("Tap inside the boundary area on the map to set coordinate.")
+        .font(.caption)
+        .foregroundStyle(Color.secondary)
     }
   }
 
