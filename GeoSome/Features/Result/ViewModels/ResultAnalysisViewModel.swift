@@ -13,7 +13,7 @@ struct GeotechnicalConcernItem: Identifiable, Equatable, Sendable {
 @MainActor
 @Observable
 final class ResultAnalysisViewModel {
-  static let collapsedSheetDetent: PresentationDetent = .height(68)
+  static let collapsedSheetDetent: PresentationDetent = .height(74)
   static let defaultSheetDetent: PresentationDetent = .height(460)
   static let expandedSheetDetent: PresentationDetent = .height(680)
 
@@ -195,16 +195,17 @@ final class ResultAnalysisViewModel {
 
   func openLeftSheet() {
     isProfilePopoverPresented = false
+    selectedSheetDetent = .large
     isLeftSheetPresented = true
     AccessibilityCaptionCenter.shared.announce("Subsurface Conditions sheet opened.")
   }
 
   func toggleLeftSheet() {
-    if isLeftSheetPresented {
-      isLeftSheetPresented = false
-      AccessibilityCaptionCenter.shared.announce("Subsurface Conditions sheet closed.")
-    } else {
+    if selectedSheetDetent == Self.collapsedSheetDetent {
       openLeftSheet()
+    } else {
+      selectedSheetDetent = Self.collapsedSheetDetent
+      AccessibilityCaptionCenter.shared.announce("Subsurface Conditions sheet collapsed.")
     }
   }
 
@@ -212,6 +213,7 @@ final class ResultAnalysisViewModel {
     selectedTab = tab
     if tab == .threeDLayer {
       isLeftSheetPresented = true
+      selectedSheetDetent = .large
     } else {
       isLeftSheetPresented = false
     }
@@ -227,6 +229,7 @@ final class ResultAnalysisViewModel {
     selectedVoxel = nil
     selectedPipePosition3D = nil
     isProfilePopoverPresented = false
+    selectedSheetDetent = .large
     AccessibilityCaptionCenter.shared.announce("3D view and slicing reset.")
   }
 
@@ -266,9 +269,11 @@ final class ResultAnalysisViewModel {
     profilePopoverLocation = screenPoint
     selectedPipePosition3D = local3DPoint
 
-    // Dismiss the left sheet so the screen is clear and popover has full visibility
-    let wasSheetPresented = isLeftSheetPresented
-    isLeftSheetPresented = false
+    // Collapse the left sheet to its peek detent instead of dismissing it completely.
+    // This leaves the 3D model and popover unobstructed, while keeping the sheet visible
+    // just slightly at the bottom so the user can easily drag it back up anytime.
+    selectedSheetDetent = Self.collapsedSheetDetent
+    isLeftSheetPresented = true
 
     // Set CPT point details
     if let voxel {
@@ -288,17 +293,9 @@ final class ResultAnalysisViewModel {
       selectedCPTPointLongitude = "106.845321"
     }
 
-    // Present the native popover
-    if wasSheetPresented {
-      Task { @MainActor in
-        try? await Task.sleep(for: .milliseconds(280))
-        isProfilePopoverPresented = true
-        AccessibilityCaptionCenter.shared.announce("Showing \(selectedCPTPointTitle) SBT profile popover.")
-      }
-    } else {
-      isProfilePopoverPresented = true
-      AccessibilityCaptionCenter.shared.announce("Showing \(selectedCPTPointTitle) SBT profile popover.")
-    }
+    // Present the native popover immediately
+    isProfilePopoverPresented = true
+    AccessibilityCaptionCenter.shared.announce("Showing \(selectedCPTPointTitle) SBT profile popover.")
   }
 
   private func findClosestCPTPoint(to voxel: SoilVoxel) -> (title: String, latitude: String, longitude: String)? {

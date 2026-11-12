@@ -2,32 +2,15 @@ import SwiftUI
 
 struct ResultToolbarContent: ToolbarContent {
   var selectedTab: ResultAnalysisTab
-  var isLeftSheetPresented: Bool = false
   var onSelectTab: (ResultAnalysisTab) -> Void
-  var onToggleLeftSheet: (() -> Void)? = nil
 
   @Environment(\.colorSchemeContrast) private var contrast
   @ScaledMetric(relativeTo: .subheadline) private var pillHeight: CGFloat = 36
 
   var body: some ToolbarContent {
-    // Leading: Sidebar toggle button + "Back to Recommendation Page"
+    // Leading: "Back to Recommendation Page" next to native back button
     ToolbarItem(placement: .topBarLeading) {
-      HStack(spacing: 12) {
-        if selectedTab == .threeDLayer, let onToggleLeftSheet {
-          Button(action: onToggleLeftSheet) {
-            Image(systemName: "sidebar.left")
-              .font(.body.weight(.medium))
-              .foregroundStyle(Color.primary)
-              .frame(width: 32, height: 32)
-              .background(
-                Circle()
-                  .fill(Color(.secondarySystemFill).opacity(0.6))
-              )
-          }
-          .buttonStyle(.plain)
-          .accessibilityLabel(isLeftSheetPresented ? "Hide Subsurface Conditions" : "Show Subsurface Conditions")
-        }
-
+      HStack(spacing: 4) {
         Text("Back to Recommendation Page")
           .font(.headline)
           .foregroundStyle(Color.primary)

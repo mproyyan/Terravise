@@ -100,37 +100,6 @@ struct ResultAnalysisView: View {
           .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
         }
       }
-      // Top-Leading: Floating "Subsurface Conditions" button when sheet is hidden
-      .overlay(alignment: .topLeading) {
-        if !viewModel.isLeftSheetPresented && viewModel.selectedTab == .threeDLayer {
-          Button {
-            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) {
-              viewModel.openLeftSheet()
-            }
-          } label: {
-            HStack(spacing: 8) {
-              Image(systemName: "sidebar.left")
-                .font(.subheadline.weight(.semibold))
-              Text("Subsurface Conditions")
-                .font(.subheadline.weight(.medium))
-            }
-            .foregroundStyle(Color.primary)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .background(.ultraThinMaterial, in: Capsule())
-            .overlay(
-              Capsule()
-                .stroke(Color.primary.opacity(0.12), lineWidth: 1)
-            )
-            .shadow(color: Color.black.opacity(0.1), radius: 8, x: 0, y: 3)
-          }
-          .buttonStyle(.plain)
-          .padding(.leading, 20)
-          .padding(.top, 16)
-          .transition(reduceMotion ? .opacity : .move(edge: .leading).combined(with: .opacity))
-          .accessibilityLabel("Open Subsurface Conditions sheet")
-        }
-      }
       // Bottom-Trailing: Layer & Slicing Sheet/Card (Map Legend omitted as requested)
       .overlay(alignment: .bottomTrailing) {
         if viewModel.selectedTab == .threeDLayer {
@@ -198,15 +167,9 @@ struct ResultAnalysisView: View {
     .toolbar {
       ResultToolbarContent(
         selectedTab: viewModel.selectedTab,
-        isLeftSheetPresented: viewModel.isLeftSheetPresented,
         onSelectTab: { tab in
           withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
             viewModel.selectTab(tab)
-          }
-        },
-        onToggleLeftSheet: {
-          withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) {
-            viewModel.toggleLeftSheet()
           }
         }
       )

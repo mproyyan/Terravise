@@ -208,30 +208,72 @@ struct ResultSubsurfaceRealityView: View {
         .simultaneousGesture(zoomMagnifyGesture)
         .simultaneousGesture(targetedSurfaceTapGesture)
         .simultaneousGesture(analyticTapGesture(in: proxy.size))
-        .popover(
-          isPresented: $isProfilePopoverPresented,
-          attachmentAnchor: .point(
-            UnitPoint(
-              x: max(min((profilePopoverLocation?.x ?? (proxy.size.width * 0.5)) / max(proxy.size.width, 1), 1), 0),
-              y: max(min((profilePopoverLocation?.y ?? (proxy.size.height * 0.4)) / max(proxy.size.height, 1), 1), 0)
-            )
-          ),
-          arrowEdge: popoverArrowEdge(for: profilePopoverLocation, in: proxy.size)
-        ) {
+
+        // Background tap-to-dismiss layer when popover is visible
+        if isProfilePopoverPresented {
+          Color.clear
+            .contentShape(Rectangle())
+            .ignoresSafeArea()
+            .onTapGesture {
+              withAnimation(.easeInOut(duration: 0.2)) {
+                isProfilePopoverPresented = false
+              }
+            }
+        }
+
+        // Native-looking Popover Overlay (Zero UIKit modal conflict with the left sheet)
+        if isProfilePopoverPresented, let tapLoc = profilePopoverLocation {
+          let popoverWidth: CGFloat = min(348, proxy.size.width - 32)
+          let popoverHeight: CGFloat = 370
+          let arrowEdge: Edge = tapLoc.x >= (proxy.size.width * 0.45) ? .trailing : .leading
+
+          let originX: CGFloat = arrowEdge == .trailing
+            ? max(tapLoc.x - popoverWidth - 6, 16)
+            : min(tapLoc.x + 6, proxy.size.width - popoverWidth - 16)
+
+          let rawOriginY = tapLoc.y - (popoverHeight * 0.35)
+          let clampedOriginY = min(max(rawOriginY, 70), max(proxy.size.height - popoverHeight - 90, 70))
+          let localArrowY = min(max(tapLoc.y - clampedOriginY, 32), popoverHeight - 32)
+
           CPTPointProfilePopoverView(
             pointTitle: popoverTitle,
             latitudeText: popoverLatitude,
-            longitudeText: popoverLongitude
+            longitudeText: popoverLongitude,
+            onClose: {
+              withAnimation(.easeInOut(duration: 0.2)) {
+                isProfilePopoverPresented = false
+              }
+            }
           )
-          .presentationCompactAdaptation(.popover)
+          .padding(18)
+          .frame(width: popoverWidth)
+          .background {
+            PopoverBubbleShape(
+              arrowEdge: arrowEdge,
+              arrowY: localArrowY,
+              cornerRadius: 18,
+              arrowWidth: 16,
+              arrowHeight: 10
+            )
+            .fill(Color(.systemBackground).opacity(0.96))
+            .overlay {
+              PopoverBubbleShape(
+                arrowEdge: arrowEdge,
+                arrowY: localArrowY,
+                cornerRadius: 18,
+                arrowWidth: 16,
+                arrowHeight: 10
+              )
+              .stroke(Color.primary.opacity(0.12), lineWidth: 1)
+            }
+            .shadow(color: Color.black.opacity(0.18), radius: 18, x: 0, y: 6)
+          }
+          .position(x: originX + popoverWidth * 0.5, y: clampedOriginY + popoverHeight * 0.5)
+          .transition(.scale(scale: 0.95).combined(with: .opacity))
+          .zIndex(100)
         }
       }
     }
-  }
-
-  private func popoverArrowEdge(for point: CGPoint?, in size: CGSize) -> Edge {
-    guard let point else { return .trailing }
-    return point.x >= (size.width * 0.45) ? .trailing : .leading
   }
 
   // MARK: - Gestures (Orbit, Zoom, and Mathematical Analytic Raycast Picking)
@@ -551,5 +593,70 @@ struct ResultSubsurfaceRealityView: View {
     )
     let mat = UnlitMaterial(color: color)
     return ModelEntity(mesh: mesh, materials: [mat])
+  }
+}
+
+// MARK: - Native-styled Popover Pointer Bubble Shape
+
+struct PopoverBubbleShape: Shape {
+  var arrowEdge: Edge = .trailing
+  var arrowY: CGFloat
+  var cornerRadius: CGFloat = 18
+  var arrowWidth: CGFloat = 16
+  var arrowHeight: CGFloat = 10
+
+  func path(in rect: CGRect) -> Path {
+    var path = Path()
+    let minX = arrowEdge == .leading ? rect.minX + arrowHeight : rect.minX
+    let maxX = arrowEdge == .trailing ? rect.maxX - arrowHeight : rect.maxX
+    let minY = rect.minY
+    let maxY = rect.maxY
+    let clampedArrowY = min(max(arrowY, minY + cornerRadius + arrowWidth * 0.5), maxY - cornerRadius - arrowWidth * 0.5)
+
+    path.move(to: CGPoint(x: minX + cornerRadius, y: minY))
+    path.addLine(to: CGPoint(x: maxX - cornerRadius, y: minY))
+    path.addArc(
+      center: CGPoint(x: maxX - cornerRadius, y: minY + cornerRadius),
+      radius: cornerRadius,
+      startAngle: .degrees(-90),
+      endAngle: .degrees(0),
+      clockwise: false
+    )
+    if arrowEdge == .trailing {
+      path.addLine(to: CGPoint(x: maxX, y: clampedArrowY - arrowWidth * 0.5))
+      path.addLine(to: CGPoint(x: rect.maxX, y: clampedArrowY))
+      path.addLine(to: CGPoint(x: maxX, y: clampedArrowY + arrowWidth * 0.5))
+    }
+    path.addLine(to: CGPoint(x: maxX, y: maxY - cornerRadius))
+    path.addArc(
+      center: CGPoint(x: maxX - cornerRadius, y: maxY - cornerRadius),
+      radius: cornerRadius,
+      startAngle: .degrees(0),
+      endAngle: .degrees(90),
+      clockwise: false
+    )
+    path.addLine(to: CGPoint(x: minX + cornerRadius, y: maxY))
+    path.addArc(
+      center: CGPoint(x: minX + cornerRadius, y: maxY - cornerRadius),
+      radius: cornerRadius,
+      startAngle: .degrees(90),
+      endAngle: .degrees(180),
+      clockwise: false
+    )
+    if arrowEdge == .leading {
+      path.addLine(to: CGPoint(x: minX, y: clampedArrowY + arrowWidth * 0.5))
+      path.addLine(to: CGPoint(x: rect.minX, y: clampedArrowY))
+      path.addLine(to: CGPoint(x: minX, y: clampedArrowY - arrowWidth * 0.5))
+    }
+    path.addLine(to: CGPoint(x: minX, y: minY + cornerRadius))
+    path.addArc(
+      center: CGPoint(x: minX + cornerRadius, y: minY + cornerRadius),
+      radius: cornerRadius,
+      startAngle: .degrees(180),
+      endAngle: .degrees(270),
+      clockwise: false
+    )
+    path.closeSubpath()
+    return path
   }
 }

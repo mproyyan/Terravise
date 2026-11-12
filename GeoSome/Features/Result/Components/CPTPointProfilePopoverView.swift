@@ -15,6 +15,7 @@ struct CPTPointProfilePopoverView: View {
   var latitudeText: String
   var longitudeText: String
   var layers: [SBTProfileLayerItem]
+  var onClose: (() -> Void)? = nil
 
   @Environment(\.colorSchemeContrast) private var contrast
 
@@ -65,21 +66,37 @@ struct CPTPointProfilePopoverView: View {
     pointTitle: String = "CPT Point-01",
     latitudeText: String = "-6.215432",
     longitudeText: String = "106.845321",
-    layers: [SBTProfileLayerItem] = defaultLayers
+    layers: [SBTProfileLayerItem] = defaultLayers,
+    onClose: (() -> Void)? = nil
   ) {
     self.pointTitle = pointTitle
     self.latitudeText = latitudeText
     self.longitudeText = longitudeText
     self.layers = layers
+    self.onClose = onClose
   }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
-      // Point Title
-      Text(pointTitle)
-        .font(.title3.weight(.bold))
-        .foregroundStyle(Color.primary)
-        .accessibilityAddTraits(.isHeader)
+      // Header: Point Title + Close Button
+      HStack {
+        Text(pointTitle)
+          .font(.title3.weight(.bold))
+          .foregroundStyle(Color.primary)
+          .accessibilityAddTraits(.isHeader)
+
+        Spacer()
+
+        if let onClose {
+          Button(action: onClose) {
+            Image(systemName: "xmark.circle.fill")
+              .font(.title3)
+              .foregroundStyle(Color.secondary.opacity(0.8))
+          }
+          .buttonStyle(.plain)
+          .accessibilityLabel("Close profile popover")
+        }
+      }
 
       // Latitude & Longitude Info Cards
       HStack(spacing: 12) {
