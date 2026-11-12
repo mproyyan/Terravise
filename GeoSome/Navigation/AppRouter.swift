@@ -46,6 +46,8 @@ extension View {
         BoundaryCreationView(editingProjectId: id)
       case let .projectDetail(id):
         CPTRecommendationView(projectId: id)
+      case let .resultAnalysis(id):
+        ResultAnalysisView(projectId: id)
       }
     }
   }

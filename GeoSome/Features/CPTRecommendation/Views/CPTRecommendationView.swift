@@ -239,6 +239,8 @@ struct CPTRecommendationView: View {
         },
         onViewAnalysis3DTap: {
           viewModel.viewAnalysis3D()
+          viewModel.dismissSheet()
+          router.navigate(to: .resultAnalysis(id: viewModel.project.id))
         }
       )
     }
