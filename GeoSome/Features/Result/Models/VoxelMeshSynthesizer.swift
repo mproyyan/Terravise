@@ -575,6 +575,50 @@ enum VoxelMeshSynthesizer {
 
   // MARK: - Mathematical Screen-to-Grid Raycasting (Zero Physics Engine Overhead)
 
+  /// Resolves the surface voxel and indicates whether the tap occurred specifically on the top surface plane (`Y = 0`).
+  static func pickSurfaceVoxelWithFace(
+    rayOrigin: SIMD3<Float>,
+    rayDirection: SIMD3<Float>,
+    volume: SubsurfaceVoxelVolume,
+    maxSliceX: Int,
+    maxSliceZ: Int
+  ) -> (voxel: SoilVoxel, isTopSurface: Bool, hitPoint: SIMD3<Float>)? {
+    let dir = simd_normalize(rayDirection)
+
+    // 1. Analytical intersection with top plane Y = 0:
+    if abs(dir.y) > 1e-5 {
+      let tTop = -rayOrigin.y / dir.y
+      if tTop > 0 {
+        let hitPoint = rayOrigin + tTop * dir
+        let xGrid = Int((hitPoint.x + volume.centerX).rounded())
+        let zGrid = Int((hitPoint.z + volume.centerZ).rounded())
+
+        if xGrid >= 0, xGrid <= maxSliceX,
+           zGrid >= 0, zGrid <= maxSliceZ
+        {
+          let surfaceCoord = GridCoord(x: xGrid, y: volume.ny - 1, z: zGrid)
+          if let voxel = volume.voxels[surfaceCoord] {
+            return (voxel: voxel, isTopSurface: true, hitPoint: SIMD3<Float>(hitPoint.x, 0.0, hitPoint.z))
+          }
+        }
+      }
+    }
+
+    // 2. Fallback: Ray-box slab intersection with the sliced 3D bounding box for side-wall taps
+    if let voxel = pickSurfaceVoxel(
+      rayOrigin: rayOrigin,
+      rayDirection: rayDirection,
+      volume: volume,
+      maxSliceX: maxSliceX,
+      maxSliceZ: maxSliceZ
+    ) {
+      let pos = volume.worldPosition(for: voxel.coord)
+      return (voxel: voxel, isTopSurface: voxel.coord.y == volume.ny - 1, hitPoint: pos)
+    }
+
+    return nil
+  }
+
   /// Analytically intersects a ray in the voxel root entity's local space with the top surface plane `Y = 0`
   /// (and active sliced volume bounds), resolving the discrete `SoilVoxel` in `O(1)` time from `[GridCoord: SoilVoxel]`.
   static func pickSurfaceVoxel(

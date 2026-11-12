@@ -60,12 +60,23 @@ struct ResultAnalysisView: View {
             maxSliceX: viewModel.maxSliceXIndex,
             maxSliceZ: viewModel.maxSliceZIndex,
             selectedVoxel: viewModel.selectedVoxel,
+            selectedPipePosition3D: viewModel.selectedPipePosition3D,
             cameraYaw: $viewModel.cameraYaw,
             cameraPitch: $viewModel.cameraPitch,
             cameraZoom: $viewModel.cameraZoom,
+            isProfilePopoverPresented: $viewModel.isProfilePopoverPresented,
+            profilePopoverLocation: $viewModel.profilePopoverLocation,
+            popoverTitle: viewModel.selectedCPTPointTitle,
+            popoverLatitude: viewModel.selectedCPTPointLatitude,
+            popoverLongitude: viewModel.selectedCPTPointLongitude,
             onSelectVoxel: { voxel in
               withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
                 viewModel.handleVoxelSelection(voxel)
+              }
+            },
+            onTapTopSurface: { screenPoint, hit3D, voxel in
+              withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
+                viewModel.handleTopSurfaceTap(at: screenPoint, local3DPoint: hit3D, voxel: voxel)
               }
             }
           )
@@ -87,6 +98,37 @@ struct ResultAnalysisView: View {
           .padding(.horizontal, 16)
           .padding(.top, 8)
           .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
+        }
+      }
+      // Top-Leading: Floating "Subsurface Conditions" button when sheet is hidden
+      .overlay(alignment: .topLeading) {
+        if !viewModel.isLeftSheetPresented && viewModel.selectedTab == .threeDLayer {
+          Button {
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) {
+              viewModel.openLeftSheet()
+            }
+          } label: {
+            HStack(spacing: 8) {
+              Image(systemName: "sidebar.left")
+                .font(.subheadline.weight(.semibold))
+              Text("Subsurface Conditions")
+                .font(.subheadline.weight(.medium))
+            }
+            .foregroundStyle(Color.primary)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(.ultraThinMaterial, in: Capsule())
+            .overlay(
+              Capsule()
+                .stroke(Color.primary.opacity(0.12), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.1), radius: 8, x: 0, y: 3)
+          }
+          .buttonStyle(.plain)
+          .padding(.leading, 20)
+          .padding(.top, 16)
+          .transition(reduceMotion ? .opacity : .move(edge: .leading).combined(with: .opacity))
+          .accessibilityLabel("Open Subsurface Conditions sheet")
         }
       }
       // Bottom-Trailing: Layer & Slicing Sheet/Card (Map Legend omitted as requested)
@@ -156,9 +198,15 @@ struct ResultAnalysisView: View {
     .toolbar {
       ResultToolbarContent(
         selectedTab: viewModel.selectedTab,
+        isLeftSheetPresented: viewModel.isLeftSheetPresented,
         onSelectTab: { tab in
           withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
             viewModel.selectTab(tab)
+          }
+        },
+        onToggleLeftSheet: {
+          withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) {
+            viewModel.toggleLeftSheet()
           }
         }
       )

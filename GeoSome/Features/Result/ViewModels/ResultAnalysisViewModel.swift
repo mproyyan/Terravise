@@ -77,9 +77,17 @@ final class ResultAnalysisViewModel {
 
   // Interactive Voxel Selection & Camera Orbit State
   var selectedVoxel: SoilVoxel?
+  var selectedPipePosition3D: SIMD3<Float>?
   var cameraYaw: Float = ResultAnalysisViewModel.defaultCameraYaw
   var cameraPitch: Float = ResultAnalysisViewModel.defaultCameraPitch
   var cameraZoom: Float = ResultAnalysisViewModel.defaultCameraZoom
+
+  // Popover State for Tapping the Top of the 3D Object
+  var isProfilePopoverPresented: Bool = false
+  var profilePopoverLocation: CGPoint?
+  var selectedCPTPointTitle: String = "CPT Point-01"
+  var selectedCPTPointLatitude: String = "-6.215432"
+  var selectedCPTPointLongitude: String = "106.845321"
 
   var displayedCPTPointsCount: Int {
     if isSubsurfaceConditionsEmpty {
@@ -185,6 +193,21 @@ final class ResultAnalysisViewModel {
     isLeftSheetPresented = false
   }
 
+  func openLeftSheet() {
+    isProfilePopoverPresented = false
+    isLeftSheetPresented = true
+    AccessibilityCaptionCenter.shared.announce("Subsurface Conditions sheet opened.")
+  }
+
+  func toggleLeftSheet() {
+    if isLeftSheetPresented {
+      isLeftSheetPresented = false
+      AccessibilityCaptionCenter.shared.announce("Subsurface Conditions sheet closed.")
+    } else {
+      openLeftSheet()
+    }
+  }
+
   func selectTab(_ tab: ResultAnalysisTab) {
     selectedTab = tab
     if tab == .threeDLayer {
@@ -202,12 +225,15 @@ final class ResultAnalysisViewModel {
     cameraPitch = Self.defaultCameraPitch
     cameraZoom = Self.defaultCameraZoom
     selectedVoxel = nil
+    selectedPipePosition3D = nil
+    isProfilePopoverPresented = false
     AccessibilityCaptionCenter.shared.announce("3D view and slicing reset.")
   }
 
   func handleVoxelSelection(_ voxel: SoilVoxel?) {
     if selectedVoxel == voxel {
       selectedVoxel = nil
+      selectedPipePosition3D = nil
     } else {
       selectedVoxel = voxel
       if let voxel {
@@ -231,6 +257,71 @@ final class ResultAnalysisViewModel {
   func clearHighlight() {
     selectedConcernID = nil
     selectedVoxel = nil
+    selectedPipePosition3D = nil
+    isProfilePopoverPresented = false
     AccessibilityCaptionCenter.shared.announce("Cleared geotechnical concern highlight.")
+  }
+
+  func handleTopSurfaceTap(at screenPoint: CGPoint, local3DPoint: SIMD3<Float>?, voxel: SoilVoxel?) {
+    profilePopoverLocation = screenPoint
+    selectedPipePosition3D = local3DPoint
+
+    // Dismiss the left sheet so the screen is clear and popover has full visibility
+    let wasSheetPresented = isLeftSheetPresented
+    isLeftSheetPresented = false
+
+    // Set CPT point details
+    if let voxel {
+      selectedVoxel = voxel
+      if let closest = findClosestCPTPoint(to: voxel) {
+        selectedCPTPointTitle = closest.title
+        selectedCPTPointLatitude = closest.latitude
+        selectedCPTPointLongitude = closest.longitude
+      } else {
+        selectedCPTPointTitle = "CPT Point-01"
+        selectedCPTPointLatitude = String(format: "%.6f", voxel.latitude)
+        selectedCPTPointLongitude = String(format: "%.6f", voxel.longitude)
+      }
+    } else {
+      selectedCPTPointTitle = "CPT Point-01"
+      selectedCPTPointLatitude = "-6.215432"
+      selectedCPTPointLongitude = "106.845321"
+    }
+
+    // Present the native popover
+    if wasSheetPresented {
+      Task { @MainActor in
+        try? await Task.sleep(for: .milliseconds(280))
+        isProfilePopoverPresented = true
+        AccessibilityCaptionCenter.shared.announce("Showing \(selectedCPTPointTitle) SBT profile popover.")
+      }
+    } else {
+      isProfilePopoverPresented = true
+      AccessibilityCaptionCenter.shared.announce("Showing \(selectedCPTPointTitle) SBT profile popover.")
+    }
+  }
+
+  private func findClosestCPTPoint(to voxel: SoilVoxel) -> (title: String, latitude: String, longitude: String)? {
+    guard !project.cptPoints.isEmpty else { return nil }
+
+    var bestIndex = 0
+    var bestDist = Double.greatestFiniteMagnitude
+
+    for (index, point) in project.cptPoints.enumerated() {
+      let dLat = point.coordinate.latitude - voxel.latitude
+      let dLon = point.coordinate.longitude - voxel.longitude
+      let dist = (dLat * dLat) + (dLon * dLon)
+      if dist < bestDist {
+        bestDist = dist
+        bestIndex = index
+      }
+    }
+
+    let point = project.cptPoints[bestIndex]
+    return (
+      title: String(format: "CPT Point-%02d", bestIndex + 1),
+      latitude: point.formattedLatitude,
+      longitude: point.formattedLongitude
+    )
   }
 }
