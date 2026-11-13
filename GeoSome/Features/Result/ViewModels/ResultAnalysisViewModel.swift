@@ -19,7 +19,7 @@ final class ResultAnalysisViewModel {
 
   static let defaultCameraYaw: Float = -0.54
   static let defaultCameraPitch: Float = 0.34
-  static let defaultCameraZoom: Float = 1.35
+    static let defaultCameraZoom: Float = 2.5
 
   static let defaultBearingCameraYaw: Float = -0.05
   static let defaultBearingCameraPitch: Float = 0.68
