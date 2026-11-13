@@ -59,10 +59,28 @@ enum VoxelMeshSynthesizer {
     }
     let ny = 20 // 20 vertical strata subdivisions
 
+    // SchemaGAN 3D reconstruction when CPT points exist
+    let schemaGrid: CPTGridConfig?
+    let schemaRecon: SchemaGANReconstructionOutput?
+    if !cptPoints.isEmpty {
+      let g = CPTGridConfig.build(boundaryCoordinates: polygon, cptPoints: cptPoints)
+      schemaGrid = g
+      schemaRecon = SchemaGANService.reconstruct(cptPoints: cptPoints, grid: g)
+    } else {
+      schemaGrid = nil
+      schemaRecon = nil
+    }
+
     let stepXM = Float(rawWidthM) / Float(max(nx - 1, 1))
     let stepZM = Float(rawLengthM) / Float(max(nz - 1, 1))
     let maxObservedDepth = cptPoints.flatMap(\.rows).map(\.depth).max() ?? 15.0
-    let totalDepthM = Float(max(maxObservedDepth, 12.0))
+    let totalDepthM: Float
+    if let g = schemaGrid {
+      let gridDepthM = Double(max(g.nz - 1, 1)) * g.dzM
+      totalDepthM = Float(max(gridDepthM, maxObservedDepth, 5.0))
+    } else {
+      totalDepthM = Float(max(maxObservedDepth, 12.0))
+    }
     let stepYM = totalDepthM / Float(ny)
 
     // Project boundary vertices into normalized UV [0 ... 1] and grid space [0 ... nx-1] x [0 ... nz-1]
@@ -98,18 +116,6 @@ enum VoxelMeshSynthesizer {
       }
     }
 
-    // Optional SchemaGAN reconstruction when CPT points exist
-    let schemaGrid: CPTGridConfig?
-    let schemaRecon: SchemaGANReconstructionOutput?
-    if !cptPoints.isEmpty {
-      let g = CPTGridConfig.build(boundaryCoordinates: polygon, cptPoints: cptPoints)
-      schemaGrid = g
-      schemaRecon = SchemaGANService.reconstruct(cptPoints: cptPoints, grid: g)
-    } else {
-      schemaGrid = nil
-      schemaRecon = nil
-    }
-
     let centerX = Float(nx - 1) * 0.5
     let centerZ = Float(nz - 1) * 0.5
 
@@ -125,75 +131,138 @@ enum VoxelMeshSynthesizer {
 
       for iz in 0 ..< nz where activeColumns[ix][iz] {
         let fz = Double(iz) / Double(max(nz - 1, 1))
+        let fy = 1.0 - fz // South (0.0) -> North (1.0) in SchemaGAN grid space
         let lat = maxLat - fz * (maxLat - minLat)
 
-        // Compute undulating geological horizon offsets across (fx, fz) so strata dip & wave naturally
-        let wave1 = sin(fx * .pi * 2.1 + fz * 1.4) * 0.055
-        let wave2 = cos(fz * .pi * 1.8 - fx * 1.1) * 0.045
-        let dip = (fx * 0.06) - (fz * 0.04)
-
-        // Map to SchemaGAN indices if available
-        var reconBias = 0.0
         if let g = schemaGrid, let r = schemaRecon {
-          let gx = min(max(Int((fx * Double(g.nx - 1)).rounded()), 0), g.nx - 1)
-          let gy = min(max(Int(((1.0 - fz) * Double(g.ny - 1)).rounded()), 0), g.ny - 1)
-          let midZ = g.nz / 2
-          let icSample = r.reconstructedIc[gx][gy][midZ]
-          reconBias = (icSample - 2.65) * 0.04
-        }
+          // 1. Sample full vertical SchemaGAN Ic profile for this (ix, iz) column
+          var columnIcs = [Double](repeating: 2.5, count: ny)
+          var firstBearingDepthM: Float?
+          var minColumnIc = Double.greatestFiniteMagnitude
+          var minColumnIcDepthM: Float = totalDepthM * 0.5
 
-        let horizonShift = wave1 + wave2 + dip + reconBias
+          for depthIndexFromTop in 0 ..< ny {
+            let normalizedDepth = (Double(depthIndexFromTop) + 0.5) / Double(ny)
+            let icVal = sampleReconstructedIc(
+              recon: r.reconstructedIc,
+              grid: g,
+              fx: fx,
+              fy: fy,
+              fzDepth: normalizedDepth
+            )
+            columnIcs[depthIndexFromTop] = icVal
+            let centerDepthM = (Float(depthIndexFromTop) + 0.5) * stepYM
+            if icVal < minColumnIc {
+              minColumnIc = icVal
+              minColumnIcDepthM = centerDepthM
+            }
+            if firstBearingDepthM == nil, icVal <= 2.05 {
+              firstBearingDepthM = centerDepthM
+            }
+          }
 
-        // Compute per-1m² voxel Bearing Layer depth (m) and geotechnical criteria at (ix, iz)
-        let uNorm = Float(fx)
-        let vNorm = Float(fz)
-        let rawDepthRatio = evaluateBearingDepthRatio(u: uNorm, v: vNorm, bias: Float(reconBias))
-        let predictedBearingDepthM = 2.7 + rawDepthRatio * (4.9 - 2.7)
-        let colCoord = ColumnCoord(x: ix, z: iz)
-        bearingVoxels[colCoord] = BearingLayerVoxel(
-          coord: colCoord,
-          latitude: lat,
-          longitude: lon,
-          bearingDepthM: predictedBearingDepthM,
-          normalizedDepthRatio: rawDepthRatio,
-          coneResistanceMPa: 15.0 + (1.0 - rawDepthRatio) * 9.5,
-          soilBehaviorIndexIc: 1.42 + rawDepthRatio * 0.36,
-          layerThicknessM: 1.1 + (1.0 - rawDepthRatio) * 1.4,
-          uncertaintyPercent: 9.0 + vNorm * 6.0
-        )
+          let midIc = columnIcs[ny / 2]
+          let reconBias = (midIc - 2.65) * 0.04
+          let uNorm = Float(fx)
+          let vNorm = Float(fz)
+          let fallbackRatio = evaluateBearingDepthRatio(u: uNorm, v: vNorm, bias: Float(reconBias))
+          let predictedBearingDepthM = firstBearingDepthM
+            ?? min(max(minColumnIcDepthM, 2.7), max(totalDepthM * 0.85, 4.9))
+          let normalizedBearingRatio = min(max((predictedBearingDepthM - 2.7) / max(totalDepthM - 2.7, 2.2), 0.0), 1.0)
+          let blendedRatio = 0.65 * normalizedBearingRatio + 0.35 * fallbackRatio
 
-        // Populate vertical column from y = 0 (bottom bedrock) to y = ny - 1 (top surface Y = 0)
-        for iy in 0 ..< ny {
-          // layerIdxFromTop: 0 at surface (iy == ny - 1), ny - 1 at bottom (iy == 0)
-          let depthIndexFromTop = (ny - 1) - iy
-          let normalizedDepth = (Double(depthIndexFromTop) + 0.5) / Double(ny)
-          let adjustedDepth = min(max(normalizedDepth + horizonShift, 0.0), 0.999)
-
-          // Map adjusted depth into the 8 stratified geotechnical layers (matching reference visual)
-          let soilType = stratifiedLayer(forAdjustedDepth: adjustedDepth)
-          let topDepth = Float(depthIndexFromTop) * stepYM
-          let bottomDepth = Float(depthIndexFromTop + 1) * stepYM
-
-          // Compute Robertson Ic consistent with the layer
-          let synthesizedIc = Float(3.65 - adjustedDepth * 2.15)
-          let coord = GridCoord(x: ix, y: iy, z: iz)
-
-          let voxel = SoilVoxel(
-            coord: coord,
+          let colCoord = ColumnCoord(x: ix, z: iz)
+          bearingVoxels[colCoord] = BearingLayerVoxel(
+            coord: colCoord,
             latitude: lat,
             longitude: lon,
-            topDepthM: topDepth,
-            bottomDepthM: bottomDepth,
-            layerIdx: depthIndexFromTop,
-            soilClassification: soilType,
-            robertsonIc: synthesizedIc,
-            moisturePercent: soilType.typicalMoisturePercent,
-            bearingCapacityKPa: soilType.typicalBearingCapacityKPa,
-            bearingLayerDepthM: predictedBearingDepthM
+            bearingDepthM: predictedBearingDepthM,
+            normalizedDepthRatio: blendedRatio,
+            coneResistanceMPa: 15.0 + (1.0 - blendedRatio) * 9.5,
+            soilBehaviorIndexIc: Float(min(max(minColumnIc, 1.30), 2.20)),
+            layerThicknessM: 1.1 + (1.0 - blendedRatio) * 1.4,
+            uncertaintyPercent: 9.0 + vNorm * 6.0
           )
 
-          voxels[coord] = voxel
-          flatMaterialGrid[(ix * nz * ny) + (iz * ny) + iy] = Int16(soilType.rawValue)
+          // 2. Populate vertical column directly from SchemaGAN 3D reconstructed Ic
+          for iy in 0 ..< ny {
+            let depthIndexFromTop = (ny - 1) - iy
+            let normalizedDepth = (Double(depthIndexFromTop) + 0.5) / Double(ny)
+            let voxelIc = columnIcs[depthIndexFromTop]
+            let soilType = SoilLayerType.fromRobertsonIc(voxelIc, depthRatio: normalizedDepth)
+            let topDepth = Float(depthIndexFromTop) * stepYM
+            let bottomDepth = Float(depthIndexFromTop + 1) * stepYM
+            let coord = GridCoord(x: ix, y: iy, z: iz)
+
+            let voxel = SoilVoxel(
+              coord: coord,
+              latitude: lat,
+              longitude: lon,
+              topDepthM: topDepth,
+              bottomDepthM: bottomDepth,
+              layerIdx: depthIndexFromTop,
+              soilClassification: soilType,
+              robertsonIc: Float(voxelIc),
+              moisturePercent: soilType.typicalMoisturePercent,
+              bearingCapacityKPa: soilType.typicalBearingCapacityKPa,
+              bearingLayerDepthM: predictedBearingDepthM
+            )
+
+            voxels[coord] = voxel
+            flatMaterialGrid[(ix * nz * ny) + (iz * ny) + iy] = Int16(soilType.rawValue)
+          }
+        } else {
+          // Fallback synthetic stratigraphy when no CPT points exist (e.g. Xcode Previews)
+          let wave1 = sin(fx * .pi * 2.1 + fz * 1.4) * 0.055
+          let wave2 = cos(fz * .pi * 1.8 - fx * 1.1) * 0.045
+          let dip = (fx * 0.06) - (fz * 0.04)
+          let horizonShift = wave1 + wave2 + dip
+
+          let uNorm = Float(fx)
+          let vNorm = Float(fz)
+          let rawDepthRatio = evaluateBearingDepthRatio(u: uNorm, v: vNorm, bias: 0.0)
+          let predictedBearingDepthM = 2.7 + rawDepthRatio * (4.9 - 2.7)
+          let colCoord = ColumnCoord(x: ix, z: iz)
+          bearingVoxels[colCoord] = BearingLayerVoxel(
+            coord: colCoord,
+            latitude: lat,
+            longitude: lon,
+            bearingDepthM: predictedBearingDepthM,
+            normalizedDepthRatio: rawDepthRatio,
+            coneResistanceMPa: 15.0 + (1.0 - rawDepthRatio) * 9.5,
+            soilBehaviorIndexIc: 1.42 + rawDepthRatio * 0.36,
+            layerThicknessM: 1.1 + (1.0 - rawDepthRatio) * 1.4,
+            uncertaintyPercent: 9.0 + vNorm * 6.0
+          )
+
+          for iy in 0 ..< ny {
+            let depthIndexFromTop = (ny - 1) - iy
+            let normalizedDepth = (Double(depthIndexFromTop) + 0.5) / Double(ny)
+            let adjustedDepth = min(max(normalizedDepth + horizonShift, 0.0), 0.999)
+
+            let soilType = stratifiedLayer(forAdjustedDepth: adjustedDepth)
+            let topDepth = Float(depthIndexFromTop) * stepYM
+            let bottomDepth = Float(depthIndexFromTop + 1) * stepYM
+            let synthesizedIc = Float(3.65 - adjustedDepth * 2.15)
+            let coord = GridCoord(x: ix, y: iy, z: iz)
+
+            let voxel = SoilVoxel(
+              coord: coord,
+              latitude: lat,
+              longitude: lon,
+              topDepthM: topDepth,
+              bottomDepthM: bottomDepth,
+              layerIdx: depthIndexFromTop,
+              soilClassification: soilType,
+              robertsonIc: synthesizedIc,
+              moisturePercent: soilType.typicalMoisturePercent,
+              bearingCapacityKPa: soilType.typicalBearingCapacityKPa,
+              bearingLayerDepthM: predictedBearingDepthM
+            )
+
+            voxels[coord] = voxel
+            flatMaterialGrid[(ix * nz * ny) + (iz * ny) + iy] = Int16(soilType.rawValue)
+          }
         }
       }
     }
@@ -1008,6 +1077,57 @@ enum VoxelMeshSynthesizer {
   }
 
   // MARK: - Helpers
+
+  /// Trilinearly interpolates `SchemaGAN` reconstructed $I_c$ (`[gx][gy][gz]`) at normalized coordinates:
+  /// - `fx`: West (`0.0`) -> East (`1.0`)
+  /// - `fy`: South (`0.0`) -> North (`1.0`)
+  /// - `fzDepth`: Surface (`0.0`) -> Bottom depth (`1.0`)
+  private static func sampleReconstructedIc(
+    recon: [[[Double]]],
+    grid: CPTGridConfig,
+    fx: Double,
+    fy: Double,
+    fzDepth: Double
+  ) -> Double {
+    let maxX = max(grid.nx - 1, 0)
+    let maxY = max(grid.ny - 1, 0)
+    let maxZ = max(grid.nz - 1, 0)
+
+    let x = min(max(fx, 0.0), 1.0) * Double(maxX)
+    let y = min(max(fy, 0.0), 1.0) * Double(maxY)
+    let z = min(max(fzDepth, 0.0), 1.0) * Double(maxZ)
+
+    let x0 = min(max(Int(floor(x)), 0), maxX)
+    let x1 = min(x0 + 1, maxX)
+    let tx = x - Double(x0)
+
+    let y0 = min(max(Int(floor(y)), 0), maxY)
+    let y1 = min(y0 + 1, maxY)
+    let ty = y - Double(y0)
+
+    let z0 = min(max(Int(floor(z)), 0), maxZ)
+    let z1 = min(z0 + 1, maxZ)
+    let tz = z - Double(z0)
+
+    let c000 = recon[x0][y0][z0]
+    let c100 = recon[x1][y0][z0]
+    let c010 = recon[x0][y1][z0]
+    let c110 = recon[x1][y1][z0]
+    let c001 = recon[x0][y0][z1]
+    let c101 = recon[x1][y0][z1]
+    let c011 = recon[x0][y1][z1]
+    let c111 = recon[x1][y1][z1]
+
+    let c00 = c000 * (1.0 - tx) + c100 * tx
+    let c10 = c010 * (1.0 - tx) + c110 * tx
+    let c01 = c001 * (1.0 - tx) + c101 * tx
+    let c11 = c011 * (1.0 - tx) + c111 * tx
+
+    let c0 = c00 * (1.0 - ty) + c10 * ty
+    let c1 = c01 * (1.0 - ty) + c11 * ty
+
+    return c0 * (1.0 - tz) + c1 * tz
+  }
 
   private static func stratifiedLayer(forAdjustedDepth d: Double) -> SoilLayerType {
     switch d {

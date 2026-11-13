@@ -17,6 +17,7 @@ struct ResultSubsurfaceRealityView: View {
   var popoverTitle: String = "CPT Point-01"
   var popoverLatitude: String = "-6.215432"
   var popoverLongitude: String = "106.845321"
+  var popoverLayers: [SBTProfileLayerItem] = CPTPointProfilePopoverView.defaultLayers
   var onSelectVoxel: (SoilVoxel?) -> Void
   var onTapTopSurface: ((CGPoint, SIMD3<Float>, SoilVoxel?) -> Void)? = nil
 
@@ -42,6 +43,7 @@ struct ResultSubsurfaceRealityView: View {
     popoverTitle: String = "CPT Point-01",
     popoverLatitude: String = "-6.215432",
     popoverLongitude: String = "106.845321",
+    popoverLayers: [SBTProfileLayerItem] = CPTPointProfilePopoverView.defaultLayers,
     onSelectVoxel: @escaping (SoilVoxel?) -> Void,
     onTapTopSurface: ((CGPoint, SIMD3<Float>, SoilVoxel?) -> Void)? = nil
   ) {
@@ -58,6 +60,7 @@ struct ResultSubsurfaceRealityView: View {
     self.popoverTitle = popoverTitle
     self.popoverLatitude = popoverLatitude
     self.popoverLongitude = popoverLongitude
+    self.popoverLayers = popoverLayers
     self.onSelectVoxel = onSelectVoxel
     self.onTapTopSurface = onTapTopSurface
   }
@@ -259,6 +262,7 @@ struct ResultSubsurfaceRealityView: View {
             pointTitle: popoverTitle,
             latitudeText: popoverLatitude,
             longitudeText: popoverLongitude,
+            layers: popoverLayers,
             onClose: {
               withAnimation(.easeInOut(duration: 0.2)) {
                 isProfilePopoverPresented = false

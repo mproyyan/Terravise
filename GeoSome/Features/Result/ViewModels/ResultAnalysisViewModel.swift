@@ -19,13 +19,13 @@ final class ResultAnalysisViewModel {
 
   static let defaultCameraYaw: Float = -0.54
   static let defaultCameraPitch: Float = 0.34
-  static let defaultCameraZoom: Float = 1.0
+  static let defaultCameraZoom: Float = 1.35
 
   static let defaultBearingCameraYaw: Float = -0.05
   static let defaultBearingCameraPitch: Float = 0.68
-  static let defaultBearingCameraZoom: Float = 1.0
+  static let defaultBearingCameraZoom: Float = 1.35
 
-  static let defaultConcerns: [GeotechnicalConcernItem] = [
+  nonisolated static let defaultConcerns: [GeotechnicalConcernItem] = [
     GeotechnicalConcernItem(
       id: "soft-sensitive-clay-lens",
       title: "Soft Sensitive Clay Lens (Consolidation Settlement)",
@@ -70,7 +70,7 @@ final class ResultAnalysisViewModel {
 
   // Left Sheet State & Subsurface Conditions Content
   var isLeftSheetPresented: Bool = false
-  var selectedSheetDetent: PresentationDetent = .large
+  var selectedSheetDetent: PresentationDetent = ResultAnalysisViewModel.collapsedSheetDetent
   var isSubsurfaceConditionsEmpty: Bool = false
   var isGeotechnicalConcernsEmpty: Bool = false
   var groundConditionsSummary: String =
@@ -108,6 +108,7 @@ final class ResultAnalysisViewModel {
   var selectedCPTPointTitle: String = "CPT Point-01"
   var selectedCPTPointLatitude: String = "-6.215432"
   var selectedCPTPointLongitude: String = "106.845321"
+  var selectedPopoverLayers: [SBTProfileLayerItem] = CPTPointProfilePopoverView.defaultLayers
 
   var displayedCPTPointsCount: Int {
     if isSubsurfaceConditionsEmpty {
@@ -140,6 +141,15 @@ final class ResultAnalysisViewModel {
     self.volume = builtVolume
     self.slicingXMeters = Double(builtVolume.widthXM)
     self.slicingYMeters = Double(builtVolume.lengthZM)
+
+    if let rec = resolvedProject.latestRecommendation {
+      let uncertainty = max(1, 100 - rec.confidenceLevel)
+      self.predictionUncertaintyPercent = uncertainty
+      self.relativeUncertaintyText = "± \(uncertainty)%"
+    }
+    if !resolvedProject.cptPoints.isEmpty {
+      updateBearingSummaryMetrics(from: builtVolume)
+    }
   }
 
   var maxSlicingXMeters: Double {
@@ -191,6 +201,15 @@ final class ResultAnalysisViewModel {
     slicingXMeters = Double(builtVolume.widthXM)
     slicingYMeters = Double(builtVolume.lengthZM)
     selectedVoxel = nil
+
+    if let rec = newProject.latestRecommendation {
+      let uncertainty = max(1, 100 - rec.confidenceLevel)
+      predictionUncertaintyPercent = uncertainty
+      relativeUncertaintyText = "± \(uncertainty)%"
+    }
+    if !newProject.cptPoints.isEmpty {
+      updateBearingSummaryMetrics(from: builtVolume)
+    }
 
     if newProject.cptPoints.isEmpty {
       isSubsurfaceConditionsEmpty = true
@@ -245,7 +264,7 @@ final class ResultAnalysisViewModel {
     selectedVoxel = nil
     selectedPipePosition3D = nil
     isProfilePopoverPresented = false
-    selectedSheetDetent = .large
+    selectedSheetDetent = Self.collapsedSheetDetent
     AccessibilityCaptionCenter.shared.announce("3D view and slicing reset.")
   }
 
@@ -291,9 +310,10 @@ final class ResultAnalysisViewModel {
     selectedSheetDetent = Self.collapsedSheetDetent
     isLeftSheetPresented = true
 
-    // Set CPT point details
+    // Set CPT point details and dynamic SchemaGAN SBT stratigraphy profile
     if let voxel {
       selectedVoxel = voxel
+      selectedPopoverLayers = buildPopoverLayers(forColumnX: voxel.coord.x, z: voxel.coord.z)
       if let closest = findClosestCPTPoint(to: voxel) {
         selectedCPTPointTitle = closest.title
         selectedCPTPointLatitude = closest.latitude
@@ -304,6 +324,7 @@ final class ResultAnalysisViewModel {
         selectedCPTPointLongitude = String(format: "%.6f", voxel.longitude)
       }
     } else {
+      selectedPopoverLayers = CPTPointProfilePopoverView.defaultLayers
       selectedCPTPointTitle = "CPT Point-01"
       selectedCPTPointLatitude = "-6.215432"
       selectedCPTPointLongitude = "106.845321"
@@ -338,8 +359,100 @@ final class ResultAnalysisViewModel {
       selectedCPTPointLongitude = item.2
     }
 
+    if !volume.cptSurfacePositions.isEmpty {
+      let posIdx = min(safeIndex, volume.cptSurfacePositions.count - 1)
+      let pos = volume.cptSurfacePositions[posIdx]
+      let xGrid = min(max(Int((pos.x + volume.centerX).rounded()), 0), volume.nx - 1)
+      let zGrid = min(max(Int((pos.z + volume.centerZ).rounded()), 0), volume.nz - 1)
+      selectedPopoverLayers = buildPopoverLayers(forColumnX: xGrid, z: zGrid)
+    } else {
+      selectedPopoverLayers = CPTPointProfilePopoverView.defaultLayers
+    }
+
     isProfilePopoverPresented = true
     AccessibilityCaptionCenter.shared.announce("Showing \(selectedCPTPointTitle) SBT profile popover.")
+  }
+
+  private func buildPopoverLayers(forColumnX x: Int, z: Int) -> [SBTProfileLayerItem] {
+    var columnVoxels: [SoilVoxel] = []
+    for y in stride(from: volume.ny - 1, through: 0, by: -1) {
+      if let v = volume.voxels[GridCoord(x: x, y: y, z: z)] {
+        columnVoxels.append(v)
+      }
+    }
+    guard !columnVoxels.isEmpty else {
+      return CPTPointProfilePopoverView.defaultLayers
+    }
+
+    struct RawSegment {
+      var topDepthM: Double
+      var bottomDepthM: Double
+      var soilType: SoilLayerType
+    }
+
+    var segments: [RawSegment] = []
+    for v in columnVoxels {
+      let top = Double(v.topDepthM)
+      let bot = Double(v.bottomDepthM)
+      if let last = segments.last, last.soilType == v.soilClassification {
+        segments[segments.count - 1].bottomDepthM = bot
+      } else {
+        segments.append(RawSegment(topDepthM: top, bottomDepthM: bot, soilType: v.soilClassification))
+      }
+    }
+
+    // Keep at most 6 segments so the popover card height stays compact and readable
+    while segments.count > 6 {
+      var minIdx = 0
+      var minThickness = Double.greatestFiniteMagnitude
+      for (i, seg) in segments.enumerated() {
+        let thick = seg.bottomDepthM - seg.topDepthM
+        if thick < minThickness {
+          minThickness = thick
+          minIdx = i
+        }
+      }
+      if minIdx > 0 {
+        segments[minIdx - 1].bottomDepthM = segments[minIdx].bottomDepthM
+        segments.remove(at: minIdx)
+      } else if segments.count > 1 {
+        segments[1].topDepthM = segments[0].topDepthM
+        segments.remove(at: 0)
+      } else {
+        break
+      }
+    }
+
+    let totalDepth = max(segments.last?.bottomDepthM ?? Double(volume.depthYM), 1.0)
+    let targetTotalHeight: CGFloat = 220.0
+
+    return segments.map { seg in
+      let ratio = CGFloat((seg.bottomDepthM - seg.topDepthM) / totalDepth)
+      let barHeight = min(max((ratio * targetTotalHeight).rounded(), 30), 64)
+      let isLightLayer: Bool = switch seg.soilType {
+      case .sandMixtures, .cleanSands, .stiffFineGrained:
+        true
+      default:
+        false
+      }
+      return SBTProfileLayerItem(
+        topDepthM: (seg.topDepthM * 10).rounded() / 10,
+        bottomDepthM: (seg.bottomDepthM * 10).rounded() / 10,
+        name: seg.soilType.displayName,
+        color: Color(seg.soilType.uiColor),
+        textColor: isLightLayer ? Color.black.opacity(0.9) : Color.white,
+        barHeight: barHeight
+      )
+    }
+  }
+
+  private func updateBearingSummaryMetrics(from volume: SubsurfaceVoxelVolume) {
+    let depths = volume.bearingVoxels.values.map(\.bearingDepthM)
+    guard let minDepth = depths.min(), let maxDepth = depths.max() else { return }
+    let variation = max(maxDepth - minDepth, 0.0)
+    shallowestBearingDepthText = String(format: "%.1f m", minDepth)
+    deepestBearingDepthText = String(format: "%.1f m", maxDepth)
+    variationBearingDepthText = String(format: "%.1f m", variation)
   }
 
   private func findClosestCPTPoint(to voxel: SoilVoxel) -> (title: String, latitude: String, longitude: String)? {
