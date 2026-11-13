@@ -26,6 +26,7 @@ struct ResultSubsurfaceRealityView: View {
   @State private var lastBuiltSliceX: Int = -1
   @State private var lastBuiltSliceZ: Int = -1
   @State private var lastBuiltVoxelCount: Int = -1
+  @State private var lastBuiltVolumeID: UUID?
 
   init(
     volume: SubsurfaceVoxelVolume,
@@ -185,7 +186,8 @@ struct ResultSubsurfaceRealityView: View {
           // Rebuild the single batched MeshResource only when slicing thresholds or volume data change
           if lastBuiltSliceX != maxSliceX ||
             lastBuiltSliceZ != maxSliceZ ||
-            lastBuiltVoxelCount != volume.voxels.count
+            lastBuiltVoxelCount != volume.voxels.count ||
+            lastBuiltVolumeID != volume.id
           {
             if let terrainEntity = pivotEntity.findEntity(named: "SubsurfaceTerrainEntity") as? ModelEntity,
                let updatedMesh = VoxelMeshSynthesizer.synthesizeMesh(
@@ -197,10 +199,28 @@ struct ResultSubsurfaceRealityView: View {
               let materials = VoxelMeshSynthesizer.makeMaterialPalette()
               terrainEntity.model = ModelComponent(mesh: updatedMesh, materials: materials)
             }
+
+            if lastBuiltVolumeID != volume.id {
+              if let oldCPT = pivotEntity.findEntity(named: "CPTBoreholeContainer") {
+                oldCPT.removeFromParent()
+              }
+              let newCPT = buildCPTBoreholeMarkers(for: volume)
+              newCPT.name = "CPTBoreholeContainer"
+              pivotEntity.addChild(newCPT)
+
+              if let oldAxes = pivotEntity.findEntity(named: "BaseAxesContainer") {
+                oldAxes.removeFromParent()
+              }
+              let newAxes = buildBaseAxesEntity(for: volume)
+              newAxes.name = "BaseAxesContainer"
+              pivotEntity.addChild(newAxes)
+            }
+
             Task { @MainActor in
               lastBuiltSliceX = maxSliceX
               lastBuiltSliceZ = maxSliceZ
               lastBuiltVoxelCount = volume.voxels.count
+              lastBuiltVolumeID = volume.id
             }
           }
         }

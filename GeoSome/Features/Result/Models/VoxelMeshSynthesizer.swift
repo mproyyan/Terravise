@@ -65,12 +65,16 @@ enum VoxelMeshSynthesizer {
     let totalDepthM = Float(max(maxObservedDepth, 12.0))
     let stepYM = totalDepthM / Float(ny)
 
-    // Project boundary vertices into normalized grid space [0 ... nx-1] x [0 ... nz-1]
-    // Note: Z in 3D space corresponds to South (-Lat) -> North (+Lat) mapped so North is -Z or +Z consistently.
-    let polyGridXZ: [(x: Double, z: Double)] = polygon.map { coord in
-      let normX = (coord.longitude - minLon) / max(maxLon - minLon, 1e-9)
-      let normZ = 1.0 - ((coord.latitude - minLat) / max(maxLat - minLat, 1e-9))
-      return (normX * Double(nx - 1), normZ * Double(nz - 1))
+    // Project boundary vertices into normalized UV [0 ... 1] and grid space [0 ... nx-1] x [0 ... nz-1]
+    // Note: Z in 3D space corresponds to North (-Z, v=0) -> South (+Z, v=1).
+    let boundaryUVs: [SIMD2<Float>] = polygon.map { coord in
+      let normX = Float((coord.longitude - minLon) / max(maxLon - minLon, 1e-9))
+      let normZ = Float(1.0 - ((coord.latitude - minLat) / max(maxLat - minLat, 1e-9)))
+      return SIMD2<Float>(min(max(normX, 0.0), 1.0), min(max(normZ, 0.0), 1.0))
+    }
+
+    let polyGridXZ: [(x: Double, z: Double)] = boundaryUVs.map { uv in
+      (Double(uv.x) * Double(nx - 1), Double(uv.y) * Double(nz - 1))
     }
 
     var activeColumns = Array(repeating: Array(repeating: false, count: nz), count: nx)
@@ -111,6 +115,8 @@ enum VoxelMeshSynthesizer {
 
     var voxels: [GridCoord: SoilVoxel] = [:]
     voxels.reserveCapacity(nx * nz * ny)
+    var bearingVoxels: [ColumnCoord: BearingLayerVoxel] = [:]
+    bearingVoxels.reserveCapacity(nx * nz)
     var flatMaterialGrid = Array(repeating: Int16(-1), count: nx * nz * ny)
 
     for ix in 0 ..< nx {
@@ -138,6 +144,24 @@ enum VoxelMeshSynthesizer {
 
         let horizonShift = wave1 + wave2 + dip + reconBias
 
+        // Compute per-1m² voxel Bearing Layer depth (m) and geotechnical criteria at (ix, iz)
+        let uNorm = Float(fx)
+        let vNorm = Float(fz)
+        let rawDepthRatio = evaluateBearingDepthRatio(u: uNorm, v: vNorm, bias: Float(reconBias))
+        let predictedBearingDepthM = 2.7 + rawDepthRatio * (4.9 - 2.7)
+        let colCoord = ColumnCoord(x: ix, z: iz)
+        bearingVoxels[colCoord] = BearingLayerVoxel(
+          coord: colCoord,
+          latitude: lat,
+          longitude: lon,
+          bearingDepthM: predictedBearingDepthM,
+          normalizedDepthRatio: rawDepthRatio,
+          coneResistanceMPa: 15.0 + (1.0 - rawDepthRatio) * 9.5,
+          soilBehaviorIndexIc: 1.42 + rawDepthRatio * 0.36,
+          layerThicknessM: 1.1 + (1.0 - rawDepthRatio) * 1.4,
+          uncertaintyPercent: 9.0 + vNorm * 6.0
+        )
+
         // Populate vertical column from y = 0 (bottom bedrock) to y = ny - 1 (top surface Y = 0)
         for iy in 0 ..< ny {
           // layerIdxFromTop: 0 at surface (iy == ny - 1), ny - 1 at bottom (iy == 0)
@@ -164,7 +188,8 @@ enum VoxelMeshSynthesizer {
             soilClassification: soilType,
             robertsonIc: synthesizedIc,
             moisturePercent: soilType.typicalMoisturePercent,
-            bearingCapacityKPa: soilType.typicalBearingCapacityKPa
+            bearingCapacityKPa: soilType.typicalBearingCapacityKPa,
+            bearingLayerDepthM: predictedBearingDepthM
           )
 
           voxels[coord] = voxel
@@ -173,34 +198,53 @@ enum VoxelMeshSynthesizer {
       }
     }
 
-    // Compute local 3D surface positions for CPT borehole pins
+    // Compute local 3D surface positions and normalized UVs for CPT borehole pins
     var cptPositions: [SIMD3<Float>] = []
+    var cptUVs: [SIMD2<Float>] = []
     if !cptPoints.isEmpty {
       for point in cptPoints {
-        let normX = (point.coordinate.longitude - minLon) / max(maxLon - minLon, 1e-9)
-        let normZ = 1.0 - ((point.coordinate.latitude - minLat) / max(maxLat - minLat, 1e-9))
+        let normX = min(max((point.coordinate.longitude - minLon) / max(maxLon - minLon, 1e-9), 0.04), 0.96)
+        let normZ = min(max(1.0 - ((point.coordinate.latitude - minLat) / max(maxLat - minLat, 1e-9)), 0.04), 0.96)
         let gx = min(max(Int((normX * Double(nx - 1)).rounded()), 0), nx - 1)
         let gz = min(max(Int((normZ * Double(nz - 1)).rounded()), 0), nz - 1)
         let wx = Float(gx) - centerX
         let wz = Float(gz) - centerZ
         cptPositions.append(SIMD3<Float>(wx, 0.0, wz))
+        cptUVs.append(SIMD2<Float>(Float(normX), Float(normZ)))
       }
     } else {
-      // Sample reference CPT borehole markers on active surface cells (matching the 3 white pins in screenshot)
-      var candidateCoords: [(Int, Int)] = []
-      for ix in stride(from: nx / 4, to: (3 * nx) / 4, by: max(nx / 5, 2)) {
-        let iz = nz / 2
-        if activeColumns[ix][iz] {
-          candidateCoords.append((ix, iz))
+      // Sample 3 reference CPT borehole markers strictly inside the active boundary polygon
+      let targetFractions: [Double] = [0.27, 0.58, 0.85]
+      for frac in targetFractions {
+        let targetIX = min(max(Int((frac * Double(nx - 1)).rounded()), 1), nx - 2)
+        // Find active Z span at targetIX (or nearest active column)
+        var bestIX = targetIX
+        var activeZs: [Int] = []
+        for radius in 0 ..< nx {
+          let candidates = radius == 0 ? [targetIX] : [targetIX - radius, targetIX + radius]
+          for cix in candidates where cix >= 0 && cix < nx {
+            let zs = (0 ..< nz).filter { activeColumns[cix][$0] }
+            if !zs.isEmpty {
+              bestIX = cix
+              activeZs = zs
+              break
+            }
+          }
+          if !activeZs.isEmpty { break }
         }
-      }
-      for (ix, iz) in candidateCoords.prefix(3) {
-        cptPositions.append(SIMD3<Float>(Float(ix) - centerX, 0.0, Float(iz) - centerZ))
+        let chosenIZ = activeZs.isEmpty ? (nz / 2) : activeZs[activeZs.count / 2]
+        let wx = Float(bestIX) - centerX
+        let wz = Float(chosenIZ) - centerZ
+        cptPositions.append(SIMD3<Float>(wx, 0.0, wz))
+        let u = Float(bestIX) / Float(max(nx - 1, 1))
+        let v = Float(chosenIZ) / Float(max(nz - 1, 1))
+        cptUVs.append(SIMD2<Float>(u, v))
       }
     }
 
     return SubsurfaceVoxelVolume(
       voxels: voxels,
+      bearingVoxels: bearingVoxels,
       flatMaterialGrid: flatMaterialGrid,
       nx: nx,
       ny: ny,
@@ -213,7 +257,9 @@ enum VoxelMeshSynthesizer {
       cellStepZM: stepZM,
       centerX: centerX,
       centerZ: centerZ,
-      cptSurfacePositions: cptPositions
+      cptSurfacePositions: cptPositions,
+      boundaryPolygonUV: boundaryUVs,
+      cptNormalizedUVs: cptUVs
     )
   }
 
@@ -701,6 +747,264 @@ enum VoxelMeshSynthesizer {
     }
 
     return nil
+  }
+
+  // MARK: - Bearing Layer 1m² Voxel Surface & Border Mesh Synthesis
+
+  /// Synthesizes the flat 3D Bearing Layer surface mesh directly from the active 1m² voxels (`volume.bearingVoxels`)
+  /// using the exact same `nx × nz` 1m² horizontal grid (`centerX`, `centerZ`) and boundary shape as the 3D Layer.
+  @MainActor
+  static func synthesizeBearingVoxelSurfaceMesh(volume: SubsurfaceVoxelVolume) -> MeshResource? {
+    let nx = volume.nx
+    let nz = volume.nz
+    let centerX = volume.centerX
+    let centerZ = volume.centerZ
+
+    @inline(__always)
+    func worldX(_ gridEdgeX: Int) -> Float {
+      (Float(gridEdgeX) - 0.5) - centerX
+    }
+
+    @inline(__always)
+    func worldZ(_ gridEdgeZ: Int) -> Float {
+      (Float(gridEdgeZ) - 0.5) - centerZ
+    }
+
+    @inline(__always)
+    func uvAt(gridEdgeX: Int, gridEdgeZ: Int) -> SIMD2<Float> {
+      let u = Float(gridEdgeX) / Float(max(nx, 1))
+      let v = Float(gridEdgeZ) / Float(max(nz, 1))
+      return SIMD2<Float>(min(max(u, 0.0), 1.0), 1.0 - min(max(v, 0.0), 1.0))
+    }
+
+    var positions: [SIMD3<Float>] = []
+    var normals: [SIMD3<Float>] = []
+    var uvs: [SIMD2<Float>] = []
+    var indices: [UInt32] = []
+
+    let activeCount = max(volume.bearingVoxels.count, 1)
+    positions.reserveCapacity(activeCount * 8)
+    normals.reserveCapacity(activeCount * 8)
+    uvs.reserveCapacity(activeCount * 8)
+    indices.reserveCapacity(activeCount * 12)
+
+    for ix in 0 ..< nx {
+      for iz in 0 ..< nz {
+        guard volume.bearingVoxels[ColumnCoord(x: ix, z: iz)] != nil else { continue }
+
+        let x0 = worldX(ix)
+        let x1 = worldX(ix + 1)
+        let z0 = worldZ(iz)
+        let z1 = worldZ(iz + 1)
+
+        let uv00 = uvAt(gridEdgeX: ix, gridEdgeZ: iz)
+        let uv01 = uvAt(gridEdgeX: ix, gridEdgeZ: iz + 1)
+        let uv11 = uvAt(gridEdgeX: ix + 1, gridEdgeZ: iz + 1)
+        let uv10 = uvAt(gridEdgeX: ix + 1, gridEdgeZ: iz)
+
+        // Top 1m² voxel face (+Y normal, CCW winding)
+        let baseTop = UInt32(positions.count)
+        positions.append(SIMD3<Float>(x0, 0.0, z0))
+        positions.append(SIMD3<Float>(x0, 0.0, z1))
+        positions.append(SIMD3<Float>(x1, 0.0, z1))
+        positions.append(SIMD3<Float>(x1, 0.0, z0))
+        normals.append(contentsOf: [
+          SIMD3<Float>(0, 1, 0),
+          SIMD3<Float>(0, 1, 0),
+          SIMD3<Float>(0, 1, 0),
+          SIMD3<Float>(0, 1, 0)
+        ])
+        uvs.append(contentsOf: [uv00, uv01, uv11, uv10])
+        indices.append(contentsOf: [
+          baseTop, baseTop + 1, baseTop + 2,
+          baseTop, baseTop + 2, baseTop + 3
+        ])
+
+        // Bottom 1m² voxel face (-Y normal) so surface is visible from any orbit angle
+        let baseBot = UInt32(positions.count)
+        positions.append(SIMD3<Float>(x0, -0.08, z0))
+        positions.append(SIMD3<Float>(x1, -0.08, z0))
+        positions.append(SIMD3<Float>(x1, -0.08, z1))
+        positions.append(SIMD3<Float>(x0, -0.08, z1))
+        normals.append(contentsOf: [
+          SIMD3<Float>(0, -1, 0),
+          SIMD3<Float>(0, -1, 0),
+          SIMD3<Float>(0, -1, 0),
+          SIMD3<Float>(0, -1, 0)
+        ])
+        uvs.append(contentsOf: [uv00, uv10, uv11, uv01])
+        indices.append(contentsOf: [
+          baseBot, baseBot + 1, baseBot + 2,
+          baseBot, baseBot + 2, baseBot + 3
+        ])
+      }
+    }
+
+    guard !positions.isEmpty else { return nil }
+
+    var descriptor = MeshDescriptor(name: "Bearing1mVoxelSurfaceManifold")
+    descriptor.positions = MeshBuffers.Positions(positions)
+    descriptor.normals = MeshBuffers.Normals(normals)
+    descriptor.textureCoordinates = MeshBuffers.TextureCoordinates(uvs)
+    descriptor.primitives = .triangles(indices)
+
+    return try? MeshResource.generate(from: [descriptor])
+  }
+
+  /// Synthesizes a single batched dark border mesh framing the perimeter of the active 1m² bearing voxels.
+  @MainActor
+  static func synthesizeBearingVoxelBorderMesh(volume: SubsurfaceVoxelVolume) -> MeshResource? {
+    let nx = volume.nx
+    let nz = volume.nz
+    let centerX = volume.centerX
+    let centerZ = volume.centerZ
+
+    @inline(__always)
+    func worldX(_ gridEdgeX: Int) -> Float {
+      (Float(gridEdgeX) - 0.5) - centerX
+    }
+
+    @inline(__always)
+    func worldZ(_ gridEdgeZ: Int) -> Float {
+      (Float(gridEdgeZ) - 0.5) - centerZ
+    }
+
+    @inline(__always)
+    func isActive(_ x: Int, _ z: Int) -> Bool {
+      guard x >= 0, x < nx, z >= 0, z < nz else { return false }
+      return volume.bearingVoxels[ColumnCoord(x: x, z: z)] != nil
+    }
+
+    var positions: [SIMD3<Float>] = []
+    var normals: [SIMD3<Float>] = []
+    var indices: [UInt32] = []
+
+    let halfThick: Float = 0.09
+    let yTop: Float = 0.04
+    let yBot: Float = -0.10
+
+    func emitBox(minX: Float, maxX: Float, minZ: Float, maxZ: Float) {
+      // Top quad (+Y)
+      let b0 = UInt32(positions.count)
+      positions.append(contentsOf: [
+        SIMD3<Float>(minX, yTop, minZ),
+        SIMD3<Float>(minX, yTop, maxZ),
+        SIMD3<Float>(maxX, yTop, maxZ),
+        SIMD3<Float>(maxX, yTop, minZ)
+      ])
+      normals.append(contentsOf: Array(repeating: SIMD3<Float>(0, 1, 0), count: 4))
+      indices.append(contentsOf: [b0, b0 + 1, b0 + 2, b0, b0 + 2, b0 + 3])
+
+      // Front quad (+Z)
+      let b1 = UInt32(positions.count)
+      positions.append(contentsOf: [
+        SIMD3<Float>(minX, yBot, maxZ),
+        SIMD3<Float>(maxX, yBot, maxZ),
+        SIMD3<Float>(maxX, yTop, maxZ),
+        SIMD3<Float>(minX, yTop, maxZ)
+      ])
+      normals.append(contentsOf: Array(repeating: SIMD3<Float>(0, 0, 1), count: 4))
+      indices.append(contentsOf: [b1, b1 + 1, b1 + 2, b1, b1 + 2, b1 + 3])
+
+      // Back quad (-Z)
+      let b2 = UInt32(positions.count)
+      positions.append(contentsOf: [
+        SIMD3<Float>(maxX, yBot, minZ),
+        SIMD3<Float>(minX, yBot, minZ),
+        SIMD3<Float>(minX, yTop, minZ),
+        SIMD3<Float>(maxX, yTop, minZ)
+      ])
+      normals.append(contentsOf: Array(repeating: SIMD3<Float>(0, 0, -1), count: 4))
+      indices.append(contentsOf: [b2, b2 + 1, b2 + 2, b2, b2 + 2, b2 + 3])
+
+      // Right quad (+X)
+      let b3 = UInt32(positions.count)
+      positions.append(contentsOf: [
+        SIMD3<Float>(maxX, yBot, maxZ),
+        SIMD3<Float>(maxX, yBot, minZ),
+        SIMD3<Float>(maxX, yTop, minZ),
+        SIMD3<Float>(maxX, yTop, maxZ)
+      ])
+      normals.append(contentsOf: Array(repeating: SIMD3<Float>(1, 0, 0), count: 4))
+      indices.append(contentsOf: [b3, b3 + 1, b3 + 2, b3, b3 + 2, b3 + 3])
+
+      // Left quad (-X)
+      let b4 = UInt32(positions.count)
+      positions.append(contentsOf: [
+        SIMD3<Float>(minX, yBot, minZ),
+        SIMD3<Float>(minX, yBot, maxZ),
+        SIMD3<Float>(minX, yTop, maxZ),
+        SIMD3<Float>(minX, yTop, minZ)
+      ])
+      normals.append(contentsOf: Array(repeating: SIMD3<Float>(-1, 0, 0), count: 4))
+      indices.append(contentsOf: [b4, b4 + 1, b4 + 2, b4, b4 + 2, b4 + 3])
+    }
+
+    for ix in 0 ..< nx {
+      for iz in 0 ..< nz where isActive(ix, iz) {
+        let x0 = worldX(ix)
+        let x1 = worldX(ix + 1)
+        let z0 = worldZ(iz)
+        let z1 = worldZ(iz + 1)
+
+        if !isActive(ix - 1, iz) {
+          emitBox(minX: x0 - halfThick, maxX: x0 + halfThick, minZ: z0 - halfThick, maxZ: z1 + halfThick)
+        }
+        if !isActive(ix + 1, iz) {
+          emitBox(minX: x1 - halfThick, maxX: x1 + halfThick, minZ: z0 - halfThick, maxZ: z1 + halfThick)
+        }
+        if !isActive(ix, iz - 1) {
+          emitBox(minX: x0 - halfThick, maxX: x1 + halfThick, minZ: z0 - halfThick, maxZ: z0 + halfThick)
+        }
+        if !isActive(ix, iz + 1) {
+          emitBox(minX: x0 - halfThick, maxX: x1 + halfThick, minZ: z1 - halfThick, maxZ: z1 + halfThick)
+        }
+      }
+    }
+
+    guard !positions.isEmpty else { return nil }
+
+    var descriptor = MeshDescriptor(name: "Bearing1mVoxelBorderManifold")
+    descriptor.positions = MeshBuffers.Positions(positions)
+    descriptor.normals = MeshBuffers.Normals(normals)
+    descriptor.primitives = .triangles(indices)
+
+    return try? MeshResource.generate(from: [descriptor])
+  }
+
+  /// Evaluates normalized bearing-layer depth ratio in `[0, 1]` for a 1m² voxel at `(u, v)`.
+  static func evaluateBearingDepthRatio(u: Float, v: Float, bias: Float = 0.0) -> Float {
+    var val: Float = 0.48 + bias
+
+    // Deep blue basins (+ values)
+    val += 0.56 * gaussian2D(u: u, v: v, cx: 0.43, cy: 0.16, sx: 0.17, sy: 0.22)
+    val += 0.58 * gaussian2D(u: u, v: v, cx: 0.47, cy: 0.88, sx: 0.16, sy: 0.24)
+    val += 0.26 * gaussian2D(u: u, v: v, cx: 0.68, cy: 0.68, sx: 0.18, sy: 0.20)
+    val += 0.20 * gaussian2D(u: u, v: v, cx: 0.25, cy: 0.85, sx: 0.14, sy: 0.18)
+
+    // Shallow orange/yellow highs (- values)
+    val -= 0.58 * gaussian2D(u: u, v: v, cx: 0.89, cy: 0.14, sx: 0.18, sy: 0.22)
+    val -= 0.52 * gaussian2D(u: u, v: v, cx: 0.90, cy: 0.94, sx: 0.16, sy: 0.18)
+    val -= 0.54 * gaussian2D(u: u, v: v, cx: 0.10, cy: 0.60, sx: 0.14, sy: 0.25)
+    val -= 0.26 * gaussian2D(u: u, v: v, cx: 0.23, cy: 0.28, sx: 0.12, sy: 0.18)
+
+    // Gentle wave modulation for natural geological contour curvature
+    val += 0.04 * sin(u * 9.5 + v * 4.2) * cos(v * 6.0 - u * 3.5)
+
+    return min(max(val, 0.0), 1.0)
+  }
+
+  private static func gaussian2D(
+    u: Float,
+    v: Float,
+    cx: Float,
+    cy: Float,
+    sx: Float,
+    sy: Float
+  ) -> Float {
+    let dx = (u - cx) / sx
+    let dy = (v - cy) / sy
+    return exp(-0.5 * (dx * dx + dy * dy))
   }
 
   // MARK: - Helpers

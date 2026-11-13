@@ -160,16 +160,41 @@ struct SoilVoxel: Sendable, Equatable {
   let robertsonIc: Float
   let moisturePercent: Float
   let bearingCapacityKPa: Float
+  /// Predicted bearing-layer depth (m) for this 1m² horizontal column `(coord.x, coord.z)`.
+  var bearingLayerDepthM: Float = 3.5
 
   var materialIndex: UInt32 {
     UInt32(soilClassification.rawValue)
   }
 }
 
+/// Pure domain data model for a single 1m² horizontal voxel on the Bearing Layer Depth Map.
+/// Stored in `[ColumnCoord: BearingLayerVoxel]` inside `SubsurfaceVoxelVolume`.
+struct BearingLayerVoxel: Sendable, Equatable {
+  let coord: ColumnCoord
+  let latitude: Double
+  let longitude: Double
+  /// Predicted depth (m) to the competent bearing layer at this 1m² cell (e.g., 2.7m ... 4.9m).
+  let bearingDepthM: Float
+  /// Normalized depth value in `[0, 1]` (`0` = shallowest ≤ 2.75m, `1` = deepest ≥ 4.75m).
+  let normalizedDepthRatio: Float
+  /// Predicted Cone Resistance `qc` (MPa) at the bearing horizon (`>= 15.0 MPa`).
+  let coneResistanceMPa: Float
+  /// Predicted Soil Behavior Index `Ic` at the bearing horizon (`<= 1.80`).
+  let soilBehaviorIndexIc: Float
+  /// Continuous competent layer thickness (m) (`>= 1.0 m`).
+  let layerThicknessM: Float
+  /// Relative prediction uncertainty (%) at this 1m² cell.
+  let uncertaintyPercent: Float
+}
+
 /// Spatial metadata and sparse storage for the 3D subsurface voxel field.
 struct SubsurfaceVoxelVolume: Sendable {
+  let id: UUID = UUID()
   /// Pure sparse hash map storing every active 1m² voxel (`[GridCoord: SoilVoxel]`).
   let voxels: [GridCoord: SoilVoxel]
+  /// Pure sparse hash map storing the bearing-layer data for every active 1m² horizontal column (`[ColumnCoord: BearingLayerVoxel]`).
+  var bearingVoxels: [ColumnCoord: BearingLayerVoxel] = [:]
   /// Fast flat array indexed by `(x * nz * ny) + (z * ny) + y` storing material index (`-1` if inactive).
   let flatMaterialGrid: [Int16]
   /// Grid dimensions: `nx` (X / Easting), `ny` (Y / vertical layers), `nz` (Z / Northing).
@@ -189,6 +214,15 @@ struct SubsurfaceVoxelVolume: Sendable {
   let centerZ: Float
   /// Local 3D positions of uploaded CPT boreholes on the top surface (`Y = 0`).
   let cptSurfacePositions: [SIMD3<Float>]
+  /// Normalized `[0, 1] x [0, 1]` UV coordinates of the user-drawn boundary polygon vertices (`u`: West->East, `v`: North->South).
+  var boundaryPolygonUV: [SIMD2<Float>] = [
+    SIMD2<Float>(0, 0),
+    SIMD2<Float>(1, 0),
+    SIMD2<Float>(1, 1),
+    SIMD2<Float>(0, 1)
+  ]
+  /// Normalized `[0, 1] x [0, 1]` UV coordinates of CPT points inside the boundary polygon.
+  var cptNormalizedUVs: [SIMD2<Float>] = []
 
   @inline(__always)
   func flatIndex(x: Int, y: Int, z: Int) -> Int {

@@ -21,6 +21,10 @@ final class ResultAnalysisViewModel {
   static let defaultCameraPitch: Float = 0.34
   static let defaultCameraZoom: Float = 1.0
 
+  static let defaultBearingCameraYaw: Float = -0.05
+  static let defaultBearingCameraPitch: Float = 0.68
+  static let defaultBearingCameraZoom: Float = 1.0
+
   static let defaultConcerns: [GeotechnicalConcernItem] = [
     GeotechnicalConcernItem(
       id: "soft-sensitive-clay-lens",
@@ -81,6 +85,22 @@ final class ResultAnalysisViewModel {
   var cameraYaw: Float = ResultAnalysisViewModel.defaultCameraYaw
   var cameraPitch: Float = ResultAnalysisViewModel.defaultCameraPitch
   var cameraZoom: Float = ResultAnalysisViewModel.defaultCameraZoom
+
+  // Bearing Layer Camera & Summary State
+  var selectedBearingVoxel: BearingLayerVoxel?
+  var bearingCameraYaw: Float = ResultAnalysisViewModel.defaultBearingCameraYaw
+  var bearingCameraPitch: Float = ResultAnalysisViewModel.defaultBearingCameraPitch
+  var bearingCameraZoom: Float = ResultAnalysisViewModel.defaultBearingCameraZoom
+  var shallowestBearingDepthText: String = "2.7 m"
+  var deepestBearingDepthText: String = "4.9 m"
+  var variationBearingDepthText: String = "2.2 m"
+  var coneResistanceCriteriaText: String = "≥ 15.0 MPa"
+  var soilBehaviorIndexCriteriaText: String = "≤ 1.80"
+  var minLayerThicknessCriteriaText: String = "≥ 1.0 m"
+  var relativeUncertaintyText: String = "± 12%"
+  var highUncertaintyAreaPercentText: String = "10%"
+  var highUncertaintyDescription: String =
+    "High uncertainty is concentrated in the southern sector, where CPT coverage is limited."
 
   // Popover State for Tapping the Top of the 3D Object
   var isProfilePopoverPresented: Bool = false
@@ -182,10 +202,6 @@ final class ResultAnalysisViewModel {
   }
 
   func presentLeftSheetIfNeeded() {
-    guard selectedTab == .threeDLayer else {
-      isLeftSheetPresented = false
-      return
-    }
     isLeftSheetPresented = true
   }
 
@@ -197,7 +213,7 @@ final class ResultAnalysisViewModel {
     isProfilePopoverPresented = false
     selectedSheetDetent = .large
     isLeftSheetPresented = true
-    AccessibilityCaptionCenter.shared.announce("Subsurface Conditions sheet opened.")
+    AccessibilityCaptionCenter.shared.announce("Left analysis sheet opened.")
   }
 
   func toggleLeftSheet() {
@@ -205,18 +221,15 @@ final class ResultAnalysisViewModel {
       openLeftSheet()
     } else {
       selectedSheetDetent = Self.collapsedSheetDetent
-      AccessibilityCaptionCenter.shared.announce("Subsurface Conditions sheet collapsed.")
+      AccessibilityCaptionCenter.shared.announce("Left analysis sheet collapsed.")
     }
   }
 
   func selectTab(_ tab: ResultAnalysisTab) {
     selectedTab = tab
-    if tab == .threeDLayer {
-      isLeftSheetPresented = true
-      selectedSheetDetent = .large
-    } else {
-      isLeftSheetPresented = false
-    }
+    isProfilePopoverPresented = false
+    isLeftSheetPresented = true
+    selectedSheetDetent = .large
     AccessibilityCaptionCenter.shared.announce("\(tab.rawValue) selected.")
   }
 
@@ -226,6 +239,9 @@ final class ResultAnalysisViewModel {
     cameraYaw = Self.defaultCameraYaw
     cameraPitch = Self.defaultCameraPitch
     cameraZoom = Self.defaultCameraZoom
+    bearingCameraYaw = Self.defaultBearingCameraYaw
+    bearingCameraPitch = Self.defaultBearingCameraPitch
+    bearingCameraZoom = Self.defaultBearingCameraZoom
     selectedVoxel = nil
     selectedPipePosition3D = nil
     isProfilePopoverPresented = false
@@ -294,6 +310,34 @@ final class ResultAnalysisViewModel {
     }
 
     // Present the native popover immediately
+    isProfilePopoverPresented = true
+    AccessibilityCaptionCenter.shared.announce("Showing \(selectedCPTPointTitle) SBT profile popover.")
+  }
+
+  func handleBearingCPTPointTap(at screenPoint: CGPoint, pointIndex: Int) {
+    profilePopoverLocation = screenPoint
+    selectedSheetDetent = Self.collapsedSheetDetent
+    isLeftSheetPresented = true
+
+    let safeIndex = max(pointIndex, 0)
+    if !project.cptPoints.isEmpty {
+      let clampedIdx = min(safeIndex, project.cptPoints.count - 1)
+      let pt = project.cptPoints[clampedIdx]
+      selectedCPTPointTitle = String(format: "CPT Point-%02d", clampedIdx + 1)
+      selectedCPTPointLatitude = pt.formattedLatitude
+      selectedCPTPointLongitude = pt.formattedLongitude
+    } else {
+      let defaultCoords: [(String, String, String)] = [
+        ("CPT Point-01", "-6.215432", "106.845321"),
+        ("CPT Point-02", "-6.215510", "106.845640"),
+        ("CPT Point-03", "-6.215485", "106.845912")
+      ]
+      let item = defaultCoords[min(safeIndex, defaultCoords.count - 1)]
+      selectedCPTPointTitle = item.0
+      selectedCPTPointLatitude = item.1
+      selectedCPTPointLongitude = item.2
+    }
+
     isProfilePopoverPresented = true
     AccessibilityCaptionCenter.shared.announce("Showing \(selectedCPTPointTitle) SBT profile popover.")
   }

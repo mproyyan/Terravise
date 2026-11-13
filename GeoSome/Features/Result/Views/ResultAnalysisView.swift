@@ -33,7 +33,6 @@ struct ResultAnalysisView: View {
     Binding(
       get: {
         isCurrentDestination &&
-          viewModel.selectedTab == .threeDLayer &&
           viewModel.isLeftSheetPresented
       },
       set: { newValue in
@@ -83,9 +82,27 @@ struct ResultAnalysisView: View {
           .ignoresSafeArea()
 
         case .bearingLayer:
-          // Intentionally left empty as requested when switching to Bearing Layer
-          Color(.systemBackground)
-            .ignoresSafeArea()
+          // RealityKit Flat 3D Surface Depth Map ("Permukaan yang disorot dari atas")
+          ResultBearingSurfaceRealityView(
+            volume: viewModel.volume,
+            cameraYaw: $viewModel.bearingCameraYaw,
+            cameraPitch: $viewModel.bearingCameraPitch,
+            cameraZoom: $viewModel.bearingCameraZoom,
+            isProfilePopoverPresented: $viewModel.isProfilePopoverPresented,
+            profilePopoverLocation: $viewModel.profilePopoverLocation,
+            popoverTitle: viewModel.selectedCPTPointTitle,
+            popoverLatitude: viewModel.selectedCPTPointLatitude,
+            popoverLongitude: viewModel.selectedCPTPointLongitude,
+            onTapCPTPoint: { screenPoint, idx in
+              withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
+                viewModel.handleBearingCPTPointTap(at: screenPoint, pointIndex: idx)
+              }
+            },
+            onSelectBearingVoxel: { bearingVoxel in
+              viewModel.selectedBearingVoxel = bearingVoxel
+            }
+          )
+          .ignoresSafeArea()
         }
       }
       // Top Caption Banner for Accessibility
@@ -100,9 +117,10 @@ struct ResultAnalysisView: View {
           .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
         }
       }
-      // Bottom-Trailing: Layer & Slicing Sheet/Card (Map Legend omitted as requested)
+      // Bottom-Trailing: Slicing Card (3D Layer) or Depth Legend (Bearing Layer)
       .overlay(alignment: .bottomTrailing) {
-        if viewModel.selectedTab == .threeDLayer {
+        switch viewModel.selectedTab {
+        case .threeDLayer:
           ResultLayerSlicingCardView(
             isExpanded: $viewModel.isSlicingCardExpanded,
             slicingXMeters: $viewModel.slicingXMeters,
@@ -120,29 +138,52 @@ struct ResultAnalysisView: View {
           .padding(.trailing, 20)
           .padding(.bottom, 24)
           .transition(.opacity.combined(with: .move(edge: .bottom)))
+
+        case .bearingLayer:
+          ResultBearingDepthLegendView()
+            .padding(.trailing, 28)
+            .padding(.bottom, 22)
+            .transition(.opacity.combined(with: .move(edge: .bottom)))
         }
       }
-      // Left Sheet: Subsurface Conditions sized to 1/3 of screen width
+      // Left Sheet sized to 1/3 of screen width
       .sheet(isPresented: leftSheetPresentedBinding) {
-        ResultLeftPlaceholderSheetView(
-          groundConditionsSummary: viewModel.groundConditionsSummary,
-          concerns: viewModel.geotechnicalConcerns,
-          isSubsurfaceConditionsEmpty: viewModel.isSubsurfaceConditionsEmpty,
-          isGeotechnicalConcernsEmpty: viewModel.isGeotechnicalConcernsEmpty,
-          selectedConcernID: viewModel.selectedConcernID,
-          predictionUncertaintyPercent: viewModel.predictionUncertaintyPercent,
-          cptPointsCount: viewModel.displayedCPTPointsCount,
-          onSelectConcern: { concern in
-            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
-              viewModel.selectConcern(concern)
-            }
-          },
-          onClearHighlight: {
-            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
-              viewModel.clearHighlight()
-            }
+        Group {
+          switch viewModel.selectedTab {
+          case .threeDLayer:
+            ResultLeftPlaceholderSheetView(
+              groundConditionsSummary: viewModel.groundConditionsSummary,
+              concerns: viewModel.geotechnicalConcerns,
+              isSubsurfaceConditionsEmpty: viewModel.isSubsurfaceConditionsEmpty,
+              isGeotechnicalConcernsEmpty: viewModel.isGeotechnicalConcernsEmpty,
+              selectedConcernID: viewModel.selectedConcernID,
+              predictionUncertaintyPercent: viewModel.predictionUncertaintyPercent,
+              cptPointsCount: viewModel.displayedCPTPointsCount,
+              onSelectConcern: { concern in
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
+                  viewModel.selectConcern(concern)
+                }
+              },
+              onClearHighlight: {
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
+                  viewModel.clearHighlight()
+                }
+              }
+            )
+          case .bearingLayer:
+            ResultBearingLayerSheetView(
+              shallowestDepthText: viewModel.shallowestBearingDepthText,
+              deepestDepthText: viewModel.deepestBearingDepthText,
+              variationDepthText: viewModel.variationBearingDepthText,
+              coneResistanceText: viewModel.coneResistanceCriteriaText,
+              soilBehaviorIndexText: viewModel.soilBehaviorIndexCriteriaText,
+              minLayerThicknessText: viewModel.minLayerThicknessCriteriaText,
+              relativeUncertaintyText: viewModel.relativeUncertaintyText,
+              highUncertaintyAreaPercentText: viewModel.highUncertaintyAreaPercentText,
+              highUncertaintyDescription: viewModel.highUncertaintyDescription
+            )
           }
-        )
+        }
         .frame(width: oneThirdSheetWidth)
         .background(
           SheetWidthConfigurator(width: oneThirdSheetWidth)
