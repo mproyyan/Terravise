@@ -4,9 +4,6 @@ struct ResultBearingLayerSheetView: View {
   var shallowestDepthText: String
   var deepestDepthText: String
   var variationDepthText: String
-  var coneResistanceText: String
-  var soilBehaviorIndexText: String
-  var minLayerThicknessText: String
   var relativeUncertaintyText: String
   var highUncertaintyAreaPercentText: String
   var highUncertaintyDescription: String
@@ -17,9 +14,6 @@ struct ResultBearingLayerSheetView: View {
     shallowestDepthText: String = "2.7 m",
     deepestDepthText: String = "4.9 m",
     variationDepthText: String = "2.2 m",
-    coneResistanceText: String = "≥ 15.0 MPa",
-    soilBehaviorIndexText: String = "≤ 1.80",
-    minLayerThicknessText: String = "≥ 1.0 m",
     relativeUncertaintyText: String = "± 12%",
     highUncertaintyAreaPercentText: String = "10%",
     highUncertaintyDescription: String =
@@ -28,9 +22,6 @@ struct ResultBearingLayerSheetView: View {
     self.shallowestDepthText = shallowestDepthText
     self.deepestDepthText = deepestDepthText
     self.variationDepthText = variationDepthText
-    self.coneResistanceText = coneResistanceText
-    self.soilBehaviorIndexText = soilBehaviorIndexText
-    self.minLayerThicknessText = minLayerThicknessText
     self.relativeUncertaintyText = relativeUncertaintyText
     self.highUncertaintyAreaPercentText = highUncertaintyAreaPercentText
     self.highUncertaintyDescription = highUncertaintyDescription
@@ -55,10 +46,7 @@ struct ResultBearingLayerSheetView: View {
         // 1. Depth Summary Section
         depthSummarySection
 
-        // 2. Identification Criteria Section
-        identificationCriteriaSection
-
-        // 3. Prediction Uncertainty Section
+        // 2. Prediction Uncertainty Section
         predictionUncertaintySection
       }
       .padding(.horizontal, 18)
@@ -114,49 +102,7 @@ struct ResultBearingLayerSheetView: View {
     .accessibilityLabel("\(title): \(value)")
   }
 
-  // MARK: - 2. Identification Criteria
-
-  private var identificationCriteriaSection: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      VStack(alignment: .leading, spacing: 3) {
-        Text("Identification Criteria")
-          .font(.headline.weight(.bold))
-          .foregroundStyle(Color.primary)
-          .accessibilityAddTraits(.isHeader)
-
-        Text("Criteria used to identify potential bearing layers.")
-          .font(.subheadline)
-          .foregroundStyle(Color.secondary)
-          .fixedSize(horizontal: false, vertical: true)
-      }
-
-      VStack(spacing: 10) {
-        criteriaRowCard(title: "Cone Resistance (qc)", value: coneResistanceText)
-        criteriaRowCard(title: "Soil Behavior Index (Ic)", value: soilBehaviorIndexText)
-        criteriaRowCard(title: "Minimum Layer Thickness", value: minLayerThicknessText)
-      }
-    }
-  }
-
-  private func criteriaRowCard(title: String, value: String) -> some View {
-    VStack(alignment: .leading, spacing: 6) {
-      Text(title)
-        .font(.subheadline)
-        .foregroundStyle(Color.secondary)
-
-      Text(value)
-        .font(.headline.weight(.bold))
-        .foregroundStyle(Color.primary)
-    }
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .padding(.horizontal, 16)
-    .padding(.vertical, 14)
-    .background(cardBackground)
-    .accessibilityElement(children: .combine)
-    .accessibilityLabel("\(title): \(value)")
-  }
-
-  // MARK: - 3. Prediction Uncertainty
+  // MARK: - 2. Prediction Uncertainty
 
   private var predictionUncertaintySection: some View {
     VStack(alignment: .leading, spacing: 10) {

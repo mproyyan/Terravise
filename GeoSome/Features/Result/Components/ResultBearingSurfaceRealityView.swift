@@ -8,13 +8,16 @@ struct ResultBearingSurfaceRealityView: View {
   @Binding var cameraYaw: Float
   @Binding var cameraPitch: Float
   @Binding var cameraZoom: Float
-  @Binding var isProfilePopoverPresented: Bool
-  @Binding var profilePopoverLocation: CGPoint?
-  var popoverTitle: String = "CPT Point-01"
-  var popoverLatitude: String = "-6.215432"
-  var popoverLongitude: String = "106.845321"
-  var popoverLayers: [SBTProfileLayerItem] = CPTPointProfilePopoverView.defaultLayers
-  var onTapCPTPoint: ((CGPoint, Int) -> Void)? = nil
+  @Binding var isBearingPopoverPresented: Bool
+  @Binding var bearingPopoverLocation: CGPoint?
+  var bearingPopoverTitle: String = "Bearing Layer - 02"
+  var bearingPopoverDepthText: String = "4.72 m"
+  var bearingPopoverNorthingText: String = "9,312,450 m"
+  var bearingPopoverEastingText: String = "699,250 m"
+  var isBearingCompared: Bool = false
+  var comparedPoints: [ComparedBearingPointItem] = []
+  var onAddToCompare: (() -> Void)? = nil
+  var onTapBearingSurface: ((CGPoint, BearingLayerVoxel?, Int, Int) -> Void)? = nil
   var onSelectBearingVoxel: ((BearingLayerVoxel?) -> Void)? = nil
 
   @State private var dragStartYaw: Float?
@@ -25,6 +28,7 @@ struct ResultBearingSurfaceRealityView: View {
   // Cached textures so they are synthesized only once
   @MainActor private static var cachedHeatmapTexture: TextureResource?
   @MainActor private static var cachedBadgeTextures: [String: TextureResource] = [:]
+  @MainActor private static var cachedComparisonBadgeTextures: [String: TextureResource] = [:]
 
   var body: some View {
     GeometryReader { proxy in
@@ -64,72 +68,69 @@ struct ResultBearingSurfaceRealityView: View {
               lastBuiltVolumeID = volume.id
             }
           }
+
+          updateComparisonMarkers(on: pivotEntity)
         }
         .gesture(orbitDragGesture)
         .simultaneousGesture(zoomMagnifyGesture)
         .simultaneousGesture(targetedTapGesture)
 
         // Background tap-to-dismiss layer when popover is visible
-        if isProfilePopoverPresented {
+        if isBearingPopoverPresented {
           Color.clear
             .contentShape(Rectangle())
             .ignoresSafeArea()
             .onTapGesture {
               withAnimation(.easeInOut(duration: 0.2)) {
-                isProfilePopoverPresented = false
+                isBearingPopoverPresented = false
               }
             }
         }
 
-        // Native-looking Popover Overlay
-        if isProfilePopoverPresented, let tapLoc = profilePopoverLocation {
-          let popoverWidth: CGFloat = min(348, proxy.size.width - 32)
-          let popoverHeight: CGFloat = 370
-          let arrowEdge: Edge = tapLoc.x >= (proxy.size.width * 0.45) ? .trailing : .leading
+        // Native-looking Bearing Popover Overlay
+        if isBearingPopoverPresented, let tapLoc = bearingPopoverLocation {
+          let popoverWidth: CGFloat = 250
+          let popoverHeight: CGFloat = 160
+          let isAbove = tapLoc.y >= 200
+          let arrowPos: BearingPopoverBubbleShape.ArrowPosition = isAbove ? .bottom : .top
 
-          let originX: CGFloat = arrowEdge == .trailing
-            ? max(tapLoc.x - popoverWidth - 6, 16)
-            : min(tapLoc.x + 6, proxy.size.width - popoverWidth - 16)
+          let originX = min(max(tapLoc.x - popoverWidth * 0.5, 16), proxy.size.width - popoverWidth - 16)
+          let centerY = isAbove ? (tapLoc.y - popoverHeight * 0.5 - 2) : (tapLoc.y + popoverHeight * 0.5 + 2)
+          let localArrowX = min(max(tapLoc.x - originX, 24), popoverWidth - 24)
 
-          let rawOriginY = tapLoc.y - (popoverHeight * 0.35)
-          let clampedOriginY = min(max(rawOriginY, 70), max(proxy.size.height - popoverHeight - 90, 70))
-          let localArrowY = min(max(tapLoc.y - clampedOriginY, 32), popoverHeight - 32)
-
-          CPTPointProfilePopoverView(
-            pointTitle: popoverTitle,
-            latitudeText: popoverLatitude,
-            longitudeText: popoverLongitude,
-            layers: popoverLayers,
-            onClose: {
-              withAnimation(.easeInOut(duration: 0.2)) {
-                isProfilePopoverPresented = false
-              }
-            }
+          ResultBearingPointPopoverView(
+            title: bearingPopoverTitle,
+            depthText: bearingPopoverDepthText,
+            northingText: bearingPopoverNorthingText,
+            eastingText: bearingPopoverEastingText,
+            isCompared: isBearingCompared,
+            onAddToCompare: onAddToCompare
           )
-          .padding(18)
+          .padding(.bottom, isAbove ? 10 : 0)
+          .padding(.top, isAbove ? 0 : 10)
           .frame(width: popoverWidth)
           .background {
-            PopoverBubbleShape(
-              arrowEdge: arrowEdge,
-              arrowY: localArrowY,
+            BearingPopoverBubbleShape(
+              arrowPosition: arrowPos,
+              arrowX: localArrowX,
               cornerRadius: 18,
               arrowWidth: 16,
               arrowHeight: 10
             )
             .fill(Color(.systemBackground).opacity(0.96))
             .overlay {
-              PopoverBubbleShape(
-                arrowEdge: arrowEdge,
-                arrowY: localArrowY,
+              BearingPopoverBubbleShape(
+                arrowPosition: arrowPos,
+                arrowX: localArrowX,
                 cornerRadius: 18,
                 arrowWidth: 16,
                 arrowHeight: 10
               )
               .stroke(Color.primary.opacity(0.12), lineWidth: 1)
             }
-            .shadow(color: Color.black.opacity(0.18), radius: 18, x: 0, y: 6)
+            .shadow(color: Color.black.opacity(0.16), radius: 16, x: 0, y: 6)
           }
-          .position(x: originX + popoverWidth * 0.5, y: clampedOriginY + popoverHeight * 0.5)
+          .position(x: originX + popoverWidth * 0.5, y: centerY)
           .transition(.scale(scale: 0.95).combined(with: .opacity))
           .zIndex(100)
         }
@@ -158,10 +159,101 @@ struct ResultBearingSurfaceRealityView: View {
     cptMarkersEntity.name = "BearingCPTMarkers"
     pivotEntity.addChild(cptMarkersEntity)
 
-    // 4. Perimeter Ruler Axes: X (m) along front edge, Y (m) along right edge
+    // 4. Comparison Markers (B-1, B-2, B-3...)
+    updateComparisonMarkers(on: pivotEntity)
+
+    // 5. Perimeter Ruler Axes: X (m) along front edge, Y (m) along right edge
     let axesEntity = makeRulerAxesEntity(for: volume)
     axesEntity.name = "BearingRulerAxes"
     pivotEntity.addChild(axesEntity)
+  }
+
+  // MARK: - Comparison Markers (B-1, B-2, B-3...)
+
+  @MainActor
+  private func updateComparisonMarkers(on pivotEntity: Entity) {
+    if let existing = pivotEntity.findEntity(named: "BearingComparisonMarkers") {
+      existing.removeFromParent()
+    }
+
+    guard !comparedPoints.isEmpty else { return }
+
+    let container = Entity()
+    container.name = "BearingComparisonMarkers"
+
+    let dotMesh = MeshResource.generateCylinder(height: 0.10, radius: 0.35)
+    let whiteDotMat = UnlitMaterial(color: .white)
+    let badgePlaneMesh = MeshResource.generatePlane(width: 2.4, depth: 1.2, cornerRadius: 0.6)
+
+    for item in comparedPoints {
+      let group = Entity()
+      group.name = "ComparisonMarker_\(item.label)"
+      group.position = SIMD3<Float>(item.worldX, 0.03, item.worldZ)
+
+      // Surface white dot
+      let dot = ModelEntity(mesh: dotMesh, materials: [whiteDotMat])
+      dot.position = SIMD3<Float>(0, 0.02, 0)
+      group.addChild(dot)
+
+      // White pill badge with dark text "B-1", "B-2", etc.
+      var badgeMat = UnlitMaterial()
+      if let badgeTex = Self.getOrCreateComparisonBadgeTexture(label: item.label) {
+        badgeMat.color = .init(tint: .white, texture: .init(badgeTex))
+      } else {
+        badgeMat.color = .init(tint: .white)
+      }
+      let badgeEntity = ModelEntity(mesh: badgePlaneMesh, materials: [badgeMat])
+      badgeEntity.position = SIMD3<Float>(0.0, 0.35, -1.0)
+      badgeEntity.orientation = simd_quatf(angle: 0.22, axis: SIMD3<Float>(1, 0, 0))
+      group.addChild(badgeEntity)
+
+      container.addChild(group)
+    }
+
+    pivotEntity.addChild(container)
+  }
+
+  @MainActor
+  private static func getOrCreateComparisonBadgeTexture(label: String) -> TextureResource? {
+    if let cached = cachedComparisonBadgeTextures[label] {
+      return cached
+    }
+
+    let size = CGSize(width: 200, height: 100)
+    let renderer = UIGraphicsImageRenderer(size: size)
+    let img = renderer.image { _ in
+      let rect = CGRect(origin: .zero, size: size)
+      let pillPath = UIBezierPath(roundedRect: rect.insetBy(dx: 4, dy: 4), cornerRadius: 46)
+      UIColor.white.setFill()
+      pillPath.fill()
+      UIColor(white: 0.2, alpha: 0.4).setStroke()
+      pillPath.lineWidth = 2.5
+      pillPath.stroke()
+
+      let paragraph = NSMutableParagraphStyle()
+      paragraph.alignment = .center
+      let attrs: [NSAttributedString.Key: Any] = [
+        .font: UIFont.systemFont(ofSize: 42, weight: .bold),
+        .foregroundColor: UIColor(white: 0.12, alpha: 1.0),
+        .paragraphStyle: paragraph
+      ]
+      let textSize = (label as NSString).size(withAttributes: attrs)
+      let textRect = CGRect(
+        x: 0,
+        y: (size.height - textSize.height) * 0.5,
+        width: size.width,
+        height: textSize.height
+      )
+      (label as NSString).draw(in: textRect, withAttributes: attrs)
+    }
+
+    guard let cgImg = img.cgImage,
+          let tex = try? TextureResource(image: cgImg, options: .init(semantic: .color))
+    else {
+      return nil
+    }
+    cachedComparisonBadgeTextures[label] = tex
+    return tex
   }
 
   // MARK: - Gestures
@@ -215,9 +307,12 @@ struct ResultBearingSurfaceRealityView: View {
             let pos = volume.cptSurfacePositions[idx]
             let xGrid = Int((pos.x + volume.centerX).rounded())
             let zGrid = Int((pos.z + volume.centerZ).rounded())
-            onSelectBearingVoxel?(volume.bearingVoxels[ColumnCoord(x: xGrid, z: zGrid)])
+            let voxel = volume.bearingVoxels[ColumnCoord(x: xGrid, z: zGrid)]
+            onSelectBearingVoxel?(voxel)
+            onTapBearingSurface?(value.location, voxel, xGrid, zGrid)
+          } else {
+            onTapBearingSurface?(value.location, nil, 0, 0)
           }
-          onTapCPTPoint?(value.location, idx)
         } else {
           // Resolve exact 1m² BearingLayerVoxel at tap point in O(1) time
           let hits = value.hitTest(point: value.location, in: .local)
@@ -225,23 +320,13 @@ struct ResultBearingSurfaceRealityView: View {
              let pivot = findPivotEntity(from: value.entity)
           {
             let localPt = pivot.convert(position: firstHit.position, from: nil)
-            let xGrid = Int((localPt.x + volume.centerX).rounded())
-            let zGrid = Int((localPt.z + volume.centerZ).rounded())
+            let xGrid = min(max(Int((localPt.x + volume.centerX).rounded()), 0), volume.nx - 1)
+            let zGrid = min(max(Int((localPt.z + volume.centerZ).rounded()), 0), volume.nz - 1)
             let tappedBearingVoxel = volume.bearingVoxels[ColumnCoord(x: xGrid, z: zGrid)]
             onSelectBearingVoxel?(tappedBearingVoxel)
-
-            var bestIdx = 0
-            var bestDist = Float.greatestFiniteMagnitude
-            for (i, pos) in volume.cptSurfacePositions.enumerated() {
-              let d = (localPt.x - pos.x) * (localPt.x - pos.x) + (localPt.z - pos.z) * (localPt.z - pos.z)
-              if d < bestDist {
-                bestDist = d
-                bestIdx = i
-              }
-            }
-            onTapCPTPoint?(value.location, bestIdx)
+            onTapBearingSurface?(value.location, tappedBearingVoxel, xGrid, zGrid)
           } else {
-            onTapCPTPoint?(value.location, 0)
+            onTapBearingSurface?(value.location, nil, volume.nx / 2, volume.nz / 2)
           }
         }
       }

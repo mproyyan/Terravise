@@ -95,13 +95,31 @@ final class ResultAnalysisViewModel {
   var shallowestBearingDepthText: String = "2.7 m"
   var deepestBearingDepthText: String = "4.9 m"
   var variationBearingDepthText: String = "2.2 m"
-  var coneResistanceCriteriaText: String = "≥ 15.0 MPa"
-  var soilBehaviorIndexCriteriaText: String = "≤ 1.80"
-  var minLayerThicknessCriteriaText: String = "≥ 1.0 m"
   var relativeUncertaintyText: String = "± 12%"
   var highUncertaintyAreaPercentText: String = "10%"
   var highUncertaintyDescription: String =
     "High uncertainty is concentrated in the southern sector, where CPT coverage is limited."
+
+  // Bearing Layer Criteria & Slicing State
+  var isBearingCriteriaCardExpanded: Bool = true
+  var coneResistanceQc: Double = 15.0
+  var soilBehaviorIndexIc: Double = 1.80
+  var minLayerThickness: Double = 1.0
+
+  // Bearing Layer Tapped Point Popover State
+  var isBearingPopoverPresented: Bool = false
+  var bearingPopoverLocation: CGPoint?
+  var selectedBearingTitle: String = "Bearing Layer - 02"
+  var selectedBearingDepthText: String = "4.72 m"
+  var selectedBearingNorthingText: String = "9,312,450 m"
+  var selectedBearingEastingText: String = "699,250 m"
+  var isBearingCompared: Bool = false
+
+  // Bearing Layer Comparison State
+  var comparedBearingPoints: [ComparedBearingPointItem] = []
+  var isCompareDataSheetActive: Bool = false
+  var lastTappedGridX: Int = 0
+  var lastTappedGridZ: Int = 0
 
   // Popover State for Tapping the Top of the 3D Object
   var isProfilePopoverPresented: Bool = false
@@ -226,6 +244,10 @@ final class ResultAnalysisViewModel {
   }
 
   func dismissLeftSheet() {
+    if isCompareDataSheetActive {
+      comparedBearingPoints.removeAll()
+      isCompareDataSheetActive = false
+    }
     isLeftSheetPresented = false
   }
 
@@ -248,6 +270,11 @@ final class ResultAnalysisViewModel {
   func selectTab(_ tab: ResultAnalysisTab) {
     selectedTab = tab
     isProfilePopoverPresented = false
+    isBearingPopoverPresented = false
+    bearingPopoverLocation = nil
+    if isCompareDataSheetActive {
+      exitCompareMode()
+    }
     isLeftSheetPresented = true
     if tab == .threeDLayer {
       selectedSheetDetent = Self.collapsedSheetDetent
@@ -258,9 +285,19 @@ final class ResultAnalysisViewModel {
     AccessibilityCaptionCenter.shared.announce("\(tab.rawValue) selected.")
   }
 
+  func resetBearingCriteria() {
+    coneResistanceQc = 15.0
+    soilBehaviorIndexIc = 1.80
+    minLayerThickness = 1.0
+    AccessibilityCaptionCenter.shared.announce("Identification criteria reset to defaults.")
+  }
+
   func resetView() {
     slicingXMeters = maxSlicingXMeters
     slicingYMeters = maxSlicingYMeters
+    coneResistanceQc = 15.0
+    soilBehaviorIndexIc = 1.80
+    minLayerThickness = 1.0
     cameraYaw = Self.defaultCameraYaw
     cameraPitch = Self.defaultCameraPitch
     cameraZoom = Self.defaultCameraZoom
@@ -270,9 +307,96 @@ final class ResultAnalysisViewModel {
     selectedVoxel = nil
     selectedPipePosition3D = nil
     isProfilePopoverPresented = false
+    isBearingPopoverPresented = false
+    bearingPopoverLocation = nil
+    comparedBearingPoints = []
+    isCompareDataSheetActive = false
     selectedSheetDetent = Self.collapsedSheetDetent
     isSlicingCardExpanded = false
+    isBearingCriteriaCardExpanded = false
     AccessibilityCaptionCenter.shared.announce("3D view and slicing reset.")
+  }
+
+  func handleBearingLayerTap(at screenPoint: CGPoint, voxel: BearingLayerVoxel?, gridX: Int, gridZ: Int) {
+    selectedBearingVoxel = voxel
+    bearingPopoverLocation = screenPoint
+    isProfilePopoverPresented = false
+    lastTappedGridX = gridX
+    lastTappedGridZ = gridZ
+
+    let nextIndex = comparedBearingPoints.count + 1
+    selectedBearingTitle = String(format: "Bearing Layer - %02d", nextIndex)
+
+    let depthVal = voxel?.bearingDepthM ?? 4.72
+    selectedBearingDepthText = String(format: "%.2f m", depthVal)
+
+    let baseNorthing: Double = 9_312_450.0
+    let baseEasting: Double = 699_250.0
+    let zOffset = Double(voxel?.coord.z ?? gridZ)
+    let xOffset = Double(voxel?.coord.x ?? gridX)
+    let northingVal = baseNorthing + zOffset
+    let eastingVal = baseEasting + xOffset
+
+    let formatter = NumberFormatter()
+    formatter.numberStyle = .decimal
+    formatter.maximumFractionDigits = 0
+    selectedBearingNorthingText = (formatter.string(from: NSNumber(value: northingVal)) ?? "9,312,450") + " m"
+    selectedBearingEastingText = (formatter.string(from: NSNumber(value: eastingVal)) ?? "699,250") + " m"
+
+    isBearingCompared = false
+    isBearingPopoverPresented = true
+    AccessibilityCaptionCenter.shared.announce("Bearing layer selected: \(selectedBearingTitle), depth \(selectedBearingDepthText).")
+  }
+
+  func addCurrentBearingToCompare() {
+    isBearingPopoverPresented = false
+    let nextNum = comparedBearingPoints.count + 1
+    let label = "B-\(nextNum)"
+    let title = String(format: "Bearing Layer - %02d", nextNum)
+
+    let depthVal = selectedBearingVoxel?.bearingDepthM ?? 4.72
+    let gX = selectedBearingVoxel?.coord.x ?? lastTappedGridX
+    let gZ = selectedBearingVoxel?.coord.z ?? lastTappedGridZ
+    let wX = Float(gX) - volume.centerX
+    let wZ = Float(gZ) - volume.centerZ
+
+    let newItem = ComparedBearingPointItem(
+      id: UUID(),
+      label: label,
+      title: title,
+      depthText: selectedBearingDepthText,
+      depthValueM: depthVal,
+      northingText: selectedBearingNorthingText,
+      eastingText: selectedBearingEastingText,
+      gridX: gX,
+      gridZ: gZ,
+      worldX: wX,
+      worldZ: wZ
+    )
+    comparedBearingPoints.append(newItem)
+    isCompareDataSheetActive = true
+    selectedSheetDetent = Self.defaultSheetDetent
+    isLeftSheetPresented = true
+    AccessibilityCaptionCenter.shared.announce("Added \(label) to compare data.")
+  }
+
+  func removeComparedPoint(_ item: ComparedBearingPointItem) {
+    comparedBearingPoints.removeAll { $0.id == item.id }
+    for idx in 0 ..< comparedBearingPoints.count {
+      let num = idx + 1
+      comparedBearingPoints[idx].label = "B-\(num)"
+      comparedBearingPoints[idx].title = String(format: "Bearing Layer - %02d", num)
+    }
+    if comparedBearingPoints.isEmpty {
+      isCompareDataSheetActive = false
+    }
+    AccessibilityCaptionCenter.shared.announce("Removed \(item.label) from comparison.")
+  }
+
+  func exitCompareMode() {
+    isCompareDataSheetActive = false
+    comparedBearingPoints.removeAll()
+    AccessibilityCaptionCenter.shared.announce("Closed compare data and cleared stored points.")
   }
 
   func handleVoxelSelection(_ voxel: SoilVoxel?) {

@@ -89,15 +89,22 @@ struct ResultAnalysisView: View {
             cameraYaw: $viewModel.bearingCameraYaw,
             cameraPitch: $viewModel.bearingCameraPitch,
             cameraZoom: $viewModel.bearingCameraZoom,
-            isProfilePopoverPresented: $viewModel.isProfilePopoverPresented,
-            profilePopoverLocation: $viewModel.profilePopoverLocation,
-            popoverTitle: viewModel.selectedCPTPointTitle,
-            popoverLatitude: viewModel.selectedCPTPointLatitude,
-            popoverLongitude: viewModel.selectedCPTPointLongitude,
-            popoverLayers: viewModel.selectedPopoverLayers,
-            onTapCPTPoint: { screenPoint, idx in
+            isBearingPopoverPresented: $viewModel.isBearingPopoverPresented,
+            bearingPopoverLocation: $viewModel.bearingPopoverLocation,
+            bearingPopoverTitle: viewModel.selectedBearingTitle,
+            bearingPopoverDepthText: viewModel.selectedBearingDepthText,
+            bearingPopoverNorthingText: viewModel.selectedBearingNorthingText,
+            bearingPopoverEastingText: viewModel.selectedBearingEastingText,
+            isBearingCompared: viewModel.isBearingCompared,
+            comparedPoints: viewModel.comparedBearingPoints,
+            onAddToCompare: {
+              withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) {
+                viewModel.addCurrentBearingToCompare()
+              }
+            },
+            onTapBearingSurface: { screenPoint, voxel, xGrid, zGrid in
               withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
-                viewModel.handleBearingCPTPointTap(at: screenPoint, pointIndex: idx)
+                viewModel.handleBearingLayerTap(at: screenPoint, voxel: voxel, gridX: xGrid, gridZ: zGrid)
               }
             },
             onSelectBearingVoxel: { bearingVoxel in
@@ -119,7 +126,19 @@ struct ResultAnalysisView: View {
           .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
         }
       }
-      // Bottom-Trailing: Slicing Card (3D Layer) or Depth Legend (Bearing Layer)
+      // Top-Trailing: Depth Legend (Bearing Layer)
+      .overlay(alignment: .topTrailing) {
+        if viewModel.selectedTab == .bearingLayer {
+          ResultBearingDepthLegendView(
+            shallowestLimitText: "≤ 2.75m",
+            deepestLimitText: "≥ 4.75m"
+          )
+          .padding(.trailing, 20)
+          .padding(.top, 16)
+          .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
+        }
+      }
+      // Bottom-Trailing: Slicing Card (3D Layer) or Criteria Card (Bearing Layer)
       .overlay(alignment: .bottomTrailing) {
         switch viewModel.selectedTab {
         case .threeDLayer:
@@ -152,10 +171,21 @@ struct ResultAnalysisView: View {
           .transition(.opacity.combined(with: .move(edge: .bottom)))
 
         case .bearingLayer:
-          ResultBearingDepthLegendView()
-            .padding(.trailing, 28)
-            .padding(.bottom, 22)
-            .transition(.opacity.combined(with: .move(edge: .bottom)))
+          ResultBearingCriteriaCardView(
+            cardWidth: oneThirdSheetWidth,
+            isExpanded: $viewModel.isBearingCriteriaCardExpanded,
+            coneResistanceQc: $viewModel.coneResistanceQc,
+            soilBehaviorIndexIc: $viewModel.soilBehaviorIndexIc,
+            minLayerThickness: $viewModel.minLayerThickness,
+            onResetCriteria: {
+              withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) {
+                viewModel.resetBearingCriteria()
+              }
+            }
+          )
+          .padding(.trailing, 20)
+          .padding(.bottom, 20)
+          .transition(.opacity.combined(with: .move(edge: .bottom)))
         }
       }
       // Left Sheet sized to 1/3 of screen width
@@ -172,17 +202,30 @@ struct ResultAnalysisView: View {
               cptPointsCount: viewModel.displayedCPTPointsCount
             )
           case .bearingLayer:
-            ResultBearingLayerSheetView(
-              shallowestDepthText: viewModel.shallowestBearingDepthText,
-              deepestDepthText: viewModel.deepestBearingDepthText,
-              variationDepthText: viewModel.variationBearingDepthText,
-              coneResistanceText: viewModel.coneResistanceCriteriaText,
-              soilBehaviorIndexText: viewModel.soilBehaviorIndexCriteriaText,
-              minLayerThicknessText: viewModel.minLayerThicknessCriteriaText,
-              relativeUncertaintyText: viewModel.relativeUncertaintyText,
-              highUncertaintyAreaPercentText: viewModel.highUncertaintyAreaPercentText,
-              highUncertaintyDescription: viewModel.highUncertaintyDescription
-            )
+            if viewModel.isCompareDataSheetActive {
+              ResultBearingCompareDataSheetView(
+                items: viewModel.comparedBearingPoints,
+                onRemoveItem: { item in
+                  withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
+                    viewModel.removeComparedPoint(item)
+                  }
+                },
+                onClose: {
+                  withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
+                    viewModel.exitCompareMode()
+                  }
+                }
+              )
+            } else {
+              ResultBearingLayerSheetView(
+                shallowestDepthText: viewModel.shallowestBearingDepthText,
+                deepestDepthText: viewModel.deepestBearingDepthText,
+                variationDepthText: viewModel.variationBearingDepthText,
+                relativeUncertaintyText: viewModel.relativeUncertaintyText,
+                highUncertaintyAreaPercentText: viewModel.highUncertaintyAreaPercentText,
+                highUncertaintyDescription: viewModel.highUncertaintyDescription
+              )
+            }
           }
         }
         .frame(width: oneThirdSheetWidth)

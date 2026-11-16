@@ -188,6 +188,21 @@ struct BearingLayerVoxel: Sendable, Equatable {
   let uncertaintyPercent: Float
 }
 
+/// Data item for compared bearing layer points displayed in Compare Data sheet and on 3D surface.
+struct ComparedBearingPointItem: Identifiable, Equatable, Sendable {
+  let id: UUID
+  var label: String
+  var title: String
+  var depthText: String
+  var depthValueM: Float
+  var northingText: String
+  var eastingText: String
+  var gridX: Int
+  var gridZ: Int
+  var worldX: Float
+  var worldZ: Float
+}
+
 /// Spatial metadata and sparse storage for the 3D subsurface voxel field.
 struct SubsurfaceVoxelVolume: Sendable {
   let id: UUID = UUID()

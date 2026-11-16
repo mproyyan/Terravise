@@ -4,17 +4,31 @@ struct ResultBearingDepthLegendView: View {
   var shallowestLimitText: String = "≤ 2.75m"
   var deepestLimitText: String = "≥ 4.75m"
 
+  @Environment(\.colorSchemeContrast) private var contrast
+
   private static let gradientColors: [Color] = [
-    Color(red: 0.96, green: 0.51, blue: 0.13), // Orange (Shallowest)
-    Color(red: 0.90, green: 0.82, blue: 0.22), // Yellow
-    Color(red: 0.42, green: 0.78, blue: 0.39), // Green
-    Color(red: 0.14, green: 0.62, blue: 0.68), // Cyan/Teal
-    Color(red: 0.05, green: 0.35, blue: 0.60)  // Deep Blue (Deepest)
+    Color(red: 0.98, green: 0.54, blue: 0.04), // Orange (Shallowest)
+    Color(red: 0.98, green: 0.80, blue: 0.08), // Yellow
+    Color(red: 0.65, green: 0.84, blue: 0.22), // Lime / Yellow-Green
+    Color(red: 0.18, green: 0.76, blue: 0.46), // Green / Emerald
+    Color(red: 0.08, green: 0.62, blue: 0.68), // Cyan / Teal
+    Color(red: 0.06, green: 0.40, blue: 0.65)  // Deep Blue (Deepest)
   ]
 
   var body: some View {
-    VStack(spacing: 4) {
-      // Gradient Pill Bar
+    HStack(alignment: .center, spacing: 14) {
+      // Left: Shallowest
+      VStack(alignment: .leading, spacing: 2) {
+        Text(shallowestLimitText)
+          .font(.subheadline.weight(.bold))
+          .foregroundStyle(Color.primary)
+
+        Text("Shallowest")
+          .font(.caption)
+          .foregroundStyle(Color.secondary)
+      }
+
+      // Center: Gradient Capsule Bar
       Capsule()
         .fill(
           LinearGradient(
@@ -23,54 +37,33 @@ struct ResultBearingDepthLegendView: View {
             endPoint: .trailing
           )
         )
-        .frame(width: 220, height: 14)
+        .frame(width: 200, height: 16)
 
-      // Bracket Axis Line with End Ticks
-      Canvas { context, size in
-        var path = Path()
-        let tickHeight: CGFloat = 5
-        // Left tick
-        path.move(to: CGPoint(x: 1, y: tickHeight))
-        path.addLine(to: CGPoint(x: 1, y: 0.5))
-        // Horizontal line
-        path.addLine(to: CGPoint(x: size.width - 1, y: 0.5))
-        // Right tick
-        path.addLine(to: CGPoint(x: size.width - 1, y: tickHeight))
+      // Right: Deepest
+      VStack(alignment: .leading, spacing: 2) {
+        Text(deepestLimitText)
+          .font(.subheadline.weight(.bold))
+          .foregroundStyle(Color.primary)
 
-        context.stroke(
-          path,
-          with: .color(Color.secondary.opacity(0.6)),
+        Text("Deepest")
+          .font(.caption)
+          .foregroundStyle(Color.secondary)
+      }
+    }
+    .padding(.horizontal, 16)
+    .padding(.vertical, 12)
+    .background(
+      RoundedRectangle(cornerRadius: 16, style: .continuous)
+        .fill(Color(.secondarySystemGroupedBackground))
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: 16, style: .continuous)
+        .stroke(
+          Color.primary.opacity(contrast == .increased ? 0.35 : 0.06),
           lineWidth: 1
         )
-      }
-      .frame(width: 220, height: 6)
-
-      // Labels Row
-      HStack {
-        VStack(alignment: .center, spacing: 1) {
-          Text("Shallowest")
-            .font(.caption2.weight(.medium))
-            .foregroundStyle(Color.primary)
-          Text(shallowestLimitText)
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(Color.primary)
-        }
-
-        Spacer()
-
-        VStack(alignment: .center, spacing: 1) {
-          Text("Deepest")
-            .font(.caption2.weight(.medium))
-            .foregroundStyle(Color.primary)
-          Text(deepestLimitText)
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(Color.primary)
-        }
-      }
-      .frame(width: 244)
-    }
-    .padding(.horizontal, 12)
-    .padding(.vertical, 8)
+    )
+    .shadow(color: Color.black.opacity(0.06), radius: 8, x: 0, y: 3)
     .accessibilityElement(children: .combine)
     .accessibilityLabel("Bearing layer depth legend: Shallowest \(shallowestLimitText) in orange to Deepest \(deepestLimitText) in deep blue")
   }
@@ -79,4 +72,5 @@ struct ResultBearingDepthLegendView: View {
 #Preview {
   ResultBearingDepthLegendView()
     .padding()
+    .background(Color(.systemGroupedBackground))
 }
