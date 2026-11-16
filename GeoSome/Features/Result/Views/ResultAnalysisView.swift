@@ -158,19 +158,8 @@ struct ResultAnalysisView: View {
               concerns: viewModel.geotechnicalConcerns,
               isSubsurfaceConditionsEmpty: viewModel.isSubsurfaceConditionsEmpty,
               isGeotechnicalConcernsEmpty: viewModel.isGeotechnicalConcernsEmpty,
-              selectedConcernID: viewModel.selectedConcernID,
               predictionUncertaintyPercent: viewModel.predictionUncertaintyPercent,
-              cptPointsCount: viewModel.displayedCPTPointsCount,
-              onSelectConcern: { concern in
-                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
-                  viewModel.selectConcern(concern)
-                }
-              },
-              onClearHighlight: {
-                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
-                  viewModel.clearHighlight()
-                }
-              }
+              cptPointsCount: viewModel.displayedCPTPointsCount
             )
           case .bearingLayer:
             ResultBearingLayerSheetView(

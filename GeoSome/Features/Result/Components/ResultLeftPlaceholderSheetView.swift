@@ -76,18 +76,61 @@ struct SheetWidthConfigurator: UIViewControllerRepresentable {
   }
 }
 
+struct LegendMapItem: Identifiable, Sendable {
+  let id = UUID()
+  let name: String
+  let color: Color
+}
+
 struct ResultLeftPlaceholderSheetView: View {
   var groundConditionsSummary: String
   var concerns: [GeotechnicalConcernItem]
   var isSubsurfaceConditionsEmpty: Bool
   var isGeotechnicalConcernsEmpty: Bool
-  var selectedConcernID: String?
+  var legendItems: [LegendMapItem]
   var predictionUncertaintyPercent: Int
   var cptPointsCount: Int
-  var onSelectConcern: ((GeotechnicalConcernItem) -> Void)?
-  var onClearHighlight: (() -> Void)?
 
   @Environment(\.colorSchemeContrast) private var contrast
+
+  static let defaultLegendItems: [LegendMapItem] = [
+    LegendMapItem(
+      name: "Sensitive fine-grained soil",
+      color: Color(red: 203 / 255, green: 55 / 255, blue: 43 / 255)
+    ),
+    LegendMapItem(
+      name: "Clay - organic soil",
+      color: Color(red: 169 / 255, green: 104 / 255, blue: 62 / 255)
+    ),
+    LegendMapItem(
+      name: "Clays: clay to silly clay",
+      color: Color(red: 84 / 255, green: 82 / 255, blue: 103 / 255)
+    ),
+    LegendMapItem(
+      name: "Silt mixtures: clayey silt & silty clay",
+      color: Color(red: 89 / 255, green: 133 / 255, blue: 120 / 255)
+    ),
+    LegendMapItem(
+      name: "Sand mixtures: silty sand to sandy silt",
+      color: Color(red: 132 / 255, green: 191 / 255, blue: 149 / 255)
+    ),
+    LegendMapItem(
+      name: "Sands: clean sands to silty sands",
+      color: Color(red: 187 / 255, green: 157 / 255, blue: 96 / 255)
+    ),
+    LegendMapItem(
+      name: "Dense sand to gravelly sand",
+      color: Color(red: 230 / 255, green: 153 / 255, blue: 77 / 255)
+    ),
+    LegendMapItem(
+      name: "Stiff sand to clayey sand",
+      color: Color(red: 156 / 255, green: 146 / 255, blue: 139 / 255)
+    ),
+    LegendMapItem(
+      name: "Stiff fine grained",
+      color: Color(red: 231 / 255, green: 221 / 255, blue: 218 / 255)
+    )
+  ]
 
   init(
     groundConditionsSummary: String =
@@ -95,21 +138,17 @@ struct ResultLeftPlaceholderSheetView: View {
     concerns: [GeotechnicalConcernItem] = ResultAnalysisViewModel.defaultConcerns,
     isSubsurfaceConditionsEmpty: Bool = false,
     isGeotechnicalConcernsEmpty: Bool = false,
-    selectedConcernID: String? = ResultAnalysisViewModel.defaultConcerns.first?.id,
+    legendItems: [LegendMapItem] = Self.defaultLegendItems,
     predictionUncertaintyPercent: Int = 12,
-    cptPointsCount: Int = 12,
-    onSelectConcern: ((GeotechnicalConcernItem) -> Void)? = nil,
-    onClearHighlight: (() -> Void)? = nil
+    cptPointsCount: Int = 12
   ) {
     self.groundConditionsSummary = groundConditionsSummary
     self.concerns = concerns
     self.isSubsurfaceConditionsEmpty = isSubsurfaceConditionsEmpty
     self.isGeotechnicalConcernsEmpty = isGeotechnicalConcernsEmpty
-    self.selectedConcernID = selectedConcernID
+    self.legendItems = legendItems
     self.predictionUncertaintyPercent = predictionUncertaintyPercent
     self.cptPointsCount = cptPointsCount
-    self.onSelectConcern = onSelectConcern
-    self.onClearHighlight = onClearHighlight
   }
 
   private var shouldShowSubsurfaceEmpty: Bool {
@@ -143,12 +182,14 @@ struct ResultLeftPlaceholderSheetView: View {
           geotechnicalConcernsEmptyCard
         } else {
           concernsListCard
-
-          // Clear Highlight Pill Button (only when concerns are present)
-          clearHighlightButton
         }
 
-        // 3. Model Reliability Section
+        // 3. Legend Map Section
+        legendMapSectionHeader
+
+        legendMapCard
+
+        // 4. Model Reliability Section
         Text("Model Reliability")
           .font(.headline.weight(.bold))
           .foregroundStyle(Color.primary)
@@ -296,87 +337,72 @@ struct ResultLeftPlaceholderSheetView: View {
   }
 
   private func concernRow(for concern: GeotechnicalConcernItem) -> some View {
-    let isSelected = selectedConcernID == concern.id
+    VStack(alignment: .leading, spacing: 8) {
+      Text(concern.title)
+        .font(.subheadline.weight(.bold))
+        .foregroundStyle(Color.primary)
+        .multilineTextAlignment(.leading)
+        .fixedSize(horizontal: false, vertical: true)
 
-    return Button(action: {
-      onSelectConcern?(concern)
-    }) {
-      VStack(alignment: .leading, spacing: 8) {
-        HStack(alignment: .top, spacing: 12) {
-          Text(concern.title)
-            .font(.subheadline.weight(.bold))
-            .foregroundStyle(Color.primary)
+      Text(concern.implication)
+        .font(.footnote)
+        .foregroundStyle(Color.secondary)
+        .multilineTextAlignment(.leading)
+        .fixedSize(horizontal: false, vertical: true)
+
+      VStack(alignment: .leading, spacing: 2) {
+        ForEach(concern.locationAndDepthLines, id: \.self) { line in
+          Text(line)
+            .font(.footnote)
+            .foregroundStyle(Color.secondary)
             .multilineTextAlignment(.leading)
             .fixedSize(horizontal: false, vertical: true)
-
-          Spacer(minLength: 4)
-
-          if isSelected {
-            Image(systemName: "checkmark.circle.fill")
-              .font(.system(size: 22))
-              .symbolRenderingMode(.palette)
-              .foregroundStyle(Color.white, Color.blue)
-              .accessibilityHidden(true)
-          } else {
-            Image(systemName: "circle")
-              .font(.system(size: 22, weight: .regular))
-              .foregroundStyle(Color(.systemGray3))
-              .accessibilityHidden(true)
-          }
-        }
-
-        Text(concern.implication)
-          .font(.footnote)
-          .foregroundStyle(Color.secondary)
-          .multilineTextAlignment(.leading)
-          .fixedSize(horizontal: false, vertical: true)
-
-        VStack(alignment: .leading, spacing: 2) {
-          ForEach(concern.locationAndDepthLines, id: \.self) { line in
-            Text(line)
-              .font(.footnote)
-              .foregroundStyle(Color.secondary)
-              .multilineTextAlignment(.leading)
-              .fixedSize(horizontal: false, vertical: true)
-          }
         }
       }
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .contentShape(Rectangle())
     }
-    .buttonStyle(.plain)
+    .frame(maxWidth: .infinity, alignment: .leading)
     .accessibilityElement(children: .combine)
     .accessibilityLabel(concern.title)
     .accessibilityValue(
-      ([isSelected ? "Selected" : "Not selected", concern.implication] + concern.locationAndDepthLines)
+      ([concern.implication] + concern.locationAndDepthLines)
         .joined(separator: ", ")
     )
-    .accessibilityHint("Double-tap to toggle highlight for this geotechnical concern")
-    .accessibilityAddTraits(isSelected ? .isSelected : [])
   }
 
-  private var clearHighlightButton: some View {
-    Button(action: {
-      onClearHighlight?()
-    }) {
-      HStack(spacing: 6) {
-        Image(systemName: "xmark")
-          .font(.footnote.weight(.semibold))
+  private var legendMapSectionHeader: some View {
+    Text("Legend Map")
+      .font(.headline.weight(.bold))
+      .foregroundStyle(Color.primary)
+      .padding(.top, 2)
+      .accessibilityAddTraits(.isHeader)
+  }
 
-        Text("Clear Highlight")
-          .font(.subheadline.weight(.medium))
+  private var legendMapCard: some View {
+    VStack(alignment: .leading, spacing: 14) {
+      ForEach(legendItems) { item in
+        legendRow(for: item)
       }
-      .foregroundStyle(Color.blue)
-      .frame(maxWidth: .infinity)
-      .frame(height: 44)
-      .background(
-        Capsule()
-          .fill(Color(.tertiarySystemFill))
-      )
     }
-    .buttonStyle(.plain)
-    .accessibilityLabel("Clear Highlight")
-    .accessibilityHint("Clears the active geotechnical concern highlight")
+    .padding(16)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(cardBackground)
+    .overlay(cardStroke)
+  }
+
+  private func legendRow(for item: LegendMapItem) -> some View {
+    HStack(spacing: 12) {
+      Circle()
+        .fill(item.color)
+        .frame(width: 18, height: 18)
+        .accessibilityHidden(true)
+
+      Text(item.name)
+        .font(.subheadline.weight(.medium))
+        .foregroundStyle(Color.primary)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+    .accessibilityElement(children: .combine)
+    .accessibilityLabel(item.name)
   }
 
   private var predictionUncertaintyCard: some View {
