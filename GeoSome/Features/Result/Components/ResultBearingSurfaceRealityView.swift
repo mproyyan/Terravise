@@ -13,6 +13,7 @@ struct ResultBearingSurfaceRealityView: View {
   var popoverTitle: String = "CPT Point-01"
   var popoverLatitude: String = "-6.215432"
   var popoverLongitude: String = "106.845321"
+  var popoverLayers: [SBTProfileLayerItem] = CPTPointProfilePopoverView.defaultLayers
   var onTapCPTPoint: ((CGPoint, Int) -> Void)? = nil
   var onSelectBearingVoxel: ((BearingLayerVoxel?) -> Void)? = nil
 
@@ -98,6 +99,7 @@ struct ResultBearingSurfaceRealityView: View {
             pointTitle: popoverTitle,
             latitudeText: popoverLatitude,
             longitudeText: popoverLongitude,
+            layers: popoverLayers,
             onClose: {
               withAnimation(.easeInOut(duration: 0.2)) {
                 isProfilePopoverPresented = false

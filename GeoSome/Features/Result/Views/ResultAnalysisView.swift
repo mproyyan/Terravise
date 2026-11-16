@@ -68,6 +68,7 @@ struct ResultAnalysisView: View {
             popoverTitle: viewModel.selectedCPTPointTitle,
             popoverLatitude: viewModel.selectedCPTPointLatitude,
             popoverLongitude: viewModel.selectedCPTPointLongitude,
+            popoverLayers: viewModel.selectedPopoverLayers,
             onSelectVoxel: { voxel in
               withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
                 viewModel.handleVoxelSelection(voxel)
@@ -93,6 +94,7 @@ struct ResultAnalysisView: View {
             popoverTitle: viewModel.selectedCPTPointTitle,
             popoverLatitude: viewModel.selectedCPTPointLatitude,
             popoverLongitude: viewModel.selectedCPTPointLongitude,
+            popoverLayers: viewModel.selectedPopoverLayers,
             onTapCPTPoint: { screenPoint, idx in
               withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
                 viewModel.handleBearingCPTPointTap(at: screenPoint, pointIndex: idx)
