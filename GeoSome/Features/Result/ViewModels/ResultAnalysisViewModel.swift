@@ -66,7 +66,8 @@ final class ResultAnalysisViewModel {
   // Real-time Cross-Section Slicing Controls (in meters)
   var slicingXMeters: Double
   var slicingYMeters: Double
-  var isSlicingCardExpanded: Bool = true
+  var isSlicingCardExpanded: Bool = false
+  var isHardSoilVisible: Bool = true
 
   // Left Sheet State & Subsurface Conditions Content
   var isLeftSheetPresented: Bool = false
@@ -248,7 +249,12 @@ final class ResultAnalysisViewModel {
     selectedTab = tab
     isProfilePopoverPresented = false
     isLeftSheetPresented = true
-    selectedSheetDetent = .large
+    if tab == .threeDLayer {
+      selectedSheetDetent = Self.collapsedSheetDetent
+      isSlicingCardExpanded = false
+    } else {
+      selectedSheetDetent = Self.defaultSheetDetent
+    }
     AccessibilityCaptionCenter.shared.announce("\(tab.rawValue) selected.")
   }
 
@@ -265,6 +271,7 @@ final class ResultAnalysisViewModel {
     selectedPipePosition3D = nil
     isProfilePopoverPresented = false
     selectedSheetDetent = Self.collapsedSheetDetent
+    isSlicingCardExpanded = false
     AccessibilityCaptionCenter.shared.announce("3D view and slicing reset.")
   }
 

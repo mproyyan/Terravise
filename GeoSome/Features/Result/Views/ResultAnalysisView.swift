@@ -124,7 +124,17 @@ struct ResultAnalysisView: View {
         switch viewModel.selectedTab {
         case .threeDLayer:
           ResultLayerSlicingCardView(
+            cardWidth: oneThirdSheetWidth,
             isExpanded: $viewModel.isSlicingCardExpanded,
+            isHardSoilVisible: $viewModel.isHardSoilVisible,
+            concerns: viewModel.geotechnicalConcerns,
+            isGeotechnicalConcernsEmpty: viewModel.isGeotechnicalConcernsEmpty,
+            selectedConcernID: viewModel.selectedConcernID,
+            onSelectConcern: { concern in
+              withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
+                viewModel.selectConcern(concern)
+              }
+            },
             slicingXMeters: $viewModel.slicingXMeters,
             slicingYMeters: $viewModel.slicingYMeters,
             minXMeters: viewModel.minSlicingXMeters,
@@ -138,7 +148,7 @@ struct ResultAnalysisView: View {
             }
           )
           .padding(.trailing, 20)
-          .padding(.bottom, 24)
+          .padding(.bottom, 20)
           .transition(.opacity.combined(with: .move(edge: .bottom)))
 
         case .bearingLayer:
