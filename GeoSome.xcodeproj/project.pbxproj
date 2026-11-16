@@ -23,6 +23,7 @@
 		A60BFC993091A38700D1BA6E /* Exceptions for "GeoSome" folder in "GeoSome" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				Info.plist,
 				"Model Script (soon will be deleted)/docs/IOS_INTEGRATION.md",
 				"Model Script (soon will be deleted)/DQN_V4_5/DQN_V4_5_Extended.mlpackage",
 				"Model Script (soon will be deleted)/DQN_V4_5/DQN_V4_5_Extended.pt",
@@ -347,7 +348,9 @@
 				DEVELOPMENT_TEAM = 46PB5JVBMV;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = GeoSome/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Terravise;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -381,7 +384,9 @@
 				DEVELOPMENT_TEAM = 46PB5JVBMV;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = GeoSome/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Terravise;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
