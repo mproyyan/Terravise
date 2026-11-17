@@ -267,18 +267,24 @@ enum VoxelMeshSynthesizer {
       }
     }
 
-    // Compute local 3D surface positions and normalized UVs for CPT borehole pins
+    // Compute local 3D surface positions (grid units & true metric meters) and normalized UVs for CPT borehole pins
     var cptPositions: [SIMD3<Float>] = []
+    var cptMetricPositions: [SIMD3<Float>] = []
     var cptUVs: [SIMD2<Float>] = []
     if !cptPoints.isEmpty {
       for point in cptPoints {
         let normX = min(max((point.coordinate.longitude - minLon) / max(maxLon - minLon, 1e-9), 0.04), 0.96)
         let normZ = min(max(1.0 - ((point.coordinate.latitude - minLat) / max(maxLat - minLat, 1e-9)), 0.04), 0.96)
-        let gx = min(max(Int((normX * Double(nx - 1)).rounded()), 0), nx - 1)
-        let gz = min(max(Int((normZ * Double(nz - 1)).rounded()), 0), nz - 1)
+        let continuousGX = Float(normX * Double(nx - 1))
+        let continuousGZ = Float(normZ * Double(nz - 1))
+        let gx = min(max(Int(continuousGX.rounded()), 0), nx - 1)
+        let gz = min(max(Int(continuousGZ.rounded()), 0), nz - 1)
         let wx = Float(gx) - centerX
         let wz = Float(gz) - centerZ
         cptPositions.append(SIMD3<Float>(wx, 0.0, wz))
+        let metricWX = (continuousGX - centerX) * stepXM
+        let metricWZ = (continuousGZ - centerZ) * stepZM
+        cptMetricPositions.append(SIMD3<Float>(metricWX, 0.0, metricWZ))
         cptUVs.append(SIMD2<Float>(Float(normX), Float(normZ)))
       }
     } else {
@@ -305,6 +311,7 @@ enum VoxelMeshSynthesizer {
         let wx = Float(bestIX) - centerX
         let wz = Float(chosenIZ) - centerZ
         cptPositions.append(SIMD3<Float>(wx, 0.0, wz))
+        cptMetricPositions.append(SIMD3<Float>(wx * stepXM, 0.0, wz * stepZM))
         let u = Float(bestIX) / Float(max(nx - 1, 1))
         let v = Float(chosenIZ) / Float(max(nz - 1, 1))
         cptUVs.append(SIMD2<Float>(u, v))
@@ -327,6 +334,11 @@ enum VoxelMeshSynthesizer {
       centerX: centerX,
       centerZ: centerZ,
       cptSurfacePositions: cptPositions,
+      cptMetricSurfacePositions: cptMetricPositions,
+      minLatitude: minLat,
+      maxLatitude: maxLat,
+      minLongitude: minLon,
+      maxLongitude: maxLon,
       boundaryPolygonUV: boundaryUVs,
       cptNormalizedUVs: cptUVs
     )
@@ -398,23 +410,26 @@ enum VoxelMeshSynthesizer {
       faceMaterials.append(materialIndex)
     }
 
-    // Coordinate conversion helpers:
-    // Each voxel at integer index `i` spans `[i - 0.5, i + 0.5]` (box half-extent = 0.5 on 1.0 m grid).
-    // Consequently, a merged run from `start` of length `len` spans `[start - 0.5, start + len - 0.5]`.
+    // Coordinate conversion helpers (True Metric Space: 1 unit = 1 meter):
+    // Each voxel at integer index `i` spans `[i - 0.5, i + 0.5]` multiplied by the physical cell step (m).
+    let stepXM = volume.cellStepXM
+    let stepYM = volume.cellStepYM
+    let stepZM = volume.cellStepZM
+
     @inline(__always)
     func worldX(_ gridEdgeX: Int) -> Float {
-      (Float(gridEdgeX) - 0.5) - centerX
+      ((Float(gridEdgeX) - 0.5) - centerX) * stepXM
     }
 
     @inline(__always)
     func worldY(_ gridEdgeY: Int) -> Float {
-      // Top of surface layer (gridEdgeY == ny) is at Y = 0.0
-      (Float(gridEdgeY) - 0.5) - topYIndex - 0.5
+      // Top of surface layer (gridEdgeY == ny) is at Y = 0.0; bottom (gridEdgeY == 0) is at Y = -depthYM
+      ((Float(gridEdgeY) - 0.5) - topYIndex - 0.5) * stepYM
     }
 
     @inline(__always)
     func worldZ(_ gridEdgeZ: Int) -> Float {
-      (Float(gridEdgeZ) - 0.5) - centerZ
+      ((Float(gridEdgeZ) - 0.5) - centerZ) * stepZM
     }
 
     // -------------------------------------------------------------------------
@@ -688,9 +703,10 @@ enum VoxelMeshSynthesizer {
     }
   }
 
-  // MARK: - Mathematical Screen-to-Grid Raycasting (Zero Physics Engine Overhead)
+  // MARK: - Mathematical Screen-to-Metric-Grid Raycasting (Zero Physics Engine Overhead)
 
-  /// Resolves the surface voxel and indicates whether the tap occurred specifically on the top surface plane (`Y = 0`).
+  /// Resolves the surface voxel and exact metric `(x, 0, z)` hit coordinate in meters (`1 unit = 1 meter`),
+  /// indicating whether the tap occurred on the top surface plane (`Y = 0`) or a sliced side wall.
   static func pickSurfaceVoxelWithFace(
     rayOrigin: SIMD3<Float>,
     rayDirection: SIMD3<Float>,
@@ -699,43 +715,54 @@ enum VoxelMeshSynthesizer {
     maxSliceZ: Int
   ) -> (voxel: SoilVoxel, isTopSurface: Bool, hitPoint: SIMD3<Float>)? {
     let dir = simd_normalize(rayDirection)
+    let stepXM = max(volume.cellStepXM, 1e-4)
+    let stepZM = max(volume.cellStepZM, 1e-4)
 
-    // 1. Analytical intersection with top plane Y = 0:
+    // 1. Analytical intersection with top plane Y = 0 in metric space:
     if abs(dir.y) > 1e-5 {
       let tTop = -rayOrigin.y / dir.y
       if tTop > 0 {
         let hitPoint = rayOrigin + tTop * dir
-        let xGrid = Int((hitPoint.x + volume.centerX).rounded())
-        let zGrid = Int((hitPoint.z + volume.centerZ).rounded())
+        let fx = (hitPoint.x / stepXM) + volume.centerX
+        let fz = (hitPoint.z / stepZM) + volume.centerZ
+        let xGrid = Int(fx.rounded())
+        let zGrid = Int(fz.rounded())
 
         if xGrid >= 0, xGrid <= maxSliceX,
            zGrid >= 0, zGrid <= maxSliceZ
         {
           let surfaceCoord = GridCoord(x: xGrid, y: volume.ny - 1, z: zGrid)
           if let voxel = volume.voxels[surfaceCoord] {
-            return (voxel: voxel, isTopSurface: true, hitPoint: SIMD3<Float>(hitPoint.x, 0.0, hitPoint.z))
+            return (
+              voxel: voxel,
+              isTopSurface: true,
+              hitPoint: SIMD3<Float>(hitPoint.x, 0.0, hitPoint.z)
+            )
           }
         }
       }
     }
 
-    // 2. Fallback: Ray-box slab intersection with the sliced 3D bounding box for side-wall taps
-    if let voxel = pickSurfaceVoxel(
+    // 2. Fallback: Ray-box slab intersection with the sliced 3D metric bounding box for side-wall taps
+    if let hit = pickSurfaceVoxelWithMetricPoint(
       rayOrigin: rayOrigin,
       rayDirection: rayDirection,
       volume: volume,
       maxSliceX: maxSliceX,
       maxSliceZ: maxSliceZ
     ) {
-      let pos = volume.worldPosition(for: voxel.coord)
-      return (voxel: voxel, isTopSurface: voxel.coord.y == volume.ny - 1, hitPoint: pos)
+      return (
+        voxel: hit.voxel,
+        isTopSurface: hit.voxel.coord.y == volume.ny - 1,
+        hitPoint: SIMD3<Float>(hit.metricPoint.x, 0.0, hit.metricPoint.z)
+      )
     }
 
     return nil
   }
 
-  /// Analytically intersects a ray in the voxel root entity's local space with the top surface plane `Y = 0`
-  /// (and active sliced volume bounds), resolving the discrete `SoilVoxel` in `O(1)` time from `[GridCoord: SoilVoxel]`.
+  /// Analytically intersects a ray in metric world space (`1 unit = 1 meter`) with the top surface plane `Y = 0`
+  /// and active sliced volume bounds, resolving the discrete `SoilVoxel` and exact metric hit location.
   static func pickSurfaceVoxel(
     rayOrigin: SIMD3<Float>,
     rayDirection: SIMD3<Float>,
@@ -743,40 +770,56 @@ enum VoxelMeshSynthesizer {
     maxSliceX: Int,
     maxSliceZ: Int
   ) -> SoilVoxel? {
+    pickSurfaceVoxelWithMetricPoint(
+      rayOrigin: rayOrigin,
+      rayDirection: rayDirection,
+      volume: volume,
+      maxSliceX: maxSliceX,
+      maxSliceZ: maxSliceZ
+    )?.voxel
+  }
+
+  private static func pickSurfaceVoxelWithMetricPoint(
+    rayOrigin: SIMD3<Float>,
+    rayDirection: SIMD3<Float>,
+    volume: SubsurfaceVoxelVolume,
+    maxSliceX: Int,
+    maxSliceZ: Int
+  ) -> (voxel: SoilVoxel, metricPoint: SIMD3<Float>)? {
     let dir = simd_normalize(rayDirection)
+    let stepXM = max(volume.cellStepXM, 1e-4)
+    let stepYM = max(volume.cellStepYM, 1e-4)
+    let stepZM = max(volume.cellStepZM, 1e-4)
 
     // 1. Analytical intersection with top plane Y = 0:
-    //    P(t) = rayOrigin + t * dir, solve P_y(t) = 0 -> t = -rayOrigin.y / dir.y
     if abs(dir.y) > 1e-5 {
       let tTop = -rayOrigin.y / dir.y
       if tTop > 0 {
         let hitPoint = rayOrigin + tTop * dir
-        // Apply exact analytical formula:
-        // X_grid = round(P_x + centerX), Z_grid = round(P_z + centerZ)
-        let xGrid = Int((hitPoint.x + volume.centerX).rounded())
-        let zGrid = Int((hitPoint.z + volume.centerZ).rounded())
+        let xGrid = Int(((hitPoint.x / stepXM) + volume.centerX).rounded())
+        let zGrid = Int(((hitPoint.z / stepZM) + volume.centerZ).rounded())
 
         if xGrid >= 0, xGrid <= maxSliceX,
            zGrid >= 0, zGrid <= maxSliceZ
         {
           let surfaceCoord = GridCoord(x: xGrid, y: volume.ny - 1, z: zGrid)
           if let voxel = volume.voxels[surfaceCoord] {
-            return voxel
+            return (voxel, hitPoint)
           }
         }
       }
     }
 
-    // 2. Fallback: Ray-box slab intersection with the sliced 3D bounding box for side-wall taps
+    // 2. Fallback: Ray-box slab intersection with the sliced 3D metric bounding box for side-wall taps
     let minBound = SIMD3<Float>(
-      -0.5 - volume.centerX,
-      -Float(volume.ny),
-      -0.5 - volume.centerZ
+      (-0.5 - volume.centerX) * stepXM,
+      -Float(volume.ny) * stepYM,
+      (-0.5 - volume.centerZ) * stepZM
     )
     let maxBound = SIMD3<Float>(
-      Float(maxSliceX) + 0.5 - volume.centerX,
+      (Float(maxSliceX) + 0.5 - volume.centerX) * stepXM,
       0.0,
-      Float(maxSliceZ) + 0.5 - volume.centerZ
+      (Float(maxSliceZ) + 0.5 - volume.centerZ) * stepZM
     )
 
     let invDir = SIMD3<Float>(
@@ -795,22 +838,22 @@ enum VoxelMeshSynthesizer {
 
     guard tNear <= tFar, tFar > 0 else { return nil }
 
-    let totalSteps = 32
+    let totalSteps = 48
     let startT = max(tNear, 0.0)
     let stepT = (tFar - startT) / Float(totalSteps)
 
     for i in 0 ... totalSteps {
       let p = rayOrigin + (startT + Float(i) * stepT) * dir
-      let xGrid = Int((p.x + volume.centerX).rounded())
-      let zGrid = Int((p.z + volume.centerZ).rounded())
-      let yGrid = min(max(Int((p.y + Float(volume.ny - 1) + 0.5).rounded()), 0), volume.ny - 1)
+      let xGrid = Int(((p.x / stepXM) + volume.centerX).rounded())
+      let zGrid = Int(((p.z / stepZM) + volume.centerZ).rounded())
+      let yGrid = min(max(Int(((p.y / stepYM) + Float(volume.ny - 1) + 0.5).rounded()), 0), volume.ny - 1)
 
       if xGrid >= 0, xGrid <= maxSliceX,
          zGrid >= 0, zGrid <= maxSliceZ
       {
         let coord = GridCoord(x: xGrid, y: yGrid, z: zGrid)
         if let voxel = volume.voxels[coord] {
-          return voxel
+          return (voxel, p)
         }
       }
     }

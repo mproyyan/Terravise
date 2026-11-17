@@ -60,6 +60,7 @@ struct ResultAnalysisView: View {
             maxSliceZ: viewModel.maxSliceZIndex,
             selectedVoxel: viewModel.selectedVoxel,
             selectedPipePosition3D: viewModel.selectedPipePosition3D,
+            cameraController: viewModel.cameraController,
             cameraYaw: $viewModel.cameraYaw,
             cameraPitch: $viewModel.cameraPitch,
             cameraZoom: $viewModel.cameraZoom,
