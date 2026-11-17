@@ -77,9 +77,24 @@ struct SheetWidthConfigurator: UIViewControllerRepresentable {
 }
 
 struct LegendMapItem: Identifiable, Sendable {
-  let id = UUID()
+  let id: String
   let name: String
   let color: Color
+  let soilType: SoilLayerType?
+
+  init(name: String, color: Color, id: String? = nil, soilType: SoilLayerType? = nil) {
+    self.name = name
+    self.color = color
+    self.id = id ?? name
+    self.soilType = soilType
+  }
+
+  init(soilType: SoilLayerType) {
+    self.id = soilType.displayName
+    self.name = soilType.displayName
+    self.color = Color(uiColor: soilType.uiColor)
+    self.soilType = soilType
+  }
 }
 
 struct ResultLeftPlaceholderSheetView: View {
@@ -93,44 +108,9 @@ struct ResultLeftPlaceholderSheetView: View {
 
   @Environment(\.colorSchemeContrast) private var contrast
 
-  static let defaultLegendItems: [LegendMapItem] = [
-    LegendMapItem(
-      name: "Sensitive fine-grained soil",
-      color: Color(red: 203 / 255, green: 55 / 255, blue: 43 / 255)
-    ),
-    LegendMapItem(
-      name: "Clay - organic soil",
-      color: Color(red: 169 / 255, green: 104 / 255, blue: 62 / 255)
-    ),
-    LegendMapItem(
-      name: "Clays: clay to silly clay",
-      color: Color(red: 84 / 255, green: 82 / 255, blue: 103 / 255)
-    ),
-    LegendMapItem(
-      name: "Silt mixtures: clayey silt & silty clay",
-      color: Color(red: 89 / 255, green: 133 / 255, blue: 120 / 255)
-    ),
-    LegendMapItem(
-      name: "Sand mixtures: silty sand to sandy silt",
-      color: Color(red: 132 / 255, green: 191 / 255, blue: 149 / 255)
-    ),
-    LegendMapItem(
-      name: "Sands: clean sands to silty sands",
-      color: Color(red: 187 / 255, green: 157 / 255, blue: 96 / 255)
-    ),
-    LegendMapItem(
-      name: "Dense sand to gravelly sand",
-      color: Color(red: 230 / 255, green: 153 / 255, blue: 77 / 255)
-    ),
-    LegendMapItem(
-      name: "Stiff sand to clayey sand",
-      color: Color(red: 156 / 255, green: 146 / 255, blue: 139 / 255)
-    ),
-    LegendMapItem(
-      name: "Stiff fine grained",
-      color: Color(red: 231 / 255, green: 221 / 255, blue: 218 / 255)
-    )
-  ]
+  static let defaultLegendItems: [LegendMapItem] = SoilLayerType.allCases.map {
+    LegendMapItem(soilType: $0)
+  }
 
   init(
     groundConditionsSummary: String =
@@ -379,8 +359,14 @@ struct ResultLeftPlaceholderSheetView: View {
 
   private var legendMapCard: some View {
     VStack(alignment: .leading, spacing: 14) {
-      ForEach(legendItems) { item in
-        legendRow(for: item)
+      if legendItems.isEmpty {
+        Text("No soil layers detected.")
+          .font(.subheadline)
+          .foregroundStyle(Color.secondary)
+      } else {
+        ForEach(legendItems) { item in
+          legendRow(for: item)
+        }
       }
     }
     .padding(16)

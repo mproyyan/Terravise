@@ -213,6 +213,24 @@ final class ResultAnalysisViewModel {
     return min(max(Int((ratio * Double(volume.nz - 1)).rounded()), 1), volume.nz - 1)
   }
 
+  /// Returns the unique set of geotechnical soil classifications that actually exist in the current 3D volume,
+  /// ordered according to standard Robertson SBT progression.
+  var existingSoilTypes: [SoilLayerType] {
+    var present = Set<SoilLayerType>()
+    for voxel in volume.voxels.values {
+      present.insert(voxel.soilClassification)
+    }
+    if present.isEmpty {
+      return SoilLayerType.allCases
+    }
+    return SoilLayerType.allCases.filter { present.contains($0) }
+  }
+
+  /// Dynamic legend items corresponding strictly to the soil layers present in the site investigation area.
+  var activeLegendItems: [LegendMapItem] {
+    existingSoilTypes.map { LegendMapItem(soilType: $0) }
+  }
+
   func resolveProject(with id: Project.ID?, from projectViewModel: ProjectViewModel?) {
     guard let id, let projectViewModel else { return }
     if let found = projectViewModel.projects.first(where: { $0.id == id }) {

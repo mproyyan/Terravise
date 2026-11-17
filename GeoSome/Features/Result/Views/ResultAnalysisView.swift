@@ -213,6 +213,7 @@ struct ResultAnalysisView: View {
               concerns: viewModel.geotechnicalConcerns,
               isSubsurfaceConditionsEmpty: viewModel.isSubsurfaceConditionsEmpty,
               isGeotechnicalConcernsEmpty: viewModel.isGeotechnicalConcernsEmpty,
+              legendItems: viewModel.activeLegendItems,
               predictionUncertaintyPercent: viewModel.predictionUncertaintyPercent,
               cptPointsCount: viewModel.displayedCPTPointsCount
             )

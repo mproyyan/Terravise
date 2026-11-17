@@ -4,13 +4,102 @@ import RealityKit
 import simd
 import UIKit
 
+/// Master 4-class geotechnical texture categories mapped to macro photo assets.
+enum SoilTextureCategory: String, CaseIterable, Sendable {
+  case clay
+  case silt
+  case sand
+  case gravel
+}
+
+extension SoilLayerType {
+  var textureCategory: SoilTextureCategory {
+    switch self {
+    case .sensitiveFineGrained, .organicClay, .clayToSiltyClay, .stiffFineGrained:
+      return .clay
+    case .siltMixtures:
+      return .silt
+    case .sandMixtures, .cleanSands, .stiffSandToClayey:
+      return .sand
+    case .denseSandToGravelly:
+      return .gravel
+    }
+  }
+
+  var typicalRoughness: Float {
+    switch self {
+    case .sensitiveFineGrained, .organicClay:
+      return 0.74
+    case .clayToSiltyClay, .stiffFineGrained:
+      return 0.82
+    case .siltMixtures:
+      return 0.88
+    case .sandMixtures, .stiffSandToClayey:
+      return 0.93
+    case .cleanSands:
+      return 0.95
+    case .denseSandToGravelly:
+      return 0.98
+    }
+  }
+}
+
+/// In-memory caching manager for geotechnical macro photo textures.
+@MainActor
+final class SoilTextureManager {
+  static let shared = SoilTextureManager()
+  private var cachedTextures: [SoilTextureCategory: TextureResource] = [:]
+
+  func texture(for category: SoilTextureCategory) -> TextureResource? {
+    if let cached = cachedTextures[category] {
+      return cached
+    }
+
+    let name = "soil_\(category.rawValue)"
+
+    // 1. Check main bundle / Assets.xcassets
+    if let res = try? TextureResource.load(named: name) {
+      cachedTextures[category] = res
+      return res
+    }
+
+    // 2. Check direct file paths in Resources/Textures
+    let candidates = [
+      Bundle.main.path(forResource: name, ofType: "png"),
+      Bundle.main.path(forResource: name, ofType: "jpg"),
+      "/Users/royyan/Developments/ada/challenge-6/GeoSome/GeoSome/Resources/Textures/\(name).png",
+      "/Users/royyan/Developments/ada/challenge-6/GeoSome/GeoSome/Resources/Textures/\(name).jpg"
+    ].compactMap { $0 }
+
+    for path in candidates {
+      if let image = UIImage(contentsOfFile: path), let cgImage = image.cgImage {
+        if let res = try? TextureResource(image: cgImage, options: .init(semantic: .color)) {
+          cachedTextures[category] = res
+          return res
+        }
+      }
+    }
+
+    return nil
+  }
+}
+
 enum VoxelMeshSynthesizer {
   /// Builds the shared palette of materials corresponding to `SoilLayerType.allCases`.
-  /// Used with `meshDescriptor.materials = .perFace(...)` so the entire voxel volume renders in 1 draw call.
+  /// Uses photo-macro textures tinted with `layer.uiColor` and physically-based roughness
+  /// with `meshDescriptor.materials = .perFace(...)` so the entire voxel volume renders in 1 draw call.
   @MainActor
   static func makeMaterialPalette() -> [SimpleMaterial] {
-    SoilLayerType.allCases.map { layer in
-      var material = SimpleMaterial(color: layer.uiColor, roughness: 0.88, isMetallic: false)
+    let textureManager = SoilTextureManager.shared
+    return SoilLayerType.allCases.map { layer in
+      var material = SimpleMaterial()
+      if let tex = textureManager.texture(for: layer.textureCategory) {
+        material.color = .init(tint: layer.uiColor, texture: .init(tex))
+      } else {
+        material.color = .init(tint: layer.uiColor)
+      }
+      material.roughness = .init(floatLiteral: layer.typicalRoughness)
+      material.metallic = .init(floatLiteral: 0.0)
       material.faceCulling = .back
       return material
     }
@@ -368,13 +457,17 @@ enum VoxelMeshSynthesizer {
 
     var positions: [SIMD3<Float>] = []
     var normals: [SIMD3<Float>] = []
+    var uvs: [SIMD2<Float>] = []
     var indices: [UInt32] = []
     var faceMaterials: [UInt32] = []
 
     positions.reserveCapacity(4096)
     normals.reserveCapacity(4096)
+    uvs.reserveCapacity(4096)
     indices.reserveCapacity(6144)
     faceMaterials.reserveCapacity(2048)
+
+    let uvScale: Float = 0.5 // 1 texture tile every 2.0 meters for realistic macro soil grain scale
 
     // Helper that appends a quad with strict CCW winding for outward normal `normal`
     @inline(__always)
@@ -383,6 +476,10 @@ enum VoxelMeshSynthesizer {
       _ v1: SIMD3<Float>,
       _ v2: SIMD3<Float>,
       _ v3: SIMD3<Float>,
+      uv0: SIMD2<Float>,
+      uv1: SIMD2<Float>,
+      uv2: SIMD2<Float>,
+      uv3: SIMD2<Float>,
       normal: SIMD3<Float>,
       materialIndex: UInt32
     ) {
@@ -396,6 +493,11 @@ enum VoxelMeshSynthesizer {
       normals.append(normal)
       normals.append(normal)
       normals.append(normal)
+
+      uvs.append(uv0)
+      uvs.append(uv1)
+      uvs.append(uv2)
+      uvs.append(uv3)
 
       // Triangle 1: (v0, v1, v2), Triangle 2: (v0, v2, v3)
       indices.append(base)
@@ -558,6 +660,10 @@ enum VoxelMeshSynthesizer {
       normals.append(SIMD3<Float>(0, 1, 0))
       normals.append(SIMD3<Float>(0, 1, 0))
 
+      uvs.append(SIMD2<Float>(a.x * uvScale, a.y * uvScale))
+      uvs.append(SIMD2<Float>(c.x * uvScale, c.y * uvScale))
+      uvs.append(SIMD2<Float>(b.x * uvScale, b.y * uvScale))
+
       indices.append(base)
       indices.append(base + 1)
       indices.append(base + 2)
@@ -584,6 +690,10 @@ enum VoxelMeshSynthesizer {
       normals.append(SIMD3<Float>(0, -1, 0))
       normals.append(SIMD3<Float>(0, -1, 0))
 
+      uvs.append(SIMD2<Float>(a.x * uvScale, a.y * uvScale))
+      uvs.append(SIMD2<Float>(b.x * uvScale, b.y * uvScale))
+      uvs.append(SIMD2<Float>(c.x * uvScale, c.y * uvScale))
+
       indices.append(base)
       indices.append(base + 1)
       indices.append(base + 2)
@@ -593,6 +703,8 @@ enum VoxelMeshSynthesizer {
 
     // 6. Extrude vertical perimeter and slicing walls along all 2D edges
     let inwardNudge = 0.25 * min(stepXM, stepZM)
+    var cumDist: Float = 0.0
+
     for i in 0 ..< subdividedPoly.count {
       let p0 = subdividedPoly[i]
       let p1 = subdividedPoly[(i + 1) % subdividedPoly.count]
@@ -600,6 +712,7 @@ enum VoxelMeshSynthesizer {
       let dz = p1.y - p0.y
       let len = sqrt(dx * dx + dz * dz)
       guard len > 1e-4 else { continue }
+      defer { cumDist += len }
 
       let normX = dz / len
       let normZ = -dx / len
@@ -619,6 +732,9 @@ enum VoxelMeshSynthesizer {
       let sampleX = midX - normX * inwardNudge
       let sampleZ = midZ - normZ * inwardNudge
 
+      let u0 = cumDist * uvScale
+      let u1 = (cumDist + len) * uvScale
+
       var y = 0
       while y < ny {
         let mat = sampleMaterial(xM: sampleX, zM: sampleZ, layerY: y)
@@ -635,7 +751,12 @@ enum VoxelMeshSynthesizer {
         let v2 = SIMD3<Float>(p1.x, yTop, p1.y)
         let v3 = SIMD3<Float>(p1.x, yBot, p1.y)
 
-        emitQuad(v0, v1, v2, v3, normal: wallNormal, materialIndex: mat)
+        let uv0 = SIMD2<Float>(u0, yBot * uvScale)
+        let uv1 = SIMD2<Float>(u0, yTop * uvScale)
+        let uv2 = SIMD2<Float>(u1, yTop * uvScale)
+        let uv3 = SIMD2<Float>(u1, yBot * uvScale)
+
+        emitQuad(v0, v1, v2, v3, uv0: uv0, uv1: uv1, uv2: uv2, uv3: uv3, normal: wallNormal, materialIndex: mat)
         y += hY
       }
     }
@@ -645,6 +766,7 @@ enum VoxelMeshSynthesizer {
     var descriptor = MeshDescriptor(name: "SubsurfaceVoxelManifold")
     descriptor.positions = MeshBuffers.Positions(positions)
     descriptor.normals = MeshBuffers.Normals(normals)
+    descriptor.textureCoordinates = MeshBuffers.TextureCoordinates(uvs)
     descriptor.primitives = .triangles(indices)
     descriptor.materials = .perFace(faceMaterials)
 
