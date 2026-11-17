@@ -1,6 +1,7 @@
 import Foundation
 
 struct UncertaintySufficiencyEvaluation: Sendable {
+  let inferenceSource: String
   let estimatedRMSE: Double
   let predictedCoverage: Double
   let sufficiencyProbability: Double
@@ -239,6 +240,8 @@ enum UncertaintySufficiencyService {
     let confidencePercent = min(max(Int((blendedConfidence * 100.0).rounded()), 15), 99)
 
     return UncertaintySufficiencyEvaluation(
+      inferenceSource: uncertaintyModel == nil || sufficiencyModel == nil
+        ? "Assessment fallback; JSON model unavailable" : "Uncertainty V3 + Sufficiency V3.1 JSON",
       estimatedRMSE: meanBound,
       predictedCoverage: predictedCoverage,
       sufficiencyProbability: pSufficient,

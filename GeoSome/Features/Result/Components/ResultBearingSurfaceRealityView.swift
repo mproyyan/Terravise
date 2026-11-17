@@ -5,6 +5,10 @@ import UIKit
 
 struct ResultBearingSurfaceRealityView: View {
   let volume: SubsurfaceVoxelVolume
+  let bearingOutput: BearingRuleOutput?
+  let bearingRevision: Int
+  let measuredCPTCount: Int
+  let selectedCell: (x: Int, y: Int)?
   @Binding var cameraYaw: Float
   @Binding var cameraPitch: Float
   @Binding var cameraZoom: Float
@@ -20,13 +24,14 @@ struct ResultBearingSurfaceRealityView: View {
   var onTapBearingSurface: ((CGPoint, BearingLayerVoxel?, Int, Int) -> Void)? = nil
   var onSelectBearingVoxel: ((BearingLayerVoxel?) -> Void)? = nil
 
-  @State private var dragStartYaw: Float?
-  @State private var dragStartPitch: Float?
+  @State private var panOffset = SIMD2<Float>(repeating: 0)
+  @State private var panStart: SIMD2<Float>?
   @State private var pinchStartZoom: Float?
+  @State private var pinchStartPan: SIMD2<Float>?
   @State private var lastBuiltVolumeID: UUID?
+  @State private var lastBuiltBearingRevision: Int = -1
 
   // Cached textures so they are synthesized only once
-  @MainActor private static var cachedHeatmapTexture: TextureResource?
   @MainActor private static var cachedBadgeTextures: [String: TextureResource] = [:]
   @MainActor private static var cachedComparisonBadgeTextures: [String: TextureResource] = [:]
 
@@ -41,7 +46,7 @@ struct ResultBearingSurfaceRealityView: View {
 
           let pivotEntity = Entity()
           pivotEntity.name = "BearingSurfacePivot"
-          pivotEntity.position = computeSceneOffset()
+          pivotEntity.position = sceneOffsetWithPan()
           pivotEntity.orientation = makeOrbitOrientation(yaw: cameraYaw, pitch: cameraPitch)
           let scale = computeNormalizedScale(for: volume) * cameraZoom
           pivotEntity.scale = SIMD3<Float>(repeating: scale)
@@ -57,35 +62,28 @@ struct ResultBearingSurfaceRealityView: View {
             return
           }
 
-          pivotEntity.position = computeSceneOffset()
+          pivotEntity.position = sceneOffsetWithPan()
           pivotEntity.orientation = makeOrbitOrientation(yaw: cameraYaw, pitch: cameraPitch)
           let scale = computeNormalizedScale(for: volume) * cameraZoom
           pivotEntity.scale = SIMD3<Float>(repeating: scale)
 
-          if lastBuiltVolumeID != volume.id {
+          if lastBuiltVolumeID != volume.id || lastBuiltBearingRevision != bearingRevision {
             populatePivotScene(pivotEntity: pivotEntity, volume: volume)
             Task { @MainActor in
               lastBuiltVolumeID = volume.id
+              lastBuiltBearingRevision = bearingRevision
             }
           }
 
           updateComparisonMarkers(on: pivotEntity)
+          updateInspectionMarker(on: pivotEntity)
         }
-        .gesture(orbitDragGesture)
-        .simultaneousGesture(zoomMagnifyGesture)
+        .gesture(panDragGesture(viewport: proxy.size))
+        .simultaneousGesture(inspectionMarkerDragGesture)
+        .simultaneousGesture(zoomMagnifyGesture(viewport: proxy.size))
         .simultaneousGesture(targetedTapGesture)
-
-        // Background tap-to-dismiss layer when popover is visible
-        if isBearingPopoverPresented {
-          Color.clear
-            .contentShape(Rectangle())
-            .ignoresSafeArea()
-            .onTapGesture {
-              withAnimation(.easeInOut(duration: 0.2)) {
-                isBearingPopoverPresented = false
-              }
-            }
-        }
+        .simultaneousGesture(doubleTapZoomGesture(viewport: proxy.size))
+        .onChange(of: volume.id) { _, _ in panOffset = .zero }
 
         // Native-looking Bearing Popover Overlay
         if isBearingPopoverPresented, let tapLoc = bearingPopoverLocation {
@@ -129,6 +127,7 @@ struct ResultBearingSurfaceRealityView: View {
               .stroke(Color.primary.opacity(0.12), lineWidth: 1)
             }
             .shadow(color: Color.black.opacity(0.16), radius: 16, x: 0, y: 6)
+            .allowsHitTesting(false)
           }
           .position(x: originX + popoverWidth * 0.5, y: centerY)
           .transition(.scale(scale: 0.95).combined(with: .opacity))
@@ -144,15 +143,14 @@ struct ResultBearingSurfaceRealityView: View {
   private func populatePivotScene(pivotEntity: Entity, volume: SubsurfaceVoxelVolume) {
     pivotEntity.children.removeAll()
 
-    // 1. Flat 3D 1m²-Voxel Surface Mesh with Contour Depth Heatmap Texture (1 Draw Call)
-    let surfaceEntity = makeBearingSurfaceEntity(for: volume)
-    surfaceEntity.name = "BearingSurfacePlane"
-    pivotEntity.addChild(surfaceEntity)
-
-    // 2. Crisp Dark Border Frame along the outer 1m² Voxel Boundary Perimeter (1 Draw Call)
-    let borderEntity = makeSurfaceBorderEntity(for: volume)
-    borderEntity.name = "BearingSurfaceBorder"
-    pivotEntity.addChild(borderEntity)
+    // Restore the original flat contour heatmap; only evaluated columns are drawn.
+    if let bearingOutput, let surfaceEntity = makeBearingSurfaceEntity(for: volume, output: bearingOutput) {
+      surfaceEntity.name = "BearingSurfacePlane"
+      pivotEntity.addChild(surfaceEntity)
+      let borderEntity = makeSurfaceBorderEntity(for: volume, output: bearingOutput)
+      borderEntity.name = "BearingSurfaceBorder"
+      pivotEntity.addChild(borderEntity)
+    }
 
     // 3. CPT Markers on 1m² Voxel Surface (CPT-01, CPT-02, CPT-03...)
     let cptMarkersEntity = makeCPTMarkersContainer(for: volume)
@@ -161,6 +159,7 @@ struct ResultBearingSurfaceRealityView: View {
 
     // 4. Comparison Markers (B-1, B-2, B-3...)
     updateComparisonMarkers(on: pivotEntity)
+    updateInspectionMarker(on: pivotEntity)
 
     // 5. Perimeter Ruler Axes: X (m) along front edge, Y (m) along right edge
     let axesEntity = makeRulerAxesEntity(for: volume)
@@ -214,6 +213,36 @@ struct ResultBearingSurfaceRealityView: View {
   }
 
   @MainActor
+  private func updateInspectionMarker(on pivotEntity: Entity) {
+    guard let output = bearingOutput, let selectedCell,
+          (0..<output.grid.nx).contains(selectedCell.x),
+          (0..<output.grid.ny).contains(selectedCell.y),
+          output.topDepthMXY[output.grid.column(selectedCell.x, selectedCell.y)] != nil else {
+      pivotEntity.findEntity(named: "BearingInspectionMarker")?.removeFromParent()
+      return
+    }
+    let marker: Entity
+    if let existing = pivotEntity.findEntity(named: "BearingInspectionMarker") {
+      marker = existing
+    } else {
+      let entity = Entity()
+      entity.name = "BearingInspectionMarker"
+      let dot = ModelEntity(mesh: .generateSphere(radius: 0.47), materials: [UnlitMaterial(color: .white)])
+      dot.name = "BearingInspectionMarkerDot"
+      entity.addChild(dot)
+      entity.components.set(CollisionComponent(shapes: [.generateSphere(radius: 0.8)]))
+      entity.components.set(InputTargetComponent())
+      pivotEntity.addChild(entity)
+      marker = entity
+    }
+    marker.position = [
+      BearingCandidateGeometry.localX(Double(selectedCell.x), output: output, volume: volume),
+      0.55,
+      BearingCandidateGeometry.localZ(Double(selectedCell.y), output: output, volume: volume)
+    ]
+  }
+
+  @MainActor
   private static func getOrCreateComparisonBadgeTexture(label: String) -> TextureResource? {
     if let cached = cachedComparisonBadgeTextures[label] {
       return cached
@@ -258,75 +287,126 @@ struct ResultBearingSurfaceRealityView: View {
 
   // MARK: - Gestures
 
-  private var orbitDragGesture: some Gesture {
+  private func panDragGesture(viewport: CGSize) -> some Gesture {
     DragGesture(minimumDistance: 4)
+      .targetedToAnyEntity()
       .onChanged { value in
-        if dragStartYaw == nil {
-          dragStartYaw = cameraYaw
-          dragStartPitch = cameraPitch
-        }
-        let baseYaw = dragStartYaw ?? cameraYaw
-        let basePitch = dragStartPitch ?? cameraPitch
-        let deltaYaw = Float(value.translation.width) * 0.0065
-        let deltaPitch = Float(value.translation.height) * 0.0055
-
-        cameraYaw = min(max(baseYaw + deltaYaw, -0.85), 0.85)
-        cameraPitch = min(max(basePitch + deltaPitch, 0.25), 1.35)
+        guard value.entity.name == "BearingSurfacePlane" else { return }
+        if panStart == nil { panStart = panOffset }
+        let base = panStart ?? panOffset
+        let scale = Float(1.4 / max(min(viewport.width, viewport.height), 1))
+        panOffset = base + SIMD2(Float(value.translation.width) * scale, -Float(value.translation.height) * scale)
       }
       .onEnded { _ in
-        dragStartYaw = nil
-        dragStartPitch = nil
+        panStart = nil
       }
   }
 
-  private var zoomMagnifyGesture: some Gesture {
+  private func zoomMagnifyGesture(viewport: CGSize) -> some Gesture {
     MagnifyGesture()
       .onChanged { value in
         if pinchStartZoom == nil {
           pinchStartZoom = cameraZoom
+          pinchStartPan = panOffset
         }
         let baseZoom = pinchStartZoom ?? cameraZoom
         let updated = baseZoom * Float(value.magnification)
-        cameraZoom = min(max(updated, 0.65), 2.1)
+        let nextZoom = min(max(updated, 0.65), 10.0)
+        let ratio = nextZoom / max(baseZoom, 0.001)
+        let scale = Float(1.4 / max(min(viewport.width, viewport.height), 1))
+        let anchor = SIMD2<Float>(
+          Float(value.startLocation.x - viewport.width * 0.5) * scale,
+          -Float(value.startLocation.y - viewport.height * 0.5) * scale
+        )
+        let startingPan = pinchStartPan ?? panOffset
+        panOffset = startingPan + (anchor - startingPan) * (1 - ratio)
+        cameraZoom = nextZoom
       }
       .onEnded { _ in
         pinchStartZoom = nil
+        pinchStartPan = nil
       }
+  }
+
+  private func doubleTapZoomGesture(viewport: CGSize) -> some Gesture {
+    SpatialTapGesture(count: 2)
+      .onEnded { value in
+        let nextZoom = min(cameraZoom * 2, 10.0)
+        let ratio = nextZoom / max(cameraZoom, 0.001)
+        let scale = Float(1.4 / max(min(viewport.width, viewport.height), 1))
+        let anchor = SIMD2<Float>(
+          Float(value.location.x - viewport.width * 0.5) * scale,
+          -Float(value.location.y - viewport.height * 0.5) * scale
+        )
+        panOffset += (anchor - panOffset) * (1 - ratio)
+        cameraZoom = nextZoom
+      }
+  }
+
+  private var inspectionMarkerDragGesture: some Gesture {
+    DragGesture(minimumDistance: 0)
+      .targetedToAnyEntity()
+      .onChanged { value in
+        guard value.entity.name == "BearingInspectionMarker" ||
+                value.entity.name == "BearingInspectionMarkerDot",
+              let output = bearingOutput,
+              let pivot = findPivotEntity(from: value.entity) else { return }
+        guard let surface = pivot.findEntity(named: "BearingSurfacePlane"),
+              let hit = value.hitTest(point: value.location, in: .local).first(where: { $0.entity === surface }) else { return }
+        let localPoint = pivot.convert(position: hit.position, from: nil)
+        guard let cell = nearestCandidateCell(localX: localPoint.x, localZ: localPoint.z, output: output) else { return }
+        bearingPopoverLocation = value.location
+        if selectedCell?.x != cell.x || selectedCell?.y != cell.y {
+          onTapBearingSurface?(value.location, nil, cell.x, cell.y)
+        }
+      }
+      .onEnded { _ in }
+  }
+
+  private func nearestCandidateCell(localX: Float, localZ: Float, output: BearingRuleOutput) -> (x: Int, y: Int)? {
+    var best: (x: Int, y: Int)?
+    var bestDistance = Float.greatestFiniteMagnitude
+    for x in 0..<output.grid.nx {
+      for y in 0..<output.grid.ny where output.topDepthMXY[output.grid.column(x, y)] != nil {
+        let dx = localX - BearingCandidateGeometry.localX(Double(x), output: output, volume: volume)
+        let dz = localZ - BearingCandidateGeometry.localZ(Double(y), output: output, volume: volume)
+        let distance = dx * dx + dz * dz
+        if distance < bestDistance { best = (x, y); bestDistance = distance }
+      }
+    }
+    return best
   }
 
   private var targetedTapGesture: some Gesture {
     SpatialTapGesture()
       .targetedToAnyEntity()
       .onEnded { value in
+        guard let output = bearingOutput else { return }
         let name = value.entity.name
         if name.hasPrefix("BearingCPT_"),
            let idxStr = name.split(separator: "_").last,
            let idx = Int(idxStr)
         {
-          if idx < volume.cptSurfacePositions.count {
+          if idx < measuredCPTCount, idx < volume.cptSurfacePositions.count {
             let pos = volume.cptSurfacePositions[idx]
-            let xGrid = Int((pos.x + volume.centerX).rounded())
-            let zGrid = Int((pos.z + volume.centerZ).rounded())
-            let voxel = volume.bearingVoxels[ColumnCoord(x: xGrid, z: zGrid)]
-            onSelectBearingVoxel?(voxel)
-            onTapBearingSurface?(value.location, voxel, xGrid, zGrid)
-          } else {
-            onTapBearingSurface?(value.location, nil, 0, 0)
+            if let cell = BearingCandidateGeometry.gridXY(localX: pos.x, localZ: pos.z, output: output, volume: volume),
+               output.intervalCountXY[output.grid.column(cell.x, cell.y)] > 0 {
+              onSelectBearingVoxel?(nil)
+              onTapBearingSurface?(value.location, nil, cell.x, cell.y)
+            }
           }
         } else {
-          // Resolve exact 1m² BearingLayerVoxel at tap point in O(1) time
+          guard name == "BearingSurfacePlane" else { return }
           let hits = value.hitTest(point: value.location, in: .local)
           if let firstHit = hits.first,
              let pivot = findPivotEntity(from: value.entity)
           {
             let localPt = pivot.convert(position: firstHit.position, from: nil)
-            let xGrid = min(max(Int((localPt.x + volume.centerX).rounded()), 0), volume.nx - 1)
-            let zGrid = min(max(Int((localPt.z + volume.centerZ).rounded()), 0), volume.nz - 1)
-            let tappedBearingVoxel = volume.bearingVoxels[ColumnCoord(x: xGrid, z: zGrid)]
-            onSelectBearingVoxel?(tappedBearingVoxel)
-            onTapBearingSurface?(value.location, tappedBearingVoxel, xGrid, zGrid)
-          } else {
-            onTapBearingSurface?(value.location, nil, volume.nx / 2, volume.nz / 2)
+            if let cell = BearingCandidateGeometry.gridXY(localX: localPt.x, localZ: localPt.z, output: output, volume: volume),
+               output.intervalCountXY[output.grid.column(cell.x, cell.y)] > 0 {
+              onSelectBearingVoxel?(nil)
+              onTapBearingSurface?(value.location, nil, cell.x, cell.y)
+            }
           }
         }
       }
@@ -352,6 +432,10 @@ struct ResultBearingSurfaceRealityView: View {
     SIMD3<Float>(0.18, -0.02, -1.75)
   }
 
+  private func sceneOffsetWithPan() -> SIMD3<Float> {
+    computeSceneOffset() + SIMD3(panOffset.x, panOffset.y, 0)
+  }
+
   private func makeOrbitOrientation(yaw: Float, pitch: Float) -> simd_quatf {
     let pitchQuat = simd_quatf(angle: pitch, axis: SIMD3<Float>(1, 0, 0))
     let yawQuat = simd_quatf(angle: yaw, axis: SIMD3<Float>(0, 1, 0))
@@ -361,15 +445,11 @@ struct ResultBearingSurfaceRealityView: View {
   // MARK: - 1. Flat 3D 1m² Voxel Surface Mesh with Contour Heatmap
 
   @MainActor
-  private func makeBearingSurfaceEntity(for volume: SubsurfaceVoxelVolume) -> ModelEntity {
-    let width = Float(volume.nx)
-    let depth = Float(volume.nz)
-
-    let mesh = VoxelMeshSynthesizer.synthesizeBearingVoxelSurfaceMesh(volume: volume)
-      ?? MeshResource.generatePlane(width: width, depth: depth)
+  private func makeBearingSurfaceEntity(for volume: SubsurfaceVoxelVolume, output: BearingRuleOutput) -> ModelEntity? {
+    guard let mesh = makeFlatHeatmapMesh(for: volume, output: output) else { return nil }
 
     var material = UnlitMaterial()
-    if let tex = Self.getOrCreateHeatmapTexture() {
+    if let tex = Self.makeCandidateHeatmapTexture(output: output) {
       material.color = .init(tint: .white, texture: .init(tex))
     } else {
       material.color = .init(tint: UIColor(red: 0.14, green: 0.62, blue: 0.68, alpha: 1.0))
@@ -377,22 +457,97 @@ struct ResultBearingSurfaceRealityView: View {
 
     let entity = ModelEntity(mesh: mesh, materials: [material])
     entity.position = .zero
-    entity.components.set(CollisionComponent(shapes: [
-      .generateBox(size: [width, 0.25, depth])
-    ]))
+    let cellWidth = Float(output.grid.dxM) / volume.cellStepXM
+    let cellLength = Float(output.grid.dyM) / volume.cellStepZM
+    let collisionShapes = (0..<output.grid.nx).flatMap { x in
+      (0..<output.grid.ny).compactMap { y -> ShapeResource? in
+        guard output.topDepthMXY[output.grid.column(x, y)] != nil else { return nil }
+        return ShapeResource.generateBox(size: [cellWidth, 0.25, cellLength])
+          .offsetBy(translation: [
+            BearingCandidateGeometry.localX(Double(x), output: output, volume: volume), 0,
+            BearingCandidateGeometry.localZ(Double(y), output: output, volume: volume)
+          ])
+      }
+    }
+    entity.components.set(CollisionComponent(shapes: collisionShapes))
     entity.components.set(InputTargetComponent())
     return entity
   }
 
-  // MARK: - 2. Surface Border Frame Around Active 1m² Voxel Boundary
+  // The original Git version used a single flat, textured RealityKit surface.
+  // Build that same presentation from actual Bearing Rule columns, leaving empty cells absent.
+  @MainActor
+  private func makeFlatHeatmapMesh(for volume: SubsurfaceVoxelVolume, output: BearingRuleOutput) -> MeshResource? {
+    let grid = output.grid
+    var positions: [SIMD3<Float>] = []
+    var normals: [SIMD3<Float>] = []
+    var uvs: [SIMD2<Float>] = []
+    var indices: [UInt32] = []
+    for x in 0..<grid.nx {
+      for y in 0..<grid.ny where output.topDepthMXY[grid.column(x, y)] != nil {
+        let x0 = BearingCandidateGeometry.localX(Double(x) - 0.5, output: output, volume: volume)
+        let x1 = BearingCandidateGeometry.localX(Double(x) + 0.5, output: output, volume: volume)
+        let z0 = BearingCandidateGeometry.localZ(Double(y) + 0.5, output: output, volume: volume)
+        let z1 = BearingCandidateGeometry.localZ(Double(y) - 0.5, output: output, volume: volume)
+        let base = UInt32(positions.count)
+        positions.append(contentsOf: [SIMD3(x0,0,z0), SIMD3(x0,0,z1), SIMD3(x1,0,z1), SIMD3(x1,0,z0)])
+        normals.append(contentsOf: Array(repeating: SIMD3<Float>(0,1,0), count: 4))
+        // Match the corner UVs of the original flat heatmap mesh.
+        let u0 = Float(x) / Float(grid.nx)
+        let u1 = Float(x + 1) / Float(grid.nx)
+        let v0 = Float(y) / Float(grid.ny)
+        let v1 = Float(y + 1) / Float(grid.ny)
+        uvs.append(contentsOf: [SIMD2(u0,v0), SIMD2(u0,v1), SIMD2(u1,v1), SIMD2(u1,v0)])
+        indices.append(contentsOf: [base,base+1,base+2,base,base+2,base+3])
+        // The historical surface was visible from both sides during orbit.
+        let underside = UInt32(positions.count)
+        positions.append(contentsOf: [SIMD3(x0,0,z0), SIMD3(x0,0,z1), SIMD3(x1,0,z1), SIMD3(x1,0,z0)])
+        normals.append(contentsOf: Array(repeating: SIMD3<Float>(0,-1,0), count: 4))
+        uvs.append(contentsOf: [SIMD2(u0,v0), SIMD2(u0,v1), SIMD2(u1,v1), SIMD2(u1,v0)])
+        indices.append(contentsOf: [underside,underside+2,underside+1,underside,underside+3,underside+2])
+      }
+    }
+    guard !positions.isEmpty else { return nil }
+    var descriptor = MeshDescriptor(name: "BearingDepthHeatmap")
+    descriptor.positions = MeshBuffers.Positions(positions)
+    descriptor.normals = MeshBuffers.Normals(normals)
+    descriptor.textureCoordinates = MeshBuffers.TextureCoordinates(uvs)
+    descriptor.primitives = .triangles(indices)
+    return try? MeshResource.generate(from: [descriptor])
+  }
 
   @MainActor
-  private func makeSurfaceBorderEntity(for volume: SubsurfaceVoxelVolume) -> Entity {
-    let borderMat = UnlitMaterial(color: UIColor(white: 0.18, alpha: 1.0))
-    if let borderMesh = VoxelMeshSynthesizer.synthesizeBearingVoxelBorderMesh(volume: volume) {
-      return ModelEntity(mesh: borderMesh, materials: [borderMat])
+  private func makeSurfaceBorderEntity(for volume: SubsurfaceVoxelVolume, output: BearingRuleOutput) -> Entity {
+    let border = Entity()
+    let material = UnlitMaterial(color: UIColor(white: 0.18, alpha: 1.0))
+    let grid = output.grid
+    let stepX = Float(grid.dxM) / volume.cellStepXM
+    let stepZ = Float(grid.dyM) / volume.cellStepZM
+    for x in 0..<grid.nx {
+      for y in 0..<grid.ny where output.topDepthMXY[grid.column(x, y)] != nil {
+        let centerX = BearingCandidateGeometry.localX(Double(x), output: output, volume: volume)
+        let centerZ = BearingCandidateGeometry.localZ(Double(y), output: output, volume: volume)
+        func active(_ ax: Int, _ ay: Int) -> Bool {
+          (0..<grid.nx).contains(ax) && (0..<grid.ny).contains(ay) &&
+            output.topDepthMXY[grid.column(ax, ay)] != nil
+        }
+        if !active(x, y - 1) || !active(x, y + 1) {
+          for side in [-1, 1] where !active(x, y + side) {
+            let line = ModelEntity(mesh: .generateBox(width: stepX, height: 0.10, depth: 0.09), materials: [material])
+            line.position = [centerX, 0.04, centerZ - Float(side) * stepZ * 0.5]
+            border.addChild(line)
+          }
+        }
+        if !active(x - 1, y) || !active(x + 1, y) {
+          for side in [-1, 1] where !active(x + side, y) {
+            let line = ModelEntity(mesh: .generateBox(width: 0.09, height: 0.10, depth: stepZ), materials: [material])
+            line.position = [centerX + Float(side) * stepX * 0.5, 0.04, centerZ]
+            border.addChild(line)
+          }
+        }
+      }
     }
-    return Entity()
+    return border
   }
 
   // MARK: - 3. CPT Markers on 1m² Voxel Surface
@@ -408,7 +563,7 @@ struct ResultBearingSurfaceRealityView: View {
 
     let badgePlaneMesh = MeshResource.generatePlane(width: 4.0, depth: 1.4, cornerRadius: 0.7)
 
-    for (idx, pos) in volume.cptSurfacePositions.enumerated() {
+    for (idx, pos) in volume.cptSurfacePositions.prefix(measuredCPTCount).enumerated() {
       let label = String(format: "CPT-%02d", idx + 1)
 
       let group = Entity()
@@ -473,9 +628,9 @@ struct ResultBearingSurfaceRealityView: View {
     xBar.position = SIMD3<Float>((minX + maxX) * 0.5, 0, frontZ)
     container.addChild(xBar)
 
-    let xTickValues = [0, 2, 4, 6, 8, 10]
+    let xTickValues = Array(0...5)
     for val in xTickValues {
-      let t = Float(val) / 10.0
+      let t = Float(val) / 5.0
       let tx = minX + t * xLength
 
       let tick = ModelEntity(
@@ -485,7 +640,7 @@ struct ResultBearingSurfaceRealityView: View {
       tick.position = SIMD3<Float>(tx, 0, frontZ + 0.3)
       container.addChild(tick)
 
-      let labelEntity = makeAxisTextEntity(text: "\(val)", size: 0.95, color: axisColor)
+      let labelEntity = makeAxisTextEntity(text: String(format: "%.0f", t * volume.widthXM), size: 0.95, color: axisColor)
       labelEntity.orientation = simd_quatf(angle: -0.75, axis: SIMD3<Float>(1, 0, 0))
       labelEntity.position = SIMD3<Float>(tx - 0.38, -0.25, frontZ + 1.45)
       container.addChild(labelEntity)
@@ -504,7 +659,7 @@ struct ResultBearingSurfaceRealityView: View {
     yBar.position = SIMD3<Float>(rightX, 0, (minZ + maxZ) * 0.5)
     container.addChild(yBar)
 
-    let yTickValues = [0, 1, 2, 3, 4]
+    let yTickValues = Array(0...4)
     for val in yTickValues {
       let t = Float(val) / 4.0
       let tz = maxZ - t * zLength
@@ -516,7 +671,7 @@ struct ResultBearingSurfaceRealityView: View {
       tick.position = SIMD3<Float>(rightX + 0.3, 0, tz)
       container.addChild(tick)
 
-      let labelEntity = makeAxisTextEntity(text: "\(val)", size: 0.95, color: axisColor)
+      let labelEntity = makeAxisTextEntity(text: String(format: "%.0f", t * volume.lengthZM), size: 0.95, color: axisColor)
       labelEntity.orientation = simd_quatf(angle: -0.75, axis: SIMD3<Float>(1, 0, 0))
       labelEntity.position = SIMD3<Float>(rightX + 0.95, -0.18, tz + 0.25)
       container.addChild(labelEntity)
@@ -543,7 +698,7 @@ struct ResultBearingSurfaceRealityView: View {
     return ModelEntity(mesh: mesh, materials: [mat])
   }
 
-  // MARK: - High-Speed Procedural Contour Heatmap & Badge Texture Generation
+  // MARK: - Candidate depth heatmap & badge texture generation
 
   @MainActor
   private static func getOrCreateBadgeTexture(title: String) -> TextureResource? {
@@ -586,41 +741,28 @@ struct ResultBearingSurfaceRealityView: View {
   }
 
   @MainActor
-  private static func getOrCreateHeatmapTexture() -> TextureResource? {
-    if let cached = cachedHeatmapTexture {
-      return cached
-    }
-
-    let width = 560
-    let height = 294
-    var pixels = [UInt8](repeating: 255, count: width * height * 4)
-
-    for py in 0 ..< height {
-      let v = Float(py) / Float(height - 1) // 0 = back (top in image), 1 = front (bottom in image)
-      for px in 0 ..< width {
-        let u = Float(px) / Float(width - 1) // 0 = left, 1 = right
-
-        let dVal = VoxelMeshSynthesizer.evaluateBearingDepthRatio(u: u, v: v)
-
-        // Quantize into 16 contour bands with subtle smoothing for authentic topographic isoline look
-        let numBands: Float = 16.0
-        let scaled = dVal * numBands
-        let bandIdx = floor(scaled)
-        let frac = scaled - bandIdx
-        let smoothFrac = frac < 0.82 ? 0.0 : (frac - 0.82) / 0.18
-        let quantizedVal = min(max((bandIdx + smoothFrac) / numBands, 0.0), 1.0)
-
-        var r = contourColormap(t: quantizedVal)
-        if frac > 0.86 {
-          r.0 *= 0.94
-          r.1 *= 0.94
-          r.2 *= 0.94
-        }
-
-        let offset = (py * width + px) * 4
-        pixels[offset + 0] = UInt8(min(max(Int(r.0 * 255.0), 0), 255))
-        pixels[offset + 1] = UInt8(min(max(Int(r.1 * 255.0), 0), 255))
-        pixels[offset + 2] = UInt8(min(max(Int(r.2 * 255.0), 0), 255))
+  private static func makeCandidateHeatmapTexture(output: BearingRuleOutput) -> TextureResource? {
+    let width = output.grid.nx
+    let height = output.grid.ny
+    guard width > 0, height > 0,
+          let shallow = output.summary.shallowestTopDepthM,
+          let deep = output.summary.deepestBottomDepthM else { return nil }
+    var pixels = [UInt8](repeating: 0, count: width * height * 4)
+    for y in 0..<height {
+      for x in 0..<width {
+        let column = output.grid.column(x, y)
+        guard let top = output.topDepthMXY[column] else { continue }
+        let ratio = Float((top - shallow) / max(deep - shallow, 1e-6))
+        let bands: Float = 16
+        let scaled = min(max(ratio, 0), 1) * bands
+        let band = floor(scaled)
+        let fraction = scaled - band
+        let softenedEdge = fraction < 0.82 ? 0 : (fraction - 0.82) / 0.18
+        let color = contourColormap(t: min((band + softenedEdge) / bands, 1))
+        let offset = ((height - 1 - y) * width + x) * 4
+        pixels[offset] = UInt8(min(max(Int(color.0 * 255), 0), 255))
+        pixels[offset + 1] = UInt8(min(max(Int(color.1 * 255), 0), 255))
+        pixels[offset + 2] = UInt8(min(max(Int(color.2 * 255), 0), 255))
         pixels[offset + 3] = 255
       }
     }
@@ -645,7 +787,6 @@ struct ResultBearingSurfaceRealityView: View {
       return nil
     }
 
-    cachedHeatmapTexture = tex
     return tex
   }
 

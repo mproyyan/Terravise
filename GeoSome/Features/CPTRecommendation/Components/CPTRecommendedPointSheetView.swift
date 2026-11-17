@@ -35,25 +35,39 @@ struct CPTRecommendedPointSheetView: View {
     ScrollView(.vertical, showsIndicators: false) {
       VStack(alignment: .leading, spacing: 18) {
         // Sheet Title
-        Text(recommendation.isSufficient ? "Sufficiency Reached" : "Recommended Point")
+        Text(recommendation.isSufficient ? "Sufficiency Reached" : (recommendation.hasRecommendation ? "Recommended Point" : "Rekomendasi belum tersedia"))
           .font(.title2.weight(.bold))
           .foregroundStyle(Color.primary)
           .accessibilityAddTraits(.isHeader)
 
         // Top Card: Recommendation Coordinate & Run CPT Warning (or Sufficiency Banner)
-        topRecommendationCard
+        if recommendation.isSufficient || recommendation.hasRecommendation {
+          topRecommendationCard
+        } else {
+          Text("Tidak ada kandidat DQN yang tersedia untuk kriteria jarak dan area saat ini, atau model tidak dapat dijalankan.")
+            .foregroundStyle(.secondary)
+        }
+
+        VStack(alignment: .leading, spacing: 2) {
+          Text("Sumber rekonstruksi: \(recommendation.reconstructionSource)")
+          Text("Sumber rekomendasi: \(recommendation.recommendationSource)")
+          Text("Sumber assessment: \(recommendation.assessmentSource)")
+          Text("QC-FS: \(recommendation.qcfsInferenceSource)")
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
 
         // Primary Action: Upload Data CPT
         uploadButton
 
         // "Why this point?" Section
-        whyThisPointSection
+        if recommendation.hasRecommendation && !recommendation.isSufficient { whyThisPointSection }
 
         // Metrics: RMSE and Confidence Level
         metricsSection
 
         // Reasons & Supporting Data Card
-        reasonsCard
+        if recommendation.hasRecommendation && !recommendation.isSufficient { reasonsCard }
 
         // Bottom Navigation Card: CPT Data entered
         cptDataListCard

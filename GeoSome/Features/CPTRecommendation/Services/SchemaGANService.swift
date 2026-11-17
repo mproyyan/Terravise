@@ -2,6 +2,8 @@ import CoreML
 import Foundation
 
 struct SchemaGANReconstructionOutput: Sendable {
+  let grid: CPTGridConfig
+  let inferenceSource: String
   /// Reconstructed physical Robertson Ic volume [nx][ny][nz]
   let reconstructedIc: [[[Double]]]
   /// Observed physical Ic volume [nx][ny][nz]
@@ -43,6 +45,8 @@ enum SchemaGANService {
     var sitesXY: [(ix: Int, iy: Int)] = []
 
     for point in cptPoints {
+      let sourceRows = point.rows
+      guard !sourceRows.isEmpty else { continue }
       let rawIdx = grid.gridIndices(for: point.coordinate)
       let (ix, iy) = resolveUniqueCell(
         preferredX: rawIdx.ix,
@@ -56,7 +60,6 @@ enum SchemaGANService {
       validXY[ix][iy] = true
       sitesXY.append((ix, iy))
 
-      let sourceRows = point.rows.isEmpty ? CPTRowData.sampleRows : point.rows
       let sortedRows = sourceRows.sorted { $0.depth < $1.depth }
       let depths = sortedRows.map(\.depth)
       let icValues = sortedRows.map { $0.ic(for: point.type) }
@@ -195,6 +198,7 @@ enum SchemaGANService {
       count: nx
     )
 
+    var inferenceSource = "IDW fallback"
     if let coreMLPred = runCoreMLInference(
       nx: nx,
       ny: ny,
@@ -208,6 +212,7 @@ enum SchemaGANService {
       logDz: logDz
     ) {
       physicalPrediction = coreMLPred
+      inferenceSource = "SchemaGAN V4.2 Flexible Core ML"
     } else {
       for ix in 0 ..< nx {
         for iy in 0 ..< ny {
@@ -228,6 +233,8 @@ enum SchemaGANService {
     }
 
     return SchemaGANReconstructionOutput(
+      grid: grid,
+      inferenceSource: inferenceSource,
       reconstructedIc: physicalPrediction,
       observedIc: observedIc,
       observedMask: observedMask,

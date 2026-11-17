@@ -590,7 +590,8 @@ final class BoundaryCreationViewModel {
       if !existing.cptPoints.isEmpty {
         let recomputed = CPTPipelineCoordinator.recomputeFromScratch(
           boundaryCoordinates: existing.boundaryCoordinates,
-          cptPoints: existing.cptPoints
+          cptPoints: existing.cptPoints,
+          gridPolicy: existing.gridPolicy
         )
         existing.latestRecommendation = recomputed
         existing.consecutiveSufficientCount = recomputed.consecutiveSufficientCount

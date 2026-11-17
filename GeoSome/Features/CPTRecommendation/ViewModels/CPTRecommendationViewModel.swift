@@ -59,6 +59,7 @@ final class CPTRecommendationViewModel {
   // Upload Sheet State
   var selectedCPTType: CPTType = .electrical
   var uploadCoordinatesText: String = ""
+  var uploadValidationError: String?
   var uploadedCPTFile: CPTUploadedFile?
   var uploadParsedRows: [CPTRowData] = []
 
@@ -109,7 +110,7 @@ final class CPTRecommendationViewModel {
   }
 
   var recommendedCoordinateOnMap: CLLocationCoordinate2D? {
-    (hasUploadedCPTData && !recommendation.isSufficient) ? recommendation.coordinate : nil
+    (hasUploadedCPTData && !recommendation.isSufficient && recommendation.hasRecommendation) ? recommendation.coordinate : nil
   }
 
   var pendingUploadCoordinate: CLLocationCoordinate2D? {
@@ -145,6 +146,7 @@ final class CPTRecommendationViewModel {
     guard isUploadSheetPresented else { return }
 
     guard isCoordinateInsideBoundary(coordinate) else {
+      uploadValidationError = "Lokasi berada di luar batas proyek. Pilih titik di dalam area."
       AccessibilityCaptionCenter.shared.announce(
         "Selected location is outside the project boundary. Please tap inside the boundary area."
       )
@@ -153,6 +155,7 @@ final class CPTRecommendationViewModel {
 
     UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     uploadCoordinatesText = String(format: "%.6f, %.6f", coordinate.latitude, coordinate.longitude)
+    uploadValidationError = nil
     AccessibilityCaptionCenter.shared.announce(
       "Coordinate updated to \(uploadCoordinatesText).",
       soundDescription: "Map tap"
@@ -179,7 +182,8 @@ final class CPTRecommendationViewModel {
   func presentUploadSheet() {
     uploadedCPTFile = nil
     uploadParsedRows = []
-    if hasUploadedCPTData, !recommendation.isSufficient {
+    uploadValidationError = nil
+    if hasUploadedCPTData, !recommendation.isSufficient, recommendation.hasRecommendation {
       uploadCoordinatesText = recommendation.formattedCoordinate
     } else if uploadCoordinatesText.isEmpty {
       let center = resolvedBoundaryRegion.center
@@ -197,17 +201,22 @@ final class CPTRecommendationViewModel {
   }
 
   func submitCPTUpload() {
-    let fallbackCoord = (hasUploadedCPTData && !recommendation.isSufficient)
-      ? recommendation.coordinate
-      : resolvedBoundaryRegion.center
-    let coordinate = Self.parseCoordinate(from: uploadCoordinatesText) ?? fallbackCoord
-    let rows = uploadParsedRows.isEmpty ? CPTRowData.sampleRows : uploadParsedRows
-    let file = uploadedCPTFile ?? CPTUploadedFile(
-      name: "CPTResultFile.csv",
-      byteSize: 24 * 1024,
-      rowCount: rows.count,
-      matchedColumns: selectedCPTType.requiredColumns
-    )
+    guard let file = uploadedCPTFile, !uploadParsedRows.isEmpty,
+          file.rowCount == uploadParsedRows.count,
+          selectedCPTType.requiredColumns.allSatisfy({ file.isColumnMatched($0) }) else {
+      uploadValidationError = "Pilih file CSV CPT yang valid dengan kolom dan data yang lengkap."
+      return
+    }
+    guard let coordinate = Self.parseCoordinate(from: uploadCoordinatesText) else {
+      uploadValidationError = "Koordinat tidak valid. Masukkan latitude, longitude dalam derajat."
+      return
+    }
+    guard isCoordinateInsideBoundary(coordinate) else {
+      uploadValidationError = "Koordinat berada di luar batas proyek. Pilih titik di dalam area."
+      return
+    }
+    uploadValidationError = nil
+    let rows = uploadParsedRows
     let entry = CPTPointEntry(
       type: selectedCPTType,
       coordinate: coordinate,
@@ -220,7 +229,8 @@ final class CPTRecommendationViewModel {
     let result = CPTPipelineCoordinator.runPipeline(
       boundaryCoordinates: coordinates,
       cptPoints: cptPoints,
-      previousConsecutiveSufficientCount: previousConsecutive
+      previousConsecutiveSufficientCount: previousConsecutive,
+      gridPolicy: project.gridPolicy
     )
 
     hasUploadedCPTData = true
@@ -239,10 +249,12 @@ final class CPTRecommendationViewModel {
       AccessibilityCaptionCenter.shared.announce(
         "CPT data uploaded. Sufficiency criteria reached — no more CPT points needed."
       )
-    } else {
+    } else if result.hasRecommendation {
       AccessibilityCaptionCenter.shared.announce(
         "CPT data uploaded successfully. Next recommended point: \(result.spotName) at \(result.formattedCoordinate)."
       )
+    } else {
+      AccessibilityCaptionCenter.shared.announce("Rekomendasi DQN belum tersedia.")
     }
   }
 
@@ -269,7 +281,8 @@ final class CPTRecommendationViewModel {
     } else {
       recommendation = CPTPipelineCoordinator.recomputeFromScratch(
         boundaryCoordinates: coordinates,
-        cptPoints: cptPoints
+        cptPoints: cptPoints,
+        gridPolicy: project.gridPolicy
       )
       persistCPTStateToProject()
       AccessibilityCaptionCenter.shared.announce("CPT Point deleted. \(cptPoints.count) remaining.")
@@ -298,7 +311,8 @@ final class CPTRecommendationViewModel {
     } else if !sourceProject.cptPoints.isEmpty {
       recommendation = CPTPipelineCoordinator.recomputeFromScratch(
         boundaryCoordinates: coordinates,
-        cptPoints: sourceProject.cptPoints
+        cptPoints: sourceProject.cptPoints,
+        gridPolicy: sourceProject.gridPolicy
       )
     }
   }

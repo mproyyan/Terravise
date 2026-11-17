@@ -61,19 +61,36 @@ struct CPTUploadedFile: Identifiable, Hashable, Codable, Sendable {
   var byteSize: Int64
   var rowCount: Int
   var matchedColumns: [String]
+  var isDemo: Bool = false
+
+  private enum CodingKeys: String, CodingKey {
+    case id, name, byteSize, rowCount, matchedColumns, isDemo
+  }
+
+  init(from decoder: Decoder) throws {
+    let values = try decoder.container(keyedBy: CodingKeys.self)
+    id = try values.decode(UUID.self, forKey: .id)
+    name = try values.decode(String.self, forKey: .name)
+    byteSize = try values.decode(Int64.self, forKey: .byteSize)
+    rowCount = try values.decode(Int.self, forKey: .rowCount)
+    matchedColumns = try values.decode([String].self, forKey: .matchedColumns)
+    isDemo = try values.decodeIfPresent(Bool.self, forKey: .isDemo) ?? false
+  }
 
   init(
     id: UUID = UUID(),
     name: String,
     byteSize: Int64 = 24 * 1024,
     rowCount: Int = 52,
-    matchedColumns: [String] = ["depth_(m)", "qc_mpa(mPa)", "fs_kpa(kPa)", "u2_kpa(kPa)"]
+    matchedColumns: [String] = ["depth_(m)", "qc_mpa(mPa)", "fs_kpa(kPa)", "u2_kpa(kPa)"],
+    isDemo: Bool = false
   ) {
     self.id = id
     self.name = name
     self.byteSize = byteSize
     self.rowCount = rowCount
     self.matchedColumns = matchedColumns
+    self.isDemo = isDemo
   }
 
   var formattedSize: String {
@@ -283,7 +300,7 @@ struct CPTPointEntry: Identifiable, Hashable, Codable, Sendable {
     type: CPTType = .electrical,
     coordinate: CLLocationCoordinate2D,
     file: CPTUploadedFile,
-    rows: [CPTRowData] = CPTRowData.sampleRows,
+    rows: [CPTRowData] = [],
     uploadedAt: Date = Date()
   ) {
     self.id = id
@@ -353,6 +370,11 @@ struct CPTRecommendationResult: Hashable, Codable, Sendable {
   var sufficiencyProbability: Double
   var consecutiveSufficientCount: Int
   var isSufficient: Bool
+  var hasRecommendation: Bool
+  var reconstructionSource: String
+  var recommendationSource: String
+  var assessmentSource: String
+  var qcfsInferenceSource: String
 
   private enum CodingKeys: String, CodingKey {
     case latitude
@@ -369,7 +391,8 @@ struct CPTRecommendationResult: Hashable, Codable, Sendable {
     case predictedCoverage
     case sufficiencyProbability
     case consecutiveSufficientCount
-    case isSufficient
+    case isSufficient, hasRecommendation
+    case reconstructionSource, recommendationSource, assessmentSource, qcfsInferenceSource
   }
 
   init(
@@ -386,7 +409,12 @@ struct CPTRecommendationResult: Hashable, Codable, Sendable {
     predictedCoverage: Double = 0.90,
     sufficiencyProbability: Double = 0.0,
     consecutiveSufficientCount: Int = 0,
-    isSufficient: Bool = false
+    isSufficient: Bool = false,
+    hasRecommendation: Bool = true,
+    reconstructionSource: String = "Belum dievaluasi",
+    recommendationSource: String = "Belum dievaluasi",
+    assessmentSource: String = "Belum dievaluasi",
+    qcfsInferenceSource: String = "Belum dievaluasi"
   ) {
     self.coordinate = coordinate
     self.rmse = rmse
@@ -402,6 +430,11 @@ struct CPTRecommendationResult: Hashable, Codable, Sendable {
     self.sufficiencyProbability = sufficiencyProbability
     self.consecutiveSufficientCount = consecutiveSufficientCount
     self.isSufficient = isSufficient
+    self.hasRecommendation = hasRecommendation
+    self.reconstructionSource = reconstructionSource
+    self.recommendationSource = recommendationSource
+    self.assessmentSource = assessmentSource
+    self.qcfsInferenceSource = qcfsInferenceSource
   }
 
   init(from decoder: Decoder) throws {
@@ -422,6 +455,11 @@ struct CPTRecommendationResult: Hashable, Codable, Sendable {
     sufficiencyProbability = try container.decodeIfPresent(Double.self, forKey: .sufficiencyProbability) ?? 0.0
     consecutiveSufficientCount = try container.decodeIfPresent(Int.self, forKey: .consecutiveSufficientCount) ?? 0
     isSufficient = try container.decodeIfPresent(Bool.self, forKey: .isSufficient) ?? false
+    hasRecommendation = try container.decodeIfPresent(Bool.self, forKey: .hasRecommendation) ?? true
+    reconstructionSource = try container.decodeIfPresent(String.self, forKey: .reconstructionSource) ?? "Riwayat lama; sumber tidak tercatat"
+    recommendationSource = try container.decodeIfPresent(String.self, forKey: .recommendationSource) ?? "Riwayat lama; sumber tidak tercatat"
+    assessmentSource = try container.decodeIfPresent(String.self, forKey: .assessmentSource) ?? "Riwayat lama; sumber tidak tercatat"
+    qcfsInferenceSource = try container.decodeIfPresent(String.self, forKey: .qcfsInferenceSource) ?? "Riwayat lama; QC-FS belum dievaluasi"
   }
 
   func encode(to encoder: Encoder) throws {
@@ -441,10 +479,15 @@ struct CPTRecommendationResult: Hashable, Codable, Sendable {
     try container.encode(sufficiencyProbability, forKey: .sufficiencyProbability)
     try container.encode(consecutiveSufficientCount, forKey: .consecutiveSufficientCount)
     try container.encode(isSufficient, forKey: .isSufficient)
+    try container.encode(hasRecommendation, forKey: .hasRecommendation)
+    try container.encode(reconstructionSource, forKey: .reconstructionSource)
+    try container.encode(recommendationSource, forKey: .recommendationSource)
+    try container.encode(assessmentSource, forKey: .assessmentSource)
+    try container.encode(qcfsInferenceSource, forKey: .qcfsInferenceSource)
   }
 
   var formattedCoordinate: String {
-    String(format: "%.6f, %.6f", coordinate.latitude, coordinate.longitude)
+    hasRecommendation ? String(format: "%.6f, %.6f", coordinate.latitude, coordinate.longitude) : "—"
   }
 
   func hash(into hasher: inout Hasher) {
@@ -453,6 +496,7 @@ struct CPTRecommendationResult: Hashable, Codable, Sendable {
     hasher.combine(rmse)
     hasher.combine(confidenceLevel)
     hasher.combine(isSufficient)
+    hasher.combine(hasRecommendation)
     hasher.combine(spotName)
   }
 
@@ -462,6 +506,7 @@ struct CPTRecommendationResult: Hashable, Codable, Sendable {
       lhs.rmse == rhs.rmse &&
       lhs.confidenceLevel == rhs.confidenceLevel &&
       lhs.isSufficient == rhs.isSufficient &&
+      lhs.hasRecommendation == rhs.hasRecommendation &&
       lhs.spotName == rhs.spotName
   }
 }

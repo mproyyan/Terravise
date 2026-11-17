@@ -6,6 +6,7 @@ struct CPTUploadDataSheetView: View {
   @Binding var coordinatesText: String
   @Binding var uploadedFile: CPTUploadedFile?
   @Binding var parsedRows: [CPTRowData]
+  @Binding var validationError: String?
   var onCloseTap: (() -> Void)?
   var onSubmitTap: (() -> Void)?
   var onDownloadTemplate: (() -> Void)?
@@ -16,6 +17,7 @@ struct CPTUploadDataSheetView: View {
   @State private var isDropTargetActive: Bool = false
   @State private var isShareTemplatePresented: Bool = false
   @State private var lastLoadedCSVText: String?
+  @State private var importError: String?
 
   // CPTu & CPTm Bicone Equipment Parameter Inputs
   @State private var netAreaRatioText: String = "0,8"
@@ -29,6 +31,7 @@ struct CPTUploadDataSheetView: View {
     coordinatesText: Binding<String>,
     uploadedFile: Binding<CPTUploadedFile?>,
     parsedRows: Binding<[CPTRowData]> = .constant([]),
+    validationError: Binding<String?> = .constant(nil),
     onCloseTap: (() -> Void)? = nil,
     onSubmitTap: (() -> Void)? = nil,
     onDownloadTemplate: (() -> Void)? = nil
@@ -37,6 +40,7 @@ struct CPTUploadDataSheetView: View {
     _coordinatesText = coordinatesText
     _uploadedFile = uploadedFile
     _parsedRows = parsedRows
+    _validationError = validationError
     self.onCloseTap = onCloseTap
     self.onSubmitTap = onSubmitTap
     self.onDownloadTemplate = onDownloadTemplate
@@ -50,7 +54,7 @@ struct CPTUploadDataSheetView: View {
   private var isSubmitEnabled: Bool {
     guard let file = uploadedFile else { return false }
     let hasCoords = !coordinatesText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    return hasCoords && file.rowCount > 0 && allRequiredColumnsMatched
+    return hasCoords && !parsedRows.isEmpty && file.rowCount == parsedRows.count && allRequiredColumnsMatched && importError == nil
   }
 
   private var isFileUploaded: Bool {
@@ -79,12 +83,19 @@ struct CPTUploadDataSheetView: View {
           coordinatesSection
           requiredColumnsSection
           cptFileSection
+          if let validationError {
+            Text(validationError).font(.caption).foregroundStyle(.red)
+          } else if !isSubmitEnabled && importError == nil {
+            Text("Masukkan koordinat dan pilih file CSV CPT yang valid untuk melanjutkan.")
+              .font(.caption).foregroundStyle(.secondary)
+          }
         }
         .padding(.horizontal, 20)
         .padding(.top, 12)
         .padding(.bottom, 24)
       }
       .scrollBounceBehavior(.basedOnSize)
+      .onChange(of: coordinatesText) { _, _ in validationError = nil }
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
       .navigationTitle("Upload Data CPT")
       .navigationBarTitleDisplayMode(.inline)
@@ -119,8 +130,6 @@ struct CPTUploadDataSheetView: View {
         isPresented: $isDocumentPickerPresented,
         allowedContentTypes: [
           .commaSeparatedText,
-          UTType(filenameExtension: "xlsx") ?? .data,
-          .spreadsheet,
           .data
         ],
         allowsMultipleSelection: false
@@ -135,8 +144,8 @@ struct CPTUploadDataSheetView: View {
             }
           }
           handleFile(url: url)
-        case .failure:
-          break
+        case let .failure(error):
+          importError = "File tidak dapat dibuka: \(error.localizedDescription)"
         }
       }
     }
@@ -449,6 +458,12 @@ struct CPTUploadDataSheetView: View {
         .foregroundStyle(Color.primary)
         .accessibilityAddTraits(.isHeader)
 
+      if let importError {
+        Text(importError)
+          .font(.footnote)
+          .foregroundStyle(.red)
+      }
+
       if let file = uploadedFile {
         // State B: File Selected
         HStack {
@@ -469,6 +484,7 @@ struct CPTUploadDataSheetView: View {
             uploadedFile = nil
             parsedRows = []
             lastLoadedCSVText = nil
+            importError = nil
           }) {
             Image(systemName: "trash")
               .font(.body.weight(.medium))
@@ -513,7 +529,7 @@ struct CPTUploadDataSheetView: View {
             .font(.subheadline.weight(.bold))
             .foregroundStyle(Color.primary)
 
-          Text("Choose a .CSV or .XLSX file with the required columns shown above.")
+          Text("Pilih file .csv dengan kolom wajib di atas.")
             .font(.footnote)
             .foregroundStyle(Color.secondary)
             .multilineTextAlignment(.center)
@@ -558,6 +574,16 @@ struct CPTUploadDataSheetView: View {
         } isTargeted: { targeted in
           isDropTargetActive = targeted
         }
+
+        Button("Gunakan data contoh (simulasi)") {
+          importError = nil
+          lastLoadedCSVText = nil
+          parsedRows = CPTRowData.sampleRows
+          uploadedFile = CPTUploadedFile(name: "Data contoh — bukan pengukuran.csv",
+                                         byteSize: 0, rowCount: parsedRows.count,
+                                         matchedColumns: selectedCPTType.requiredColumns, isDemo: true)
+        }
+        .font(.footnote)
       }
     }
   }
@@ -565,6 +591,14 @@ struct CPTUploadDataSheetView: View {
   // MARK: - Helpers
 
   private func handleFile(url: URL) {
+    uploadedFile = nil
+    parsedRows = []
+    lastLoadedCSVText = nil
+    importError = nil
+    guard url.pathExtension.lowercased() == "csv" else {
+      importError = "Format .\(url.pathExtension.lowercased()) belum didukung. Ekspor data sebagai CSV."
+      return
+    }
     let name = url.lastPathComponent
     var byteSize: Int64 = 24 * 1024
     if let resourceValues = try? url.resourceValues(forKeys: [.fileSizeKey]),
@@ -582,7 +616,7 @@ struct CPTUploadDataSheetView: View {
         cptType: selectedCPTType,
         equipment: currentEquipmentParameters
       )
-      if !parseResult.matchedRequiredColumns.isEmpty {
+      if parseResult.error == nil, !parseResult.rows.isEmpty {
         parsedRows = parseResult.rows
         uploadedFile = CPTUploadedFile(
           name: name,
@@ -592,21 +626,19 @@ struct CPTUploadDataSheetView: View {
         )
         return
       }
+      importError = parseResult.error ?? "CSV tidak memiliki data CPT yang valid."
+      return
     }
 
-    // Fallback for binary spreadsheets (.xlsx)
-    lastLoadedCSVText = nil
-    parsedRows = CPTRowData.sampleRows
-    uploadedFile = CPTUploadedFile(
-      name: name,
-      byteSize: byteSize,
-      rowCount: CPTRowData.sampleRows.count,
-      matchedColumns: selectedCPTType.requiredColumns
-    )
+    importError = "File CSV tidak dapat dibaca sebagai teks."
   }
 
   private func revalidateCSVIfNeeded(for cptType: CPTType) {
     guard let currentFile = uploadedFile else { return }
+    if currentFile.isDemo {
+      uploadedFile?.matchedColumns = cptType.requiredColumns
+      return
+    }
     if let csvText = lastLoadedCSVText {
       let parseResult = CPTCSVParser.parse(
         text: csvText,
@@ -614,6 +646,7 @@ struct CPTUploadDataSheetView: View {
         equipment: currentEquipmentParameters
       )
       parsedRows = parseResult.rows
+      importError = parseResult.error
       uploadedFile = CPTUploadedFile(
         name: currentFile.name,
         byteSize: currentFile.byteSize,

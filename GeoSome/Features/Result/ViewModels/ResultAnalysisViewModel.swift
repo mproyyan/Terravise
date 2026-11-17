@@ -62,6 +62,93 @@ final class ResultAnalysisViewModel {
 
   // Pure Data Model: [GridCoord: SoilVoxel] inside SubsurfaceVoxelVolume
   private(set) var volume: SubsurfaceVoxelVolume
+  /// Cached inference and rule output for the existing Bearing Layer presentation.
+  private(set) var qcfsResult: QCFSInferenceResult?
+  private(set) var bearingRuleEvaluation: BearingRuleEvaluation?
+  private(set) var bearingRenderRevision: Int = 0
+
+  var bearingRuleOutput: BearingRuleOutput? {
+    if case .candidateDetected(let output) = bearingRuleEvaluation { return output }
+    return nil
+  }
+
+  var bearingStatusText: String {
+    if case .coreML(let qcfs) = qcfsResult, qcfs.inputProvenance == "Demo CPT" {
+      return "Simulasi/demo — hasil bukan pengukuran lapangan. " + (bearingRuleEvaluation?.statusText ?? "Analisis belum tersedia.")
+    }
+    let status = bearingRuleEvaluation?.statusText ?? "QC-FS belum tersedia; belum ada hasil Bearing Layer."
+    return status
+  }
+
+  var bearingIcFilterActive: Bool { bearingIcThresholdText != "N/A" }
+  let bearingUncertaintyProductionValidated = false
+  var bearingUncertaintyExperimentalInferenceReady = false
+  var bearingDepthErrorBoundText = "Belum tersedia"
+
+  /// The slider's configured value is independent of the Ic at a tapped candidate.
+  /// Candidate screening requires a valid, aligned SchemaGAN reconstruction.
+  var bearingIcThresholdText: String {
+    guard case .coreML(let qcfs) = qcfsResult,
+          let ic = qcfs.icReconstruction,
+          ic.inferenceSource == "SchemaGAN V4.2 Flexible Core ML",
+          ic.grid.hasSamePhysicalGrid(as: qcfs.grid),
+          ic.reconstructedIc.count == qcfs.grid.nx,
+          ic.validMask.count == qcfs.grid.nx,
+          qcfs.validMask.count == qcfs.grid.nx else { return "N/A" }
+    var hasValidVoxel = false
+    for x in 0..<qcfs.grid.nx {
+      guard ic.reconstructedIc[x].count == qcfs.grid.ny,
+            ic.validMask[x].count == qcfs.grid.ny,
+            qcfs.validMask[x].count == qcfs.grid.ny else { return "N/A" }
+      for y in 0..<qcfs.grid.ny {
+        guard ic.reconstructedIc[x][y].count == qcfs.grid.nz,
+              ic.validMask[x][y].count == qcfs.grid.nz,
+              qcfs.validMask[x][y].count == qcfs.grid.nz,
+              ic.validMask[x][y] == qcfs.validMask[x][y] else { return "N/A" }
+        for z in 0..<qcfs.grid.nz where ic.validMask[x][y][z] {
+          guard ic.reconstructedIc[x][y][z].isFinite else { return "N/A" }
+          hasValidVoxel = true
+        }
+      }
+    }
+    return hasValidVoxel ? String(format: "%.2f", soilBehaviorIndexIc) : "N/A"
+  }
+
+  /// Reuses the current QC-FS volume; criteria changes never rerun the CNN.
+  func reevaluateBearingRule() {
+    let previousCell = selectedBearingCell
+    let previousLocation = bearingPopoverLocation
+    let wasPopoverPresented = isBearingPopoverPresented
+    isBearingPopoverPresented = false
+    selectedBearingVoxel = nil
+    selectedBearingTopDepthM = nil
+    selectedBearingCell = nil
+    selectedBearingIcText = "N/A"
+    comparedBearingPoints.removeAll()
+    isCompareDataSheetActive = false
+    bearingRuleEvaluation = qcfsResult.map {
+      guard bearingIcFilterActive else {
+        return .invalidInput("Hasil Bearing Layer memerlukan rekonstruksi Ic SchemaGAN yang valid dan selaras.")
+      }
+      return BearingRuleService.evaluate(qcfs: $0, criteria: .init(
+        qcMinimumMPa: coneResistanceQc, minimumThicknessM: minLayerThickness,
+        minimumLateralFraction: 0.05
+      ), experimentalIcMaximum: soilBehaviorIndexIc)
+    }
+    bearingRenderRevision += 1
+    updateBearingSummaryMetrics()
+    if let previousCell, let previousLocation,
+       bearingRuleOutput?.intervals.contains(where: {
+         $0.xIndex == previousCell.x && $0.yIndex == previousCell.y
+       }) == true {
+      handleBearingLayerTap(
+        at: previousLocation, voxel: nil,
+        gridX: previousCell.x, gridZ: previousCell.y,
+        announceSelection: false
+      )
+      isBearingPopoverPresented = wasPopoverPresented
+    }
+  }
 
   // Real-time Cross-Section Slicing Controls (in meters)
   var slicingXMeters: Double
@@ -92,27 +179,29 @@ final class ResultAnalysisViewModel {
   var bearingCameraYaw: Float = ResultAnalysisViewModel.defaultBearingCameraYaw
   var bearingCameraPitch: Float = ResultAnalysisViewModel.defaultBearingCameraPitch
   var bearingCameraZoom: Float = ResultAnalysisViewModel.defaultBearingCameraZoom
-  var shallowestBearingDepthText: String = "2.7 m"
-  var deepestBearingDepthText: String = "4.9 m"
-  var variationBearingDepthText: String = "2.2 m"
-  var relativeUncertaintyText: String = "± 12%"
-  var highUncertaintyAreaPercentText: String = "10%"
-  var highUncertaintyDescription: String =
-    "High uncertainty is concentrated in the southern sector, where CPT coverage is limited."
+  var shallowestBearingDepthText: String = "—"
+  var deepestBearingDepthText: String = "—"
+  var variationBearingDepthText: String = "—"
+  var relativeUncertaintyText: String = "Belum tersedia"
+  var highUncertaintyAreaPercentText: String = "Belum dapat ditentukan"
+  var highUncertaintyDescription: String = "Ketidakpastian kedalaman Bearing Layer belum tervalidasi untuk proyek ini."
 
   // Bearing Layer Criteria & Slicing State
   var isBearingCriteriaCardExpanded: Bool = true
   var coneResistanceQc: Double = 15.0
   var soilBehaviorIndexIc: Double = 1.80
-  var minLayerThickness: Double = 1.0
+  var selectedBearingIcText: String = "N/A"
+  var minLayerThickness: Double = 2.0
 
   // Bearing Layer Tapped Point Popover State
   var isBearingPopoverPresented: Bool = false
   var bearingPopoverLocation: CGPoint?
-  var selectedBearingTitle: String = "Bearing Layer - 02"
-  var selectedBearingDepthText: String = "4.72 m"
-  var selectedBearingNorthingText: String = "9,312,450 m"
-  var selectedBearingEastingText: String = "699,250 m"
+  var selectedBearingTitle: String = "Bearing Layer"
+  var selectedBearingDepthText: String = "—"
+  var selectedBearingTopDepthM: Double?
+  var selectedBearingCell: (x: Int, y: Int)?
+  var selectedBearingNorthingText: String = "—"
+  var selectedBearingEastingText: String = "—"
   var isBearingCompared: Bool = false
 
   // Bearing Layer Comparison State
@@ -155,20 +244,25 @@ final class ResultAnalysisViewModel {
 
     let builtVolume = VoxelMeshSynthesizer.buildVolume(
       boundaryCoordinates: coords,
-      cptPoints: resolvedProject.cptPoints
+      cptPoints: resolvedProject.cptPoints,
+      gridPolicy: resolvedProject.gridPolicy
     )
     self.volume = builtVolume
+    let initialQCFS = resolvedProject.cptPoints.isEmpty ? nil : CPTPipelineCoordinator.reconstructQCFS(
+      boundaryCoordinates: coords,
+      cptPoints: resolvedProject.cptPoints,
+      gridPolicy: resolvedProject.gridPolicy
+    )
+    self.qcfsResult = initialQCFS
+    self.bearingRuleEvaluation = nil
     self.slicingXMeters = Double(builtVolume.widthXM)
     self.slicingYMeters = Double(builtVolume.lengthZM)
 
     if let rec = resolvedProject.latestRecommendation {
       let uncertainty = max(1, 100 - rec.confidenceLevel)
       self.predictionUncertaintyPercent = uncertainty
-      self.relativeUncertaintyText = "± \(uncertainty)%"
     }
-    if !resolvedProject.cptPoints.isEmpty {
-      updateBearingSummaryMetrics(from: builtVolume)
-    }
+    reevaluateBearingRule()
   }
 
   var maxSlicingXMeters: Double {
@@ -214,20 +308,27 @@ final class ResultAnalysisViewModel {
 
     let builtVolume = VoxelMeshSynthesizer.buildVolume(
       boundaryCoordinates: coords,
-      cptPoints: newProject.cptPoints
+      cptPoints: newProject.cptPoints,
+      gridPolicy: newProject.gridPolicy
     )
     volume = builtVolume
+    qcfsResult = newProject.cptPoints.isEmpty ? nil : CPTPipelineCoordinator.reconstructQCFS(
+      boundaryCoordinates: coords,
+      cptPoints: newProject.cptPoints,
+      gridPolicy: newProject.gridPolicy
+    )
+    reevaluateBearingRule()
     slicingXMeters = Double(builtVolume.widthXM)
     slicingYMeters = Double(builtVolume.lengthZM)
     selectedVoxel = nil
+    selectedBearingVoxel = nil
+    isBearingPopoverPresented = false
+    comparedBearingPoints.removeAll()
+    isCompareDataSheetActive = false
 
     if let rec = newProject.latestRecommendation {
       let uncertainty = max(1, 100 - rec.confidenceLevel)
       predictionUncertaintyPercent = uncertainty
-      relativeUncertaintyText = "± \(uncertainty)%"
-    }
-    if !newProject.cptPoints.isEmpty {
-      updateBearingSummaryMetrics(from: builtVolume)
     }
 
     if newProject.cptPoints.isEmpty {
@@ -269,6 +370,7 @@ final class ResultAnalysisViewModel {
 
   func selectTab(_ tab: ResultAnalysisTab) {
     selectedTab = tab
+    if tab == .bearingLayer { reevaluateBearingRule() }
     isProfilePopoverPresented = false
     isBearingPopoverPresented = false
     bearingPopoverLocation = nil
@@ -288,7 +390,8 @@ final class ResultAnalysisViewModel {
   func resetBearingCriteria() {
     coneResistanceQc = 15.0
     soilBehaviorIndexIc = 1.80
-    minLayerThickness = 1.0
+    minLayerThickness = 2.0
+    reevaluateBearingRule()
     AccessibilityCaptionCenter.shared.announce("Identification criteria reset to defaults.")
   }
 
@@ -297,7 +400,8 @@ final class ResultAnalysisViewModel {
     slicingYMeters = maxSlicingYMeters
     coneResistanceQc = 15.0
     soilBehaviorIndexIc = 1.80
-    minLayerThickness = 1.0
+    minLayerThickness = 2.0
+    reevaluateBearingRule()
     cameraYaw = Self.defaultCameraYaw
     cameraPitch = Self.defaultCameraPitch
     cameraZoom = Self.defaultCameraZoom
@@ -317,48 +421,84 @@ final class ResultAnalysisViewModel {
     AccessibilityCaptionCenter.shared.announce("3D view and slicing reset.")
   }
 
-  func handleBearingLayerTap(at screenPoint: CGPoint, voxel: BearingLayerVoxel?, gridX: Int, gridZ: Int) {
-    selectedBearingVoxel = voxel
+  func handleBearingLayerTap(
+    at screenPoint: CGPoint, voxel: BearingLayerVoxel?, gridX: Int, gridZ: Int,
+    announceSelection: Bool = true
+  ) {
+    guard let output = bearingRuleOutput,
+          (0..<output.grid.nx).contains(gridX), (0..<output.grid.ny).contains(gridZ) else { return }
+    let columnIntervals = output.intervals
+      .filter { $0.xIndex == gridX && $0.yIndex == gridZ }
+      .sorted { $0.topDepthM < $1.topDepthM }
+    guard let first = columnIntervals.first else { return }
+    selectedBearingVoxel = nil
+    selectedBearingCell = (gridX, gridZ)
     bearingPopoverLocation = screenPoint
     isProfilePopoverPresented = false
     lastTappedGridX = gridX
     lastTappedGridZ = gridZ
 
-    let nextIndex = comparedBearingPoints.count + 1
-    selectedBearingTitle = String(format: "Bearing Layer - %02d", nextIndex)
-
-    let depthVal = voxel?.bearingDepthM ?? 4.72
-    selectedBearingDepthText = String(format: "%.2f m", depthVal)
-
-    let baseNorthing: Double = 9_312_450.0
-    let baseEasting: Double = 699_250.0
-    let zOffset = Double(voxel?.coord.z ?? gridZ)
-    let xOffset = Double(voxel?.coord.x ?? gridX)
-    let northingVal = baseNorthing + zOffset
-    let eastingVal = baseEasting + xOffset
-
-    let formatter = NumberFormatter()
-    formatter.numberStyle = .decimal
-    formatter.maximumFractionDigits = 0
-    selectedBearingNorthingText = (formatter.string(from: NSNumber(value: northingVal)) ?? "9,312,450") + " m"
-    selectedBearingEastingText = (formatter.string(from: NSNumber(value: eastingVal)) ?? "699,250") + " m"
+    let otherIntervals = columnIntervals.dropFirst().map {
+      String(format: "%.1f–%.1f m (%.1f m)", $0.topDepthM, $0.bottomDepthM, $0.thicknessM)
+    }.joined(separator: "; ")
+    selectedBearingTitle = String(format: "Kandidat · dasar %.1f m · tebal %.1f m", first.bottomDepthM, first.thicknessM)
+    if !otherIntervals.isEmpty {
+      selectedBearingTitle += "; lain: " + otherIntervals
+    }
+    let intervalText = columnIntervals.map { String(format: "%.1f–%.1f m", $0.topDepthM, $0.bottomDepthM) }.joined(separator: ", ")
+    selectedBearingDepthText = String(format: "%.1f m", first.topDepthM)
+    selectedBearingTopDepthM = first.topDepthM
+    selectedBearingNorthingText = String(format: "lokal %.1f m", first.projectYM)
+    selectedBearingEastingText = String(format: "lokal %.1f m", first.projectXM)
+    selectedBearingIcText = "N/A"
+    if case .coreML(let qcfs) = qcfsResult {
+      if let ic = qcfs.icReconstruction,
+         ic.inferenceSource == "SchemaGAN V4.2 Flexible Core ML",
+         ic.grid.hasSamePhysicalGrid(as: qcfs.grid) {
+        let depthIndex = Int((first.topDepthM / ic.grid.dzM).rounded())
+        if (0..<ic.grid.nz).contains(depthIndex),
+           ic.validMask[gridX][gridZ][depthIndex] {
+          let value = ic.reconstructedIc[gridX][gridZ][depthIndex]
+          if value.isFinite {
+            selectedBearingIcText = String(format: "%.2f", value)
+          }
+        }
+      }
+      let qValues = columnIntervals.compactMap { interval -> Double? in
+        let z = Int((interval.topDepthM / output.grid.dzM).rounded())
+        guard (0..<output.grid.nz).contains(z) else { return nil }
+        return qcfs.qcMPa[gridX][gridZ][z]
+      }
+      let qcText = qValues.map { String(format: "%.2f", $0) }.joined(separator: ", ")
+      highUncertaintyDescription = String(format:
+        "%@. X %.1f m, Y %.1f m; interval %@; ketebalan total %.1f m; qc prediksi pada puncak interval %@ MPa; CPT terdekat %.1f m. Uncertainty terkalibrasi belum tersedia.",
+        bearingStatusText, first.projectXM, first.projectYM, intervalText,
+        output.totalThicknessMXY[output.grid.column(gridX, gridZ)], qcText,
+        first.nearestCPTDistanceM)
+    }
 
     isBearingCompared = false
     isBearingPopoverPresented = true
-    AccessibilityCaptionCenter.shared.announce("Bearing layer selected: \(selectedBearingTitle), depth \(selectedBearingDepthText).")
+    if announceSelection {
+      AccessibilityCaptionCenter.shared.announce("Bearing layer selected: \(selectedBearingTitle), depth \(selectedBearingDepthText).")
+    }
   }
 
   func addCurrentBearingToCompare() {
+    guard let output = bearingRuleOutput,
+          let interval = output.intervals
+            .filter({ $0.xIndex == lastTappedGridX && $0.yIndex == lastTappedGridZ })
+            .min(by: { $0.topDepthM < $1.topDepthM }) else { return }
     isBearingPopoverPresented = false
     let nextNum = comparedBearingPoints.count + 1
     let label = "B-\(nextNum)"
     let title = String(format: "Bearing Layer - %02d", nextNum)
 
-    let depthVal = selectedBearingVoxel?.bearingDepthM ?? 4.72
-    let gX = selectedBearingVoxel?.coord.x ?? lastTappedGridX
-    let gZ = selectedBearingVoxel?.coord.z ?? lastTappedGridZ
-    let wX = Float(gX) - volume.centerX
-    let wZ = Float(gZ) - volume.centerZ
+    let depthVal = Float(interval.topDepthM)
+    let gX = lastTappedGridX
+    let gZ = lastTappedGridZ
+    let wX = BearingCandidateGeometry.localX(Double(gX), output: output, volume: volume)
+    let wZ = BearingCandidateGeometry.localZ(Double(gZ), output: output, volume: volume)
 
     let newItem = ComparedBearingPointItem(
       id: UUID(),
@@ -577,13 +717,44 @@ final class ResultAnalysisViewModel {
     }
   }
 
-  private func updateBearingSummaryMetrics(from volume: SubsurfaceVoxelVolume) {
-    let depths = volume.bearingVoxels.values.map(\.bearingDepthM)
-    guard let minDepth = depths.min(), let maxDepth = depths.max() else { return }
-    let variation = max(maxDepth - minDepth, 0.0)
-    shallowestBearingDepthText = String(format: "%.1f m", minDepth)
-    deepestBearingDepthText = String(format: "%.1f m", maxDepth)
-    variationBearingDepthText = String(format: "%.1f m", variation)
+  private func updateBearingSummaryMetrics() {
+    bearingUncertaintyExperimentalInferenceReady = false
+    relativeUncertaintyText = "Belum tersedia"
+    highUncertaintyAreaPercentText = "Belum dapat ditentukan"
+    bearingDepthErrorBoundText = "Belum tersedia"
+    let output: BearingRuleOutput?
+    switch bearingRuleEvaluation {
+    case .candidateDetected(let value), .noCandidateDetected(let value): output = value
+    default: output = nil
+    }
+    guard let output else {
+      shallowestBearingDepthText = "—"; deepestBearingDepthText = "—"; variationBearingDepthText = "—"
+      highUncertaintyDescription = bearingStatusText
+      return
+    }
+    if let shallow = output.summary.shallowestTopDepthM, let deep = output.summary.deepestBottomDepthM {
+      shallowestBearingDepthText = String(format: "%.1f m", shallow)
+      deepestBearingDepthText = String(format: "%.1f m", deep)
+      variationBearingDepthText = String(format: "%.1f m", deep - shallow)
+    } else {
+      shallowestBearingDepthText = "—"; deepestBearingDepthText = "—"; variationBearingDepthText = "—"
+    }
+    highUncertaintyDescription = bearingStatusText + " Uncertainty belum tersedia."
+    guard bearingIcFilterActive, case .coreML(let volume) = qcfsResult else { return }
+    do {
+      let model = try BearingUncertaintyV3Model.load()
+      let result = try BearingUncertaintyV3Service.evaluate(volume: volume, output: output,
+        qcMinimum: coneResistanceQc, icMaximum: soilBehaviorIndexIc, thickness: minLayerThickness, model: model)
+      relativeUncertaintyText = String(format: "%.1f%% · Experimental", result.meanRiskPercent)
+      highUncertaintyAreaPercentText = String(format: "%.1f%% · Experimental", result.highRiskAreaPercent)
+      if let depth = result.meanDepthM { bearingDepthErrorBoundText = String(format: "%.3f m", depth) }
+      highUncertaintyDescription = "Experimental — GeoSyn. Rata-rata risiko pada seluruh kolom valid; area berisiko tinggi memakai ambang ≥20%. Bukan keamanan fondasi atau kepastian geologi."
+      bearingUncertaintyExperimentalInferenceReady = true
+    } catch {
+#if DEBUG
+      print("[Bearing uncertainty V3] unavailable: \(error)")
+#endif
+    }
   }
 
   private func findClosestCPTPoint(to voxel: SoilVoxel) -> (title: String, latitude: String, longitude: String)? {

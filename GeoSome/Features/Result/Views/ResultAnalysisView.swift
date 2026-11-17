@@ -86,6 +86,10 @@ struct ResultAnalysisView: View {
           // RealityKit Flat 3D Surface Depth Map ("Permukaan yang disorot dari atas")
           ResultBearingSurfaceRealityView(
             volume: viewModel.volume,
+            bearingOutput: viewModel.bearingRuleOutput,
+            bearingRevision: viewModel.bearingRenderRevision,
+            measuredCPTCount: viewModel.project.cptPoints.count,
+            selectedCell: viewModel.selectedBearingCell,
             cameraYaw: $viewModel.bearingCameraYaw,
             cameraPitch: $viewModel.bearingCameraPitch,
             cameraZoom: $viewModel.bearingCameraZoom,
@@ -130,8 +134,11 @@ struct ResultAnalysisView: View {
       .overlay(alignment: .topTrailing) {
         if viewModel.selectedTab == .bearingLayer {
           ResultBearingDepthLegendView(
-            shallowestLimitText: "≤ 2.75m",
-            deepestLimitText: "≥ 4.75m"
+            shallowestLimitText: viewModel.shallowestBearingDepthText,
+            deepestLimitText: viewModel.deepestBearingDepthText,
+            shallowestDepthM: viewModel.bearingRuleOutput?.summary.shallowestTopDepthM,
+            deepestDepthM: viewModel.bearingRuleOutput?.summary.deepestBottomDepthM,
+            activeDepthM: viewModel.selectedBearingTopDepthM
           )
           .padding(.trailing, 20)
           .padding(.top, 16)
@@ -176,6 +183,7 @@ struct ResultAnalysisView: View {
             isExpanded: $viewModel.isBearingCriteriaCardExpanded,
             coneResistanceQc: $viewModel.coneResistanceQc,
             soilBehaviorIndexIc: $viewModel.soilBehaviorIndexIc,
+            selectedIcText: viewModel.bearingIcThresholdText,
             minLayerThickness: $viewModel.minLayerThickness,
             onResetCriteria: {
               withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) {
@@ -222,6 +230,7 @@ struct ResultAnalysisView: View {
                 deepestDepthText: viewModel.deepestBearingDepthText,
                 variationDepthText: viewModel.variationBearingDepthText,
                 relativeUncertaintyText: viewModel.relativeUncertaintyText,
+                depthErrorBoundText: viewModel.bearingDepthErrorBoundText,
                 highUncertaintyAreaPercentText: viewModel.highUncertaintyAreaPercentText,
                 highUncertaintyDescription: viewModel.highUncertaintyDescription
               )
@@ -274,6 +283,13 @@ struct ResultAnalysisView: View {
       if !Task.isCancelled, isCurrentDestination {
         viewModel.presentLeftSheetIfNeeded()
       }
+    }
+    .onChange(of: viewModel.coneResistanceQc) { _, _ in viewModel.reevaluateBearingRule() }
+    .onChange(of: viewModel.soilBehaviorIndexIc) { _, _ in viewModel.reevaluateBearingRule() }
+    .onChange(of: viewModel.minLayerThickness) { _, _ in viewModel.reevaluateBearingRule() }
+    .onChange(of: projectViewModel?.projects.first(where: { $0.id == (projectId ?? viewModel.project.id) })) { _, updated in
+      guard let updated, updated != viewModel.project else { return }
+      viewModel.updateProject(updated)
     }
     .onDisappear {
       viewModel.dismissLeftSheet()

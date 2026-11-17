@@ -5,24 +5,27 @@ struct ResultBearingLayerSheetView: View {
   var deepestDepthText: String
   var variationDepthText: String
   var relativeUncertaintyText: String
+  var depthErrorBoundText: String
   var highUncertaintyAreaPercentText: String
   var highUncertaintyDescription: String
 
   @Environment(\.colorSchemeContrast) private var contrast
 
   init(
-    shallowestDepthText: String = "2.7 m",
-    deepestDepthText: String = "4.9 m",
-    variationDepthText: String = "2.2 m",
-    relativeUncertaintyText: String = "± 12%",
-    highUncertaintyAreaPercentText: String = "10%",
+    shallowestDepthText: String = "—",
+    deepestDepthText: String = "—",
+    variationDepthText: String = "—",
+    relativeUncertaintyText: String = "Belum tersedia",
+    depthErrorBoundText: String = "Belum tersedia",
+    highUncertaintyAreaPercentText: String = "Belum dapat ditentukan",
     highUncertaintyDescription: String =
-      "High uncertainty is concentrated in the southern sector, where CPT coverage is limited."
+      "Ketidakpastian kedalaman Bearing Layer belum tervalidasi untuk proyek ini."
   ) {
     self.shallowestDepthText = shallowestDepthText
     self.deepestDepthText = deepestDepthText
     self.variationDepthText = variationDepthText
     self.relativeUncertaintyText = relativeUncertaintyText
+    self.depthErrorBoundText = depthErrorBoundText
     self.highUncertaintyAreaPercentText = highUncertaintyAreaPercentText
     self.highUncertaintyDescription = highUncertaintyDescription
   }
@@ -112,7 +115,7 @@ struct ResultBearingLayerSheetView: View {
           .foregroundStyle(Color.primary)
           .accessibilityAddTraits(.isHeader)
 
-        Text("Shows uncertainty in predicted bearing layer depths.")
+        Text("Experimental candidate identification risk across the valid area.")
           .font(.subheadline)
           .foregroundStyle(Color.secondary)
           .fixedSize(horizontal: false, vertical: true)
@@ -120,11 +123,19 @@ struct ResultBearingLayerSheetView: View {
 
       // Relative Prediction Uncertainty Card
       VStack(alignment: .leading, spacing: 4) {
+        Text(depthErrorBoundText)
+          .font(.title3.weight(.bold))
+          .foregroundStyle(Color.primary)
+
+        Text("Estimated Depth Error P90 (m) — Experimental · mean across candidates, conditional on overlapping layer")
+          .font(.caption)
+          .foregroundStyle(Color.secondary)
+
         Text(relativeUncertaintyText)
           .font(.title3.weight(.bold))
           .foregroundStyle(Color.primary)
 
-        Text("Relative prediction uncertainty")
+        Text("Mean candidate error risk across valid area · Experimental")
           .font(.caption)
           .foregroundStyle(Color.secondary)
       }
@@ -133,7 +144,7 @@ struct ResultBearingLayerSheetView: View {
       .padding(.vertical, 14)
       .background(cardBackground)
       .accessibilityElement(children: .combine)
-      .accessibilityLabel("Relative prediction uncertainty: \(relativeUncertaintyText)")
+      .accessibilityLabel("Mean candidate error risk: \(relativeUncertaintyText)")
 
       // High Uncertainty Area Card
       VStack(alignment: .leading, spacing: 12) {
@@ -146,7 +157,9 @@ struct ResultBearingLayerSheetView: View {
             .font(.title3.weight(.bold))
             .foregroundStyle(Color.primary)
 
-          Text("of total investigation area")
+          Text(highUncertaintyAreaPercentText == "Belum dapat ditentukan"
+               ? "Estimasi luas area belum tersedia"
+               : "of valid area · risk ≥ 20%")
             .font(.caption)
             .foregroundStyle(Color.secondary)
         }
@@ -168,7 +181,7 @@ struct ResultBearingLayerSheetView: View {
       .background(cardBackground)
       .accessibilityElement(children: .combine)
       .accessibilityLabel(
-        "High Uncertainty Area: \(highUncertaintyAreaPercentText) of total investigation area. \(highUncertaintyDescription)"
+        "High Uncertainty Area: \(highUncertaintyAreaPercentText). \(highUncertaintyDescription)"
       )
     }
   }

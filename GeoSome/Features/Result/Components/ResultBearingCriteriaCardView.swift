@@ -5,6 +5,7 @@ struct ResultBearingCriteriaCardView: View {
   @Binding var isExpanded: Bool
   @Binding var coneResistanceQc: Double
   @Binding var soilBehaviorIndexIc: Double
+  var selectedIcText: String = "N/A"
   @Binding var minLayerThickness: Double
   var onResetCriteria: () -> Void
 
@@ -16,6 +17,7 @@ struct ResultBearingCriteriaCardView: View {
     isExpanded: Binding<Bool>,
     coneResistanceQc: Binding<Double>,
     soilBehaviorIndexIc: Binding<Double>,
+    selectedIcText: String = "N/A",
     minLayerThickness: Binding<Double>,
     onResetCriteria: @escaping () -> Void = {}
   ) {
@@ -23,6 +25,7 @@ struct ResultBearingCriteriaCardView: View {
     self._isExpanded = isExpanded
     self._coneResistanceQc = coneResistanceQc
     self._soilBehaviorIndexIc = soilBehaviorIndexIc
+    self.selectedIcText = selectedIcText
     self._minLayerThickness = minLayerThickness
     self.onResetCriteria = onResetCriteria
   }
@@ -77,7 +80,7 @@ struct ResultBearingCriteriaCardView: View {
                 accessibilityLabel: "Cone Resistance qc"
               )
 
-              valuePill(text: String(format: "%.1f MPa", coneResistanceQc))
+              valuePill(text: String(format: "≥ %.1f MPa", coneResistanceQc))
             }
           }
 
@@ -94,8 +97,9 @@ struct ResultBearingCriteriaCardView: View {
                 step: 0.05,
                 accessibilityLabel: "Soil Behavior Index Ic"
               )
+              .disabled(selectedIcText == "N/A")
 
-              valuePill(text: String(format: "%.2f", soilBehaviorIndexIc))
+              valuePill(text: selectedIcText == "N/A" ? selectedIcText : "≤ \(selectedIcText)")
             }
           }
 
@@ -113,7 +117,7 @@ struct ResultBearingCriteriaCardView: View {
                 accessibilityLabel: "Minimum Layer Thickness"
               )
 
-              valuePill(text: String(format: "%.1f m", minLayerThickness))
+              valuePill(text: String(format: "≥ %.1f m", minLayerThickness))
             }
           }
 

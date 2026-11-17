@@ -2,6 +2,26 @@ import CoreLocation
 import Foundation
 
 enum CPTPipelineCoordinator {
+  /// Phase 4 screening accepts only a successful QC-FS Core ML result.
+  static func evaluateBearingRule(
+    qcfs: QCFSInferenceResult,
+    criteria: BearingRuleCriteria = .init()
+  ) -> BearingRuleEvaluation {
+    BearingRuleService.evaluate(qcfs: qcfs, criteria: criteria)
+  }
+
+  /// Phase 2 QC-FS result for the same grid and observed-site mapping as SchemaGAN.
+  /// This is independent of DQN and never substitutes IDW for a failed CNN inference.
+  static func reconstructQCFS(
+    boundaryCoordinates: [CLLocationCoordinate2D],
+    cptPoints: [CPTPointEntry],
+    gridPolicy: CPTGridPolicy = .legacyDynamic
+  ) -> QCFSInferenceResult {
+    let grid = CPTGridConfig.build(boundaryCoordinates: boundaryCoordinates, cptPoints: cptPoints, policy: gridPolicy)
+    let ic = SchemaGANService.reconstruct(cptPoints: cptPoints, grid: grid)
+    return QCFSInferenceService.reconstruct(cptPoints: cptPoints, grid: grid, icReconstruction: ic)
+  }
+
   /// Runs the end-to-end CPT3D-67 pipeline:
   /// 1. Builds the local 3D grid configuration from boundary polygon & uploaded CPTs
   /// 2. Reconstructs the 3D Robertson Ic volume via SchemaGAN V4.2 Flexible
@@ -10,17 +30,37 @@ enum CPTPipelineCoordinator {
   static func runPipeline(
     boundaryCoordinates: [CLLocationCoordinate2D],
     cptPoints: [CPTPointEntry],
-    previousConsecutiveSufficientCount: Int
+    previousConsecutiveSufficientCount: Int,
+    gridPolicy: CPTGridPolicy = .legacyDynamic,
+    minimumSeparationMeters: Double? = nil
   ) -> CPTRecommendationResult {
     let grid = CPTGridConfig.build(
       boundaryCoordinates: boundaryCoordinates,
-      cptPoints: cptPoints
+      cptPoints: cptPoints,
+      policy: gridPolicy
     )
 
     let reconstruction = SchemaGANService.reconstruct(
       cptPoints: cptPoints,
       grid: grid
     )
+
+    let qcfsResult = QCFSInferenceService.reconstruct(
+      cptPoints: cptPoints,
+      grid: grid,
+      icReconstruction: reconstruction
+    )
+    let qcfsSource: String
+    switch qcfsResult {
+    case .coreML(let volume):
+      qcfsSource = "QC-FS CNN V3 Core ML (\(volume.inputProvenance))"
+    case .unsupportedGrid(let reason):
+      qcfsSource = "QC-FS unsupported grid: \(reason)"
+    case .incompleteData(let reason):
+      qcfsSource = "QC-FS incomplete data: \(reason)"
+    case .inferenceFailed(let reason):
+      qcfsSource = "QC-FS inference failed: \(reason)"
+    }
 
     let uncertaintyEval = UncertaintySufficiencyService.evaluate(
       reconstruction: reconstruction,
@@ -30,11 +70,14 @@ enum CPTPipelineCoordinator {
 
     let candidateEval = DQNFeatureBuilder.recommendNextCandidate(
       reconstruction: reconstruction,
-      grid: grid
+      grid: grid,
+      cptCoordinates: cptPoints.map(\.coordinate),
+      boundaryCoordinates: boundaryCoordinates,
+      minimumSeparationMeters: minimumSeparationMeters
     )
 
     let spotName = spotLabel(forNextIndex: cptPoints.count)
-    let isSufficient = uncertaintyEval.isSufficient || candidateEval == nil
+    let isSufficient = uncertaintyEval.isSufficient
 
     if let candidate = candidateEval {
       let recommendedCoord = grid.coordinate(ix: candidate.ix, iy: candidate.iy)
@@ -52,13 +95,17 @@ enum CPTPipelineCoordinator {
         predictedCoverage: uncertaintyEval.predictedCoverage,
         sufficiencyProbability: uncertaintyEval.sufficiencyProbability,
         consecutiveSufficientCount: uncertaintyEval.consecutiveSufficientCount,
-        isSufficient: isSufficient
+        isSufficient: isSufficient,
+        reconstructionSource: reconstruction.inferenceSource,
+        recommendationSource: candidate.inferenceSource,
+        assessmentSource: uncertaintyEval.inferenceSource,
+        qcfsInferenceSource: qcfsSource
       )
     } else {
-      let fallbackCoord = cptPoints.last?.coordinate
-        ?? grid.coordinate(ix: grid.nx / 2, iy: grid.ny / 2)
       return CPTRecommendationResult(
-        coordinate: fallbackCoord,
+        // Coordinate is ignored when hasRecommendation is false; retain a finite
+        // value only for compatibility with existing saved-project encoding.
+        coordinate: CLLocationCoordinate2D(latitude: 0, longitude: 0),
         rmse: uncertaintyEval.estimatedRMSE,
         confidenceLevel: uncertaintyEval.confidenceLevelPercent,
         spotName: spotName,
@@ -71,7 +118,12 @@ enum CPTPipelineCoordinator {
         predictedCoverage: uncertaintyEval.predictedCoverage,
         sufficiencyProbability: uncertaintyEval.sufficiencyProbability,
         consecutiveSufficientCount: uncertaintyEval.consecutiveSufficientCount,
-        isSufficient: true
+        isSufficient: isSufficient,
+        hasRecommendation: false,
+        reconstructionSource: reconstruction.inferenceSource,
+        recommendationSource: "Tidak ada kandidat legal; DQN tidak menghasilkan titik",
+        assessmentSource: uncertaintyEval.inferenceSource,
+        qcfsInferenceSource: qcfsSource
       )
     }
   }
@@ -79,7 +131,8 @@ enum CPTPipelineCoordinator {
   /// Recomputes the pipeline sequentially from 1..N CPT points (used when a point is deleted).
   static func recomputeFromScratch(
     boundaryCoordinates: [CLLocationCoordinate2D],
-    cptPoints: [CPTPointEntry]
+    cptPoints: [CPTPointEntry],
+    gridPolicy: CPTGridPolicy = .legacyDynamic
   ) -> CPTRecommendationResult {
     guard !cptPoints.isEmpty else {
       return CPTRecommendationResult()
@@ -92,7 +145,8 @@ enum CPTPipelineCoordinator {
       latestResult = runPipeline(
         boundaryCoordinates: boundaryCoordinates,
         cptPoints: prefixPoints,
-        previousConsecutiveSufficientCount: consecutiveCount
+        previousConsecutiveSufficientCount: consecutiveCount,
+        gridPolicy: gridPolicy
       )
       consecutiveCount = latestResult.consecutiveSufficientCount
     }

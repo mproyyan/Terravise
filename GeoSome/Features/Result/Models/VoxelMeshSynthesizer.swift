@@ -19,7 +19,8 @@ enum VoxelMeshSynthesizer {
   /// Constructs a `SubsurfaceVoxelVolume` (`[GridCoord: SoilVoxel]`) shaped to the user-drawn boundary polygon.
   static func buildVolume(
     boundaryCoordinates: [CLLocationCoordinate2D],
-    cptPoints: [CPTPointEntry]
+    cptPoints: [CPTPointEntry],
+    gridPolicy: CPTGridPolicy = .legacyDynamic
   ) -> SubsurfaceVoxelVolume {
     let polygon = boundaryCoordinates.count >= 3
       ? boundaryCoordinates
@@ -63,7 +64,7 @@ enum VoxelMeshSynthesizer {
     let schemaGrid: CPTGridConfig?
     let schemaRecon: SchemaGANReconstructionOutput?
     if !cptPoints.isEmpty {
-      let g = CPTGridConfig.build(boundaryCoordinates: polygon, cptPoints: cptPoints)
+      let g = CPTGridConfig.build(boundaryCoordinates: polygon, cptPoints: cptPoints, policy: gridPolicy)
       schemaGrid = g
       schemaRecon = SchemaGANService.reconstruct(cptPoints: cptPoints, grid: g)
     } else {
@@ -313,7 +314,9 @@ enum VoxelMeshSynthesizer {
 
     return SubsurfaceVoxelVolume(
       voxels: voxels,
-      bearingVoxels: bearingVoxels,
+      // Legacy procedural bearing samples are not exposed as production data.
+      // The Bearing tab receives the QC-FS + Bearing Rule output separately.
+      bearingVoxels: [:],
       flatMaterialGrid: flatMaterialGrid,
       nx: nx,
       ny: ny,

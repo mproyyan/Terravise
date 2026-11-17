@@ -187,6 +187,7 @@ struct CPTRecommendationView: View {
           coordinatesText: $viewModel.uploadCoordinatesText,
           uploadedFile: $viewModel.uploadedCPTFile,
           parsedRows: $viewModel.uploadParsedRows,
+          validationError: $viewModel.uploadValidationError,
           onCloseTap: {
             viewModel.dismissUploadSheet()
           },

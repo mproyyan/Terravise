@@ -10,6 +10,7 @@ struct Project: Identifiable, Hashable, Codable, Sendable {
   var cptPoints: [CPTPointEntry]
   var latestRecommendation: CPTRecommendationResult?
   var consecutiveSufficientCount: Int
+  var gridPolicy: CPTGridPolicy
 
   private enum CodingKeys: String, CodingKey {
     case id
@@ -19,6 +20,7 @@ struct Project: Identifiable, Hashable, Codable, Sendable {
     case cptPoints
     case latestRecommendation
     case consecutiveSufficientCount
+    case gridPolicy
   }
 
   init(
@@ -28,7 +30,8 @@ struct Project: Identifiable, Hashable, Codable, Sendable {
     boundaryPoints: [BoundaryPoint] = [],
     cptPoints: [CPTPointEntry] = [],
     latestRecommendation: CPTRecommendationResult? = nil,
-    consecutiveSufficientCount: Int = 0
+    consecutiveSufficientCount: Int = 0,
+    gridPolicy: CPTGridPolicy = .qcfsV3Enumerated
   ) {
     self.id = id
     self.name = name
@@ -37,6 +40,7 @@ struct Project: Identifiable, Hashable, Codable, Sendable {
     self.cptPoints = cptPoints
     self.latestRecommendation = latestRecommendation
     self.consecutiveSufficientCount = consecutiveSufficientCount
+    self.gridPolicy = gridPolicy
   }
 
   init(from decoder: Decoder) throws {
@@ -48,6 +52,7 @@ struct Project: Identifiable, Hashable, Codable, Sendable {
     cptPoints = try container.decodeIfPresent([CPTPointEntry].self, forKey: .cptPoints) ?? []
     latestRecommendation = try container.decodeIfPresent(CPTRecommendationResult.self, forKey: .latestRecommendation)
     consecutiveSufficientCount = try container.decodeIfPresent(Int.self, forKey: .consecutiveSufficientCount) ?? 0
+    gridPolicy = try container.decodeIfPresent(CPTGridPolicy.self, forKey: .gridPolicy) ?? .legacyDynamic
   }
 
   var boundaryCoordinates: [CLLocationCoordinate2D] {
