@@ -50,8 +50,15 @@ final class SubsurfaceCameraController {
   private(set) var siteMaxSpanM: Float = 32.0
   private(set) var defaultDistance: Float = 45.0
 
+  /// Current 3D viewport size in points, used by the minimap to unproject the 4 viewport corners accurately.
+  var viewportSize: CGSize = CGSize(width: 800, height: 600)
+
   /// Revision counter incremented on any camera change to ensure `RealityView.update` runs.
   private(set) var revision: UInt64 = 0
+
+  /// Callback invoked whenever the user pans, zooms, rotates, or tilts the camera (from 3D or minimap).
+  @ObservationIgnored
+  var onCameraMoved: (() -> Void)?
 
   // MARK: - Gesture & Inertia State
 
@@ -82,9 +89,9 @@ final class SubsurfaceCameraController {
 
     siteMaxSpanM = maxSpanM
     minDistance = max(minCellM * 1.5, 1.5)
-    maxDistance = max(maxSpanM * 4.0, 80.0)
-    maxTargetExtentX = max(volume.widthXM * 0.75, 10.0)
-    maxTargetExtentZ = max(volume.lengthZM * 0.75, 10.0)
+    maxDistance = max(maxSpanM * 2.2, 40.0)
+    maxTargetExtentX = max(volume.widthXM * 0.5, 2.0)
+    maxTargetExtentZ = max(volume.lengthZM * 0.5, 2.0)
 
     let computedDefaultDist = min(max(maxSpanM * 1.45, minDistance * 2.0), maxDistance)
     defaultDistance = computedDefaultDist
@@ -245,6 +252,7 @@ final class SubsurfaceCameraController {
     let vzM = Float(velocityInPoints.y) * metersPerPoint * pitchForeshortening
     panVelocityMps = rightVector * vxM + groundForwardVector * vzM
     revision &+= 1
+    onCameraMoved?()
   }
 
   /// Captures the exact ground point (`Y = 0`) under the user's pinch centroid at the start of a pinch gesture.
@@ -287,6 +295,7 @@ final class SubsurfaceCameraController {
     // Store logarithmic zoom velocity for smooth post-pinch inertia
     zoomLogVelocity = Float(-velocity) / safeScale
     revision &+= 1
+    onCameraMoved?()
   }
 
   func endPinch() {
@@ -316,6 +325,7 @@ final class SubsurfaceCameraController {
     yaw += angleDeltaRadians
     yawVelocityRadPerSec = angularVelocity
     revision &+= 1
+    onCameraMoved?()
   }
 
   /// Two-finger vertical drag gesture: tilts camera elevation (`pitch`) within `[minPitch, maxPitch]`.
@@ -325,6 +335,7 @@ final class SubsurfaceCameraController {
     pitch = min(max(pitch + deltaPitch, minPitch), maxPitch)
     pitchVelocityRadPerSec = Float(verticalVelocityPoints) * sensitivity
     revision &+= 1
+    onCameraMoved?()
   }
 
   // MARK: - Inertia / Damping Tick
@@ -393,6 +404,51 @@ final class SubsurfaceCameraController {
     return true
   }
 
+  // MARK: - Minimap Two-Way Control Helpers
+
+  /// Updates the active 3D viewport size (without triggering redundant redraws if unchanged).
+  func updateViewportSize(_ newSize: CGSize) {
+    guard newSize.width > 1, newSize.height > 1 else { return }
+    if abs(viewportSize.width - newSize.width) > 0.5 || abs(viewportSize.height - newSize.height) > 0.5 {
+      viewportSize = newSize
+      revision &+= 1
+    }
+  }
+
+  /// Directly sets the ground-plane target from minimap tap/drag, stopping any active inertia and clamping to site bounds.
+  func setTargetFromMinimap(_ candidate: SIMD3<Float>) {
+    stopInertia()
+    target = clampTarget(candidate)
+    revision &+= 1
+    onCameraMoved?()
+  }
+
+  /// Directly sets the camera azimuth (`yaw`) in radians from the minimap, stopping any active inertia.
+  func setYawFromMinimap(_ newYaw: Float) {
+    stopInertia()
+    yaw = newYaw
+    revision &+= 1
+    onCameraMoved?()
+  }
+
+  /// Directly sets the camera zoom distance (`distance`) in meters from the minimap pinch gesture,
+  /// clamped between `[minDistance, maxDistance]` and stopping any active inertia.
+  func setDistanceFromMinimap(_ newDistance: Float) {
+    stopInertia()
+    distance = min(max(newDistance, minDistance), maxDistance)
+    revision &+= 1
+    onCameraMoved?()
+  }
+
+  /// Clamps a candidate ground-plane target `(x, 0, z)` in meters to the valid site extent.
+  func clampTarget(_ candidate: SIMD3<Float>) -> SIMD3<Float> {
+    SIMD3<Float>(
+      min(max(candidate.x, -maxTargetExtentX), maxTargetExtentX),
+      0.0,
+      min(max(candidate.z, -maxTargetExtentZ), maxTargetExtentZ)
+    )
+  }
+
   // MARK: - Internal Helpers
 
   private func sphericalOffset(distance d: Float, yaw y: Float, pitch p: Float) -> SIMD3<Float> {
@@ -401,14 +457,6 @@ final class SubsurfaceCameraController {
     let sy = sin(y)
     let cy = cos(y)
     return SIMD3<Float>(d * cp * sy, d * sp, d * cp * cy)
-  }
-
-  private func clampTarget(_ candidate: SIMD3<Float>) -> SIMD3<Float> {
-    SIMD3<Float>(
-      min(max(candidate.x, -maxTargetExtentX), maxTargetExtentX),
-      0.0,
-      min(max(candidate.z, -maxTargetExtentZ), maxTargetExtentZ)
-    )
   }
 }
 

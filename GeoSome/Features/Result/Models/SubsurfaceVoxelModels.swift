@@ -301,6 +301,77 @@ struct SubsurfaceVoxelVolume: Sendable {
     return (latitude: lat, longitude: lon)
   }
 
+  /// Exact inverse of `geographicCoordinate(forMetricX:zM:)` in `Double` precision:
+  /// converts a geographic `(latitude, longitude)` into local metric coordinates `(xM, zM)` in meters
+  /// where `+X` is East and `+Z` is South (`-Z` is North).
+  func metricPoint(for coordinate: CLLocationCoordinate2D) -> SIMD2<Double> {
+    let lonSpan = max(maxLongitude - minLongitude, 1e-12)
+    let latSpan = max(maxLatitude - minLatitude, 1e-12)
+    let u = (coordinate.longitude - minLongitude) / lonSpan
+    let v = (maxLatitude - coordinate.latitude) / latSpan
+    let xM = (u - 0.5) * Double(widthXM)
+    let zM = (v - 0.5) * Double(lengthZM)
+    return SIMD2<Double>(xM, zM)
+  }
+
+  /// Returns `true` if the metric horizontal coordinate `(xM, zM)` lies strictly inside the drawn site
+  /// boundary polygon AND within an active, non-sliced 3D voxel column (`0 ... maxSliceX`, `0 ... maxSliceZ`).
+  func isMetricPointInsideActiveArea(
+    xM: Float,
+    zM: Float,
+    maxSliceX: Int? = nil,
+    maxSliceZ: Int? = nil
+  ) -> Bool {
+    let safeStepX = max(cellStepXM, 1e-4)
+    let safeStepZ = max(cellStepZM, 1e-4)
+    let rawFX = (xM / safeStepX) + centerX
+    let rawFZ = (zM / safeStepZ) + centerZ
+
+    let limitX = min(maxSliceX ?? (nx - 1), nx - 1)
+    let limitZ = min(maxSliceZ ?? (nz - 1), nz - 1)
+
+    guard rawFX >= -0.5, rawFX <= Float(limitX) + 0.5,
+          rawFZ >= -0.5, rawFZ <= Float(limitZ) + 0.5
+    else {
+      return false
+    }
+
+    let xGrid = min(max(Int(rawFX.rounded()), 0), nx - 1)
+    let zGrid = min(max(Int(rawFZ.rounded()), 0), nz - 1)
+    guard xGrid <= limitX,
+          zGrid <= limitZ,
+          voxels[GridCoord(x: xGrid, y: ny - 1, z: zGrid)] != nil
+    else {
+      return false
+    }
+
+    // Verify exact point-in-polygon against the user-drawn boundary in normalized UV space [0, 1]
+    if boundaryPolygonUV.count >= 3 {
+      let u = (xM / max(widthXM, 1e-4)) + 0.5
+      let v = (zM / max(lengthZM, 1e-4)) + 0.5
+      guard u >= 0.0, u <= 1.0, v >= 0.0, v <= 1.0 else {
+        return false
+      }
+      var inside = false
+      var j = boundaryPolygonUV.count - 1
+      for i in 0 ..< boundaryPolygonUV.count {
+        let xi = boundaryPolygonUV[i].x, yi = boundaryPolygonUV[i].y
+        let xj = boundaryPolygonUV[j].x, yj = boundaryPolygonUV[j].y
+        let denom = (yj - yi) == 0 ? 1e-7 : (yj - yi)
+        let intersect = ((yi > v) != (yj > v)) && (u < (xj - xi) * (v - yi) / denom + xi)
+        if intersect {
+          inside.toggle()
+        }
+        j = i
+      }
+      if !inside {
+        return false
+      }
+    }
+
+    return true
+  }
+
   /// Bilinearly interpolates the continuous Robertson `Ic` value at exact metric coordinates `(metricX, metricZ)`
   /// for a given vertical layer `iy` (`0` = deepest, `ny - 1` = surface).
   func sampleBilinearIc(metricX: Float, metricZ: Float, iy: Int) -> Float? {

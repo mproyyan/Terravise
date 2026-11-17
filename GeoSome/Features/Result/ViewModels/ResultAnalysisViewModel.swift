@@ -66,8 +66,16 @@ final class ResultAnalysisViewModel {
   // Real-time Cross-Section Slicing Controls (in meters)
   var slicingXMeters: Double
   var slicingYMeters: Double
-  var isSlicingCardExpanded: Bool = false
+  var isSlicingCardExpanded: Bool = true
   var isHardSoilVisible: Bool = true
+
+  /// Shared boundary coordinates from `project.boundaryCoordinates` (with fallback for empty preview projects)
+  /// so the 3D volume and `SubsurfaceMinimapView` read the exact same polygon without duplicating state.
+  var activeBoundaryCoordinates: [CLLocationCoordinate2D] {
+    project.boundaryPoints.isEmpty
+      ? CPTRecommendationViewModel.defaultSamplePoints.map(\.coordinate)
+      : project.boundaryCoordinates
+  }
 
   // Left Sheet State & Subsurface Conditions Content
   var isLeftSheetPresented: Bool = false
@@ -162,6 +170,10 @@ final class ResultAnalysisViewModel {
     self.slicingXMeters = Double(builtVolume.widthXM)
     self.slicingYMeters = Double(builtVolume.lengthZM)
     self.cameraController.configure(for: builtVolume, resetState: true)
+    self.cameraController.onCameraMoved = { [weak self] in
+      guard let self, self.isProfilePopoverPresented else { return }
+      self.isProfilePopoverPresented = false
+    }
 
     if let rec = resolvedProject.latestRecommendation {
       let uncertainty = max(1, 100 - rec.confidenceLevel)
@@ -437,18 +449,25 @@ final class ResultAnalysisViewModel {
   }
 
   func handleTopSurfaceTap(at screenPoint: CGPoint, local3DPoint: SIMD3<Float>?, voxel: SoilVoxel?) {
+    if let hitPt = local3DPoint {
+      guard volume.isMetricPointInsideActiveArea(
+        xM: hitPt.x,
+        zM: hitPt.z,
+        maxSliceX: maxSliceXIndex,
+        maxSliceZ: maxSliceZIndex
+      ) else {
+        isProfilePopoverPresented = false
+        return
+      }
+    }
+
     profilePopoverLocation = screenPoint
-    selectedPipePosition3D = local3DPoint
 
     // Collapse the left sheet to its peek detent instead of dismissing it completely.
     // This leaves the 3D model and popover unobstructed, while keeping the sheet visible
     // just slightly at the bottom so the user can easily drag it back up anytime.
     selectedSheetDetent = Self.collapsedSheetDetent
     isLeftSheetPresented = true
-
-    if let voxel {
-      selectedVoxel = voxel
-    }
 
     // Query continuous bilinearly interpolated field at the exact tapped metric (x, z) coordinate
     if let hitPt = local3DPoint {
@@ -458,11 +477,19 @@ final class ResultAnalysisViewModel {
       selectedCPTPointLongitude = String(format: "%.6f", exactGeo.longitude)
 
       if let pinHit = findPinNearMetricPoint(metricX: hitPt.x, metricZ: hitPt.z) {
+        // Tapped an Actual CPT borehole pin: keep the orange Actual CPT visible without overlapping a Virtual CPT pipe
         selectedCPTPointTitle = pinHit.title
+        selectedPipePosition3D = nil
+        selectedVoxel = nil
       } else {
-        selectedCPTPointTitle = String(format: "CPT Profile (%.1fm, %.1fm)", hitPt.x, hitPt.z)
+        // Tapped a custom location: place the Cyan/Blue Virtual CPT pipe at this exact metric coordinate
+        selectedCPTPointTitle = String(format: "Virtual CPT (%.1fm, %.1fm)", hitPt.x, hitPt.z)
+        selectedPipePosition3D = SIMD3<Float>(hitPt.x, 0.0, hitPt.z)
+        selectedVoxel = voxel
       }
     } else if let voxel {
+      selectedVoxel = voxel
+      selectedPipePosition3D = nil
       selectedPopoverLayers = buildPopoverLayers(forColumnX: voxel.coord.x, z: voxel.coord.z)
       if let closest = findClosestCPTPoint(to: voxel) {
         selectedCPTPointTitle = closest.title
@@ -474,15 +501,59 @@ final class ResultAnalysisViewModel {
         selectedCPTPointLongitude = String(format: "%.6f", voxel.longitude)
       }
     } else {
-      selectedPopoverLayers = CPTPointProfilePopoverView.defaultLayers
-      selectedCPTPointTitle = "CPT Point-01"
-      selectedCPTPointLatitude = "-6.215432"
-      selectedCPTPointLongitude = "106.845321"
+      isProfilePopoverPresented = false
+      return
     }
 
     // Present the native popover immediately
     isProfilePopoverPresented = true
     AccessibilityCaptionCenter.shared.announce("Showing \(selectedCPTPointTitle) SBT profile popover.")
+  }
+
+  /// Creates/places a Virtual CPT in the 3D scene at the current minimap center position (`cameraController.target`)
+  /// and presents the SBT stratigraphy popover immediately, only if the minimap center lies inside the active boundary area.
+  func createVirtualCPTAtMinimapCenter() {
+    let centerPt = SIMD3<Float>(cameraController.target.x, 0.0, cameraController.target.z)
+    guard volume.isMetricPointInsideActiveArea(
+      xM: centerPt.x,
+      zM: centerPt.z,
+      maxSliceX: maxSliceXIndex,
+      maxSliceZ: maxSliceZIndex
+    ) else {
+      isProfilePopoverPresented = false
+      AccessibilityCaptionCenter.shared.announce(
+        "Minimap center is outside the active boundary area."
+      )
+      return
+    }
+
+    selectedPipePosition3D = centerPt
+
+    // Collapse the left sheet to its peek detent so the 3D model and popover are unobstructed
+    selectedSheetDetent = Self.collapsedSheetDetent
+    isLeftSheetPresented = true
+
+    let (fx, fz) = volume.continuousGridCoordinates(forMetricX: centerPt.x, zM: centerPt.z)
+    let xGrid = min(max(Int(fx.rounded()), 0), volume.nx - 1)
+    let zGrid = min(max(Int(fz.rounded()), 0), volume.nz - 1)
+    selectedVoxel = volume.voxels[GridCoord(x: xGrid, y: volume.ny - 1, z: zGrid)]
+
+    selectedPopoverLayers = buildBilinearPopoverLayers(metricX: centerPt.x, metricZ: centerPt.z)
+    let exactGeo = volume.geographicCoordinate(forMetricX: centerPt.x, zM: centerPt.z)
+    selectedCPTPointLatitude = String(format: "%.6f", exactGeo.latitude)
+    selectedCPTPointLongitude = String(format: "%.6f", exactGeo.longitude)
+    selectedCPTPointTitle = String(format: "Virtual CPT (%.1fm, %.1fm)", centerPt.x, centerPt.z)
+
+    // Since `cameraController.target` is at the center of the 3D camera's look axis,
+    // its screen projection is the center of the 3D viewport.
+    let vw = max(cameraController.viewportSize.width, 320.0)
+    let vh = max(cameraController.viewportSize.height, 320.0)
+    profilePopoverLocation = CGPoint(x: vw * 0.5, y: vh * 0.46)
+    isProfilePopoverPresented = true
+
+    AccessibilityCaptionCenter.shared.announce(
+      "Created \(selectedCPTPointTitle) at minimap center and showing SBT profile popover."
+    )
   }
 
   func handleBearingCPTPointTap(at screenPoint: CGPoint, pointIndex: Int) {

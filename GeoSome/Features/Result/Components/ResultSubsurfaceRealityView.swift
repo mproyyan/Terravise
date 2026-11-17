@@ -177,10 +177,12 @@ struct ResultSubsurfaceRealityView: View {
           pivotEntity.orientation = simd_quatf(ix: 0, iy: 0, iz: 0, r: 1)
           pivotEntity.scale = .one
 
-          // 2. Update Single Ephemeral Selection Marker at exact tapped metric (x, z) position
+          // 2. Compute adaptive scale for both Virtual CPT and Actual CPT pipes so they shrink when zooming in close
+          let metricUnit = max(min(volume.cellStepXM, volume.cellStepZM), 0.5)
+          let adaptiveMarkerScale = min(metricUnit, max(cameraController.distance * 0.025, 0.25))
+
+          // 2a. Update Virtual CPT Marker (`VoxelSelectionMarker`: Cyan/Blue Virtual CPT Probe)
           if let marker = pivotEntity.findEntity(named: "VoxelSelectionMarker") {
-            let metricUnit = max(min(volume.cellStepXM, volume.cellStepZM), 0.5)
-            let adaptiveMarkerScale = min(metricUnit, max(cameraController.distance * 0.025, 0.25))
             marker.scale = SIMD3<Float>(repeating: adaptiveMarkerScale)
 
             if let pipePos = selectedPipePosition3D {
@@ -198,11 +200,12 @@ struct ResultSubsurfaceRealityView: View {
             }
           }
 
-          // 3. Update visibility of CPT borehole pins against active metric slicing thresholds
+          // 3. Update Actual CPT borehole pins (adaptive zoom scale + visibility against active slicing thresholds)
           if let cptContainer = pivotEntity.findEntity(named: "CPTBoreholeContainer") {
             let maxWorldX = (Float(maxSliceX) - volume.centerX + 0.5) * volume.cellStepXM
             let maxWorldZ = (Float(maxSliceZ) - volume.centerZ + 0.5) * volume.cellStepZM
             for child in cptContainer.children {
+              child.scale = SIMD3<Float>(repeating: adaptiveMarkerScale)
               child.isEnabled = (child.position.x <= maxWorldX) && (child.position.z <= maxWorldZ)
             }
           }
@@ -266,17 +269,11 @@ struct ResultSubsurfaceRealityView: View {
             }
           )
         }
-
-        // Background tap-to-dismiss layer when popover is visible
-        if isProfilePopoverPresented {
-          Color.clear
-            .contentShape(Rectangle())
-            .ignoresSafeArea()
-            .onTapGesture {
-              withAnimation(.easeInOut(duration: 0.2)) {
-                isProfilePopoverPresented = false
-              }
-            }
+        .onAppear {
+          cameraController.updateViewportSize(proxy.size)
+        }
+        .onChange(of: proxy.size) { _, newSize in
+          cameraController.updateViewportSize(newSize)
         }
 
         // Native-looking Popover Overlay (Zero UIKit modal conflict with the left sheet)
@@ -352,73 +349,118 @@ struct ResultSubsurfaceRealityView: View {
       maxSliceZ: maxSliceZ
     )
 
-    if let hit = hitResult {
+    if let hit = hitResult,
+       volume.isMetricPointInsideActiveArea(
+         xM: hit.hitPoint.x,
+         zM: hit.hitPoint.z,
+         maxSliceX: maxSliceX,
+         maxSliceZ: maxSliceZ
+       )
+    {
       onSelectVoxel(hit.voxel)
       onTapTopSurface?(screenPoint, hit.hitPoint, hit.voxel)
     } else if let groundHit = cameraController.intersectGroundPlane(
       screenPoint: screenPoint,
       viewportSize: viewSize
-    ) {
-      let halfW = volume.widthXM * 0.5 + volume.cellStepXM * 2.0
-      let halfL = volume.lengthZM * 0.5 + volume.cellStepZM * 2.0
-      if abs(groundHit.x) <= halfW, abs(groundHit.z) <= halfL {
-        let (fx, fz) = volume.continuousGridCoordinates(forMetricX: groundHit.x, zM: groundHit.z)
-        let xGrid = min(max(Int(fx.rounded()), 0), volume.nx - 1)
-        let zGrid = min(max(Int(fz.rounded()), 0), volume.nz - 1)
-        let voxel = volume.voxels[GridCoord(x: xGrid, y: volume.ny - 1, z: zGrid)]
-        if let voxel {
-          onSelectVoxel(voxel)
-        }
+    ),
+      volume.isMetricPointInsideActiveArea(
+        xM: groundHit.x,
+        zM: groundHit.z,
+        maxSliceX: maxSliceX,
+        maxSliceZ: maxSliceZ
+      )
+    {
+      let (fx, fz) = volume.continuousGridCoordinates(forMetricX: groundHit.x, zM: groundHit.z)
+      let xGrid = min(max(Int(fx.rounded()), 0), volume.nx - 1)
+      let zGrid = min(max(Int(fz.rounded()), 0), volume.nz - 1)
+      if let voxel = volume.voxels[GridCoord(x: xGrid, y: volume.ny - 1, z: zGrid)] {
+        onSelectVoxel(voxel)
         onTapTopSurface?(screenPoint, groundHit, voxel)
+      } else if isProfilePopoverPresented {
+        withAnimation(.easeInOut(duration: 0.2)) {
+          isProfilePopoverPresented = false
+        }
+      }
+    } else if isProfilePopoverPresented {
+      withAnimation(.easeInOut(duration: 0.2)) {
+        isProfilePopoverPresented = false
       }
     }
   }
 
   // MARK: - Scene Helpers & Metric Entities (1 unit = 1 meter)
 
-  /// Creates the visual 3D CPT pipe entity standing upright on the terrain top surface.
-  /// Scaled dynamically in `update` relative to `cellStep` and `cameraController.distance`.
+  /// Creates the visual 3D Virtual CPT probe entity (Cyan/Blue with white rings & beacon top)
+  /// standing upright on the terrain top surface. Scaled dynamically in `update` with `cameraController.distance`.
   private func makeVoxelSelectionMarker() -> Entity {
     let container = Entity()
 
-    // 3D CPT Sounding Pipe (matching the orange cylinder in the screenshot)
-    let pipeMesh = MeshResource.generateCylinder(height: 2.0, radius: 0.42)
-    let pipeMaterial = SimpleMaterial(
-      color: UIColor(red: 0.90, green: 0.57, blue: 0.25, alpha: 1.0),
+    let virtualBlueMaterial = SimpleMaterial(
+      color: UIColor(red: 0.08, green: 0.60, blue: 0.96, alpha: 1.0),
+      roughness: 0.22,
+      isMetallic: false
+    )
+    let whiteBandMaterial = SimpleMaterial(
+      color: .white,
       roughness: 0.25,
       isMetallic: false
     )
-    let pipeEntity = ModelEntity(mesh: pipeMesh, materials: [pipeMaterial])
+
+    // 1. Virtual CPT Sounding Pipe (distinct Cyan/Blue cylinder)
+    let pipeMesh = MeshResource.generateCylinder(height: 2.0, radius: 0.36)
+    let pipeEntity = ModelEntity(mesh: pipeMesh, materials: [virtualBlueMaterial])
     pipeEntity.name = "CPTPipeCylinder"
-    // Center at y = 1.0 places cylinder base at y = 0.0 (flush on surface)
     pipeEntity.position = SIMD3<Float>(0, 1.0, 0)
     container.addChild(pipeEntity)
 
-    // Base collar ring at surface level
-    let collarMesh = MeshResource.generateCylinder(height: 0.08, radius: 0.52)
-    let collarMaterial = SimpleMaterial(
-      color: UIColor(white: 0.25, alpha: 1.0),
-      roughness: 0.4,
-      isMetallic: true
-    )
-    let collarEntity = ModelEntity(mesh: collarMesh, materials: [collarMaterial])
-    collarEntity.position = SIMD3<Float>(0, 0.04, 0)
-    container.addChild(collarEntity)
+    // 2. White Mid-Band Stripe to visually distinguish Virtual CPT from Actual CPT
+    let bandMesh = MeshResource.generateCylinder(height: 0.16, radius: 0.40)
+    let bandEntity = ModelEntity(mesh: bandMesh, materials: [whiteBandMaterial])
+    bandEntity.position = SIMD3<Float>(0, 1.35, 0)
+    container.addChild(bandEntity)
+
+    // 3. Top Spherical Beacon Cap
+    let beaconMesh = MeshResource.generateSphere(radius: 0.44)
+    let beaconEntity = ModelEntity(mesh: beaconMesh, materials: [virtualBlueMaterial])
+    beaconEntity.position = SIMD3<Float>(0, 2.15, 0)
+    container.addChild(beaconEntity)
+
+    // 4. Dual Target Base Collar Ring at surface level (Y = 0)
+    let outerCollarMesh = MeshResource.generateCylinder(height: 0.06, radius: 0.62)
+    let outerCollarEntity = ModelEntity(mesh: outerCollarMesh, materials: [whiteBandMaterial])
+    outerCollarEntity.position = SIMD3<Float>(0, 0.03, 0)
+    container.addChild(outerCollarEntity)
+
+    let innerCollarMesh = MeshResource.generateCylinder(height: 0.10, radius: 0.48)
+    let innerCollarEntity = ModelEntity(mesh: innerCollarMesh, materials: [virtualBlueMaterial])
+    innerCollarEntity.position = SIMD3<Float>(0, 0.05, 0)
+    container.addChild(innerCollarEntity)
 
     return container
   }
 
-  /// Creates cylindrical markers on top of the surface (`Y = 0`) in true metric coordinates (`1 unit = 1 meter`).
+  /// Creates cylindrical markers on top of the surface (`Y = 0`) for Actual CPT boreholes (Orange/Amber with dark collar).
+  /// Built in unit dimensions with base at `Y = 0` so `update` scales them dynamically as the user zooms in/out.
   private func buildCPTBoreholeMarkers(for volume: SubsurfaceVoxelVolume) -> Entity {
     let container = Entity()
     let metricUnit = max(min(volume.cellStepXM, volume.cellStepZM), 0.5)
-    let pinHeight = 1.8 * metricUnit
-    let pinRadius = 0.42 * metricUnit
+    let initialScale = min(metricUnit, max(cameraController.distance * 0.025, 0.25))
+
+    let pinHeight: Float = 1.8
+    let pinRadius: Float = 0.42
     let pinMesh = MeshResource.generateCylinder(height: pinHeight, radius: pinRadius)
     let pinMaterial = SimpleMaterial(
-      color: UIColor(red: 0.90, green: 0.57, blue: 0.25, alpha: 1.0),
+      color: UIColor(red: 0.92, green: 0.55, blue: 0.20, alpha: 1.0),
       roughness: 0.28,
       isMetallic: false
+    )
+
+    let collarMesh = MeshResource.generateCylinder(height: 0.08, radius: 0.52)
+    let topCapMesh = MeshResource.generateCylinder(height: 0.06, radius: 0.46)
+    let darkCollarMaterial = SimpleMaterial(
+      color: UIColor(white: 0.22, alpha: 1.0),
+      roughness: 0.4,
+      isMetallic: true
     )
 
     let positions = volume.cptMetricSurfacePositions.isEmpty
@@ -426,14 +468,29 @@ struct ResultSubsurfaceRealityView: View {
       : volume.cptMetricSurfacePositions
 
     for (idx, pos) in positions.enumerated() {
-      let pin = ModelEntity(mesh: pinMesh, materials: [pinMaterial])
-      pin.name = "CPTPin_\(idx)"
-      pin.position = SIMD3<Float>(pos.x, pinHeight * 0.5, pos.z)
-      pin.components.set(CollisionComponent(shapes: [
+      let pinGroup = Entity()
+      pinGroup.name = "CPTPin_\(idx)"
+      // Place group origin on the Y = 0 surface so dynamic scaling keeps the base flush with the ground
+      pinGroup.position = SIMD3<Float>(pos.x, 0.0, pos.z)
+      pinGroup.scale = SIMD3<Float>(repeating: initialScale)
+
+      let cylinder = ModelEntity(mesh: pinMesh, materials: [pinMaterial])
+      cylinder.position = SIMD3<Float>(0, pinHeight * 0.5, 0)
+      pinGroup.addChild(cylinder)
+
+      let baseCollar = ModelEntity(mesh: collarMesh, materials: [darkCollarMaterial])
+      baseCollar.position = SIMD3<Float>(0, 0.04, 0)
+      pinGroup.addChild(baseCollar)
+
+      let topCap = ModelEntity(mesh: topCapMesh, materials: [darkCollarMaterial])
+      topCap.position = SIMD3<Float>(0, pinHeight + 0.03, 0)
+      pinGroup.addChild(topCap)
+
+      pinGroup.components.set(CollisionComponent(shapes: [
         .generateCapsule(height: pinHeight, radius: pinRadius)
       ]))
-      pin.components.set(InputTargetComponent())
-      container.addChild(pin)
+      pinGroup.components.set(InputTargetComponent())
+      container.addChild(pinGroup)
     }
     return container
   }
