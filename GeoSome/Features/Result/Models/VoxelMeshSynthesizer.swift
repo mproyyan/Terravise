@@ -344,11 +344,12 @@ enum VoxelMeshSynthesizer {
     )
   }
 
-  /// Synthesizes the entire active voxel volume into a single `MeshDescriptor` (1 Draw Call) using:
-  /// 1. Neighbor-Aware Internal Face Culling (Manifold Shell Extraction)
-  /// 2. 2D Greedy Meshing (Run-Length Quad Merging) across all 6 cardinal directions
-  /// 3. Strict Counter-Clockwise (CCW) outward vertex winding with box half-extent `0.5` on a `1.0 m` grid
-  /// 4. `.perFace` material indexing (`meshDescriptor.materials = .perFace(...)`)
+  /// Synthesizes the active subsurface geological volume into a single `MeshDescriptor` (1 Draw Call) using:
+  /// 1. Smooth Clipped Polygon Extrusion matching the exact user-drawn property boundary (Option 1)
+  /// 2. Sutherland-Hodgman clipping against active slicing thresholds (`maxSliceX`, `maxSliceZ`)
+  /// 3. Ear-Clipping triangulation for flat top (`Y = 0`) and bottom (`Y = -depthYM`) surface caps
+  /// 4. Continuous side-wall stratigraphy extruded vertically along perimeter and slice boundaries
+  /// 5. `.perFace` material indexing (`meshDescriptor.materials = .perFace(...)`)
   @MainActor
   static func synthesizeMesh(
     volume: SubsurfaceVoxelVolume,
@@ -397,7 +398,6 @@ enum VoxelMeshSynthesizer {
       normals.append(normal)
 
       // Triangle 1: (v0, v1, v2), Triangle 2: (v0, v2, v3)
-      // Cross product (v1 - v0) x (v2 - v0) points strictly along `normal` (CCW outward winding)
       indices.append(base)
       indices.append(base + 1)
       indices.append(base + 2)
@@ -411,233 +411,232 @@ enum VoxelMeshSynthesizer {
     }
 
     // Coordinate conversion helpers (True Metric Space: 1 unit = 1 meter):
-    // Each voxel at integer index `i` spans `[i - 0.5, i + 0.5]` multiplied by the physical cell step (m).
     let stepXM = volume.cellStepXM
     let stepYM = volume.cellStepYM
     let stepZM = volume.cellStepZM
 
     @inline(__always)
-    func worldX(_ gridEdgeX: Int) -> Float {
-      ((Float(gridEdgeX) - 0.5) - centerX) * stepXM
-    }
-
-    @inline(__always)
     func worldY(_ gridEdgeY: Int) -> Float {
-      // Top of surface layer (gridEdgeY == ny) is at Y = 0.0; bottom (gridEdgeY == 0) is at Y = -depthYM
       ((Float(gridEdgeY) - 0.5) - topYIndex - 0.5) * stepYM
     }
 
     @inline(__always)
-    func worldZ(_ gridEdgeZ: Int) -> Float {
-      ((Float(gridEdgeZ) - 0.5) - centerZ) * stepZM
+    func sampleMaterial(xM: Float, zM: Float, layerY: Int) -> UInt32 {
+      let (fx, fz) = volume.continuousGridCoordinates(forMetricX: xM, zM: zM)
+      let gx = min(max(Int(fx.rounded()), 0), nx - 1)
+      let gz = min(max(Int(fz.rounded()), 0), nz - 1)
+      let clampedY = min(max(layerY, 0), ny - 1)
+      let rawMat = volume.materialAt(x: gx, y: clampedY, z: gz, maxSliceX: clampedSliceX, maxSliceZ: clampedSliceZ)
+      if rawMat >= 0 {
+        return UInt32(rawMat)
+      }
+      for r in 1 ... 3 {
+        for dx in -r ... r {
+          for dz in -r ... r {
+            let nMat = volume.materialAt(x: gx + dx, y: clampedY, z: gz + dz, maxSliceX: clampedSliceX, maxSliceZ: clampedSliceZ)
+            if nMat >= 0 { return UInt32(nMat) }
+          }
+        }
+      }
+      return 0
     }
 
-    // -------------------------------------------------------------------------
-    // 1. +Y (Top Face) & -Y (Bottom Face) Slices — Greedy Meshing over (X, Z)
-    // Rule: Emit +Y only when (x, y+1, z) is inactive; emit -Y only when (x, y-1, z) is inactive.
-    // -------------------------------------------------------------------------
-    let activeNX = clampedSliceX + 1
-    let activeNZ = clampedSliceZ + 1
+    // 1. Build initial metric 2D boundary polygon from `volume.boundaryPolygonUV`
+    var rawPolygon: [SIMD2<Float>] = []
+    let halfWidthM = volume.widthXM * 0.5
+    let halfLengthM = volume.lengthZM * 0.5
 
-    for y in 0 ..< ny {
-      // +Y Face (normal = (0, 1, 0))
-      var maskPosY = Array(repeating: Int16(-1), count: activeNX * activeNZ)
-      var hasPosY = false
-      for x in 0 ..< activeNX {
-        for z in 0 ..< activeNZ {
-          let mat = volume.materialAt(x: x, y: y, z: z, maxSliceX: clampedSliceX, maxSliceZ: clampedSliceZ)
-          guard mat >= 0 else { continue }
-          let neighborAbove = volume.materialAt(x: x, y: y + 1, z: z, maxSliceX: clampedSliceX, maxSliceZ: clampedSliceZ)
-          // Only emit top face when there is no active voxel above (surface layer)
-          if neighborAbove < 0 {
-            maskPosY[x * activeNZ + z] = mat
-            hasPosY = true
-          }
-        }
+    if volume.boundaryPolygonUV.count >= 3 {
+      rawPolygon = volume.boundaryPolygonUV.map { uv in
+        SIMD2<Float>(
+          (uv.x - 0.5) * volume.widthXM,
+          (uv.y - 0.5) * volume.lengthZM
+        )
       }
-
-      if hasPosY {
-        let py = worldY(y + 1)
-        greedyMerge2D(width: activeNX, height: activeNZ, mask: &maskPosY) { u0, v0, w, h, mat in
-          let x0 = worldX(u0)
-          let x1 = worldX(u0 + w)
-          let z0 = worldZ(v0)
-          let z1 = worldZ(v0 + h)
-          // CCW for +Y (0, 1, 0): (x0, py, z0) -> (x0, py, z1) -> (x1, py, z1) -> (x1, py, z0)
-          emitQuad(
-            SIMD3<Float>(x0, py, z0),
-            SIMD3<Float>(x0, py, z1),
-            SIMD3<Float>(x1, py, z1),
-            SIMD3<Float>(x1, py, z0),
-            normal: SIMD3<Float>(0, 1, 0),
-            materialIndex: UInt32(mat)
-          )
-        }
-      }
-
-      // -Y Face (normal = (0, -1, 0))
-      var maskNegY = Array(repeating: Int16(-1), count: activeNX * activeNZ)
-      var hasNegY = false
-      for x in 0 ..< activeNX {
-        for z in 0 ..< activeNZ {
-          let mat = volume.materialAt(x: x, y: y, z: z, maxSliceX: clampedSliceX, maxSliceZ: clampedSliceZ)
-          guard mat >= 0 else { continue }
-          let neighborBelow = volume.materialAt(x: x, y: y - 1, z: z, maxSliceX: clampedSliceX, maxSliceZ: clampedSliceZ)
-          // Only emit bottom face for the deepest bedrock layer (no active voxel below)
-          if neighborBelow < 0 {
-            maskNegY[x * activeNZ + z] = mat
-            hasNegY = true
-          }
-        }
-      }
-
-      if hasNegY {
-        let py = worldY(y)
-        greedyMerge2D(width: activeNX, height: activeNZ, mask: &maskNegY) { u0, v0, w, h, mat in
-          let x0 = worldX(u0)
-          let x1 = worldX(u0 + w)
-          let z0 = worldZ(v0)
-          let z1 = worldZ(v0 + h)
-          // CCW for -Y (0, -1, 0): (x0, py, z0) -> (x1, py, z0) -> (x1, py, z1) -> (x0, py, z1)
-          emitQuad(
-            SIMD3<Float>(x0, py, z0),
-            SIMD3<Float>(x1, py, z0),
-            SIMD3<Float>(x1, py, z1),
-            SIMD3<Float>(x0, py, z1),
-            normal: SIMD3<Float>(0, -1, 0),
-            materialIndex: UInt32(mat)
-          )
-        }
-      }
+    } else {
+      rawPolygon = [
+        SIMD2<Float>(-halfWidthM, -halfLengthM),
+        SIMD2<Float>(halfWidthM, -halfLengthM),
+        SIMD2<Float>(halfWidthM, halfLengthM),
+        SIMD2<Float>(-halfWidthM, halfLengthM)
+      ]
     }
 
-    // -------------------------------------------------------------------------
-    // 2. +X & -X Vertical Perimeter / Slice Walls — Greedy Meshing over (Z, Y)
-    // Rule: Emit side face only at perimeter boundary or active cross-section slice plane.
-    // -------------------------------------------------------------------------
-    for x in 0 ..< activeNX {
-      var maskPosX = Array(repeating: Int16(-1), count: activeNZ * ny)
-      var maskNegX = Array(repeating: Int16(-1), count: activeNZ * ny)
-      var hasPosX = false
-      var hasNegX = false
+    rawPolygon = cleanPolygonVertices(rawPolygon)
+    guard rawPolygon.count >= 3 else { return nil }
 
-      for z in 0 ..< activeNZ {
-        for y in 0 ..< ny {
-          let mat = volume.materialAt(x: x, y: y, z: z, maxSliceX: clampedSliceX, maxSliceZ: clampedSliceZ)
-          guard mat >= 0 else { continue }
+    // Ensure CCW winding (signedArea > 0)
+    if polygonSignedArea(rawPolygon) < 0 {
+      rawPolygon.reverse()
+    }
 
-          if volume.materialAt(x: x + 1, y: y, z: z, maxSliceX: clampedSliceX, maxSliceZ: clampedSliceZ) < 0 {
-            maskPosX[z * ny + y] = mat
-            hasPosX = true
-          }
-          if volume.materialAt(x: x - 1, y: y, z: z, maxSliceX: clampedSliceX, maxSliceZ: clampedSliceZ) < 0 {
-            maskNegX[z * ny + y] = mat
-            hasNegX = true
-          }
-        }
-      }
+    // 2. Compute slicing limits in metric coordinates
+    let xCut = (Float(clampedSliceX) + 0.5 - centerX) * stepXM
+    let zCut = (Float(clampedSliceZ) + 0.5 - centerZ) * stepZM
+    let xMin = (-0.5 - centerX) * stepXM
+    let zMin = (-0.5 - centerZ) * stepZM
 
-      if hasPosX {
-        let px = worldX(x + 1)
-        greedyMerge2D(width: activeNZ, height: ny, mask: &maskPosX) { z0Idx, y0Idx, wZ, hY, mat in
-          let z0 = worldZ(z0Idx)
-          let z1 = worldZ(z0Idx + wZ)
-          let y0 = worldY(y0Idx)
-          let y1 = worldY(y0Idx + hY)
-          // CCW for +X (1, 0, 0): (px, y0, z1) -> (px, y0, z0) -> (px, y1, z0) -> (px, y1, z1)
-          emitQuad(
-            SIMD3<Float>(px, y0, z1),
-            SIMD3<Float>(px, y0, z0),
-            SIMD3<Float>(px, y1, z0),
-            SIMD3<Float>(px, y1, z1),
-            normal: SIMD3<Float>(1, 0, 0),
-            materialIndex: UInt32(mat)
-          )
-        }
-      }
+    // 3. Sutherland-Hodgman clipping against active slicing box
+    var clippedPoly = rawPolygon
 
-      if hasNegX {
-        let px = worldX(x)
-        greedyMerge2D(width: activeNZ, height: ny, mask: &maskNegX) { z0Idx, y0Idx, wZ, hY, mat in
-          let z0 = worldZ(z0Idx)
-          let z1 = worldZ(z0Idx + wZ)
-          let y0 = worldY(y0Idx)
-          let y1 = worldY(y0Idx + hY)
-          // CCW for -X (-1, 0, 0): (px, y0, z0) -> (px, y0, z1) -> (px, y1, z1) -> (px, y1, z0)
-          emitQuad(
-            SIMD3<Float>(px, y0, z0),
-            SIMD3<Float>(px, y0, z1),
-            SIMD3<Float>(px, y1, z1),
-            SIMD3<Float>(px, y1, z0),
-            normal: SIMD3<Float>(-1, 0, 0),
-            materialIndex: UInt32(mat)
-          )
+    // Clip X <= xCut
+    clippedPoly = clipPolygon(clippedPoly, inside: { $0.x <= xCut + 1e-4 }) { p1, p2 in
+      let denom = p2.x - p1.x
+      let t = abs(denom) > 1e-7 ? (xCut - p1.x) / denom : 0.0
+      return SIMD2<Float>(xCut, p1.y + t * (p2.y - p1.y))
+    }
+
+    // Clip Z <= zCut
+    clippedPoly = clipPolygon(clippedPoly, inside: { $0.y <= zCut + 1e-4 }) { p1, p2 in
+      let denom = p2.y - p1.y
+      let t = abs(denom) > 1e-7 ? (zCut - p1.y) / denom : 0.0
+      return SIMD2<Float>(p1.x + t * (p2.x - p1.x), zCut)
+    }
+
+    // Clip X >= xMin
+    clippedPoly = clipPolygon(clippedPoly, inside: { $0.x >= xMin - 1e-4 }) { p1, p2 in
+      let denom = p2.x - p1.x
+      let t = abs(denom) > 1e-7 ? (xMin - p1.x) / denom : 0.0
+      return SIMD2<Float>(xMin, p1.y + t * (p2.y - p1.y))
+    }
+
+    // Clip Z >= zMin
+    clippedPoly = clipPolygon(clippedPoly, inside: { $0.y >= zMin - 1e-4 }) { p1, p2 in
+      let denom = p2.y - p1.y
+      let t = abs(denom) > 1e-7 ? (zMin - p1.y) / denom : 0.0
+      return SIMD2<Float>(p1.x + t * (p2.x - p1.x), zMin)
+    }
+
+    clippedPoly = cleanPolygonVertices(clippedPoly)
+    guard clippedPoly.count >= 3 else { return nil }
+
+    if polygonSignedArea(clippedPoly) < 0 {
+      clippedPoly.reverse()
+    }
+
+    // 4. Subdivide long edges so strata variations are sampled faithfully
+    let maxEdgeLen = max(stepXM, stepZM) * 1.5
+    var subdividedPoly: [SIMD2<Float>] = []
+    subdividedPoly.reserveCapacity(clippedPoly.count * 4)
+
+    for i in 0 ..< clippedPoly.count {
+      let p0 = clippedPoly[i]
+      let p1 = clippedPoly[(i + 1) % clippedPoly.count]
+      let edgeVec = p1 - p0
+      let edgeLen = simd_length(edgeVec)
+
+      subdividedPoly.append(p0)
+      if edgeLen > maxEdgeLen {
+        let subs = Int(ceil(edgeLen / maxEdgeLen))
+        for s in 1 ..< subs {
+          let t = Float(s) / Float(subs)
+          subdividedPoly.append(p0 + t * edgeVec)
         }
       }
     }
+    subdividedPoly = cleanPolygonVertices(subdividedPoly)
+    guard subdividedPoly.count >= 3 else { return nil }
 
-    // -------------------------------------------------------------------------
-    // 3. +Z & -Z Vertical Perimeter / Slice Walls — Greedy Meshing over (X, Y)
-    // Rule: Emit side face only at perimeter boundary or active cross-section slice plane.
-    // -------------------------------------------------------------------------
-    for z in 0 ..< activeNZ {
-      var maskPosZ = Array(repeating: Int16(-1), count: activeNX * ny)
-      var maskNegZ = Array(repeating: Int16(-1), count: activeNX * ny)
-      var hasPosZ = false
-      var hasNegZ = false
+    // 5. Triangulate the 2D polygon with Ear Clipping for Top and Bottom surface caps
+    let capTriangles = triangulateConvexOrConcavePolygon(subdividedPoly)
 
-      for x in 0 ..< activeNX {
-        for y in 0 ..< ny {
-          let mat = volume.materialAt(x: x, y: y, z: z, maxSliceX: clampedSliceX, maxSliceZ: clampedSliceZ)
-          guard mat >= 0 else { continue }
+    // 5a. Top Surface Cap (Y = 0, normal = (0, 1, 0))
+    for tri in capTriangles {
+      let a = tri.0
+      let b = tri.1
+      let c = tri.2
+      let centroid = (a + b + c) / 3.0
+      let mat = sampleMaterial(xM: centroid.x, zM: centroid.y, layerY: ny - 1)
 
-          if volume.materialAt(x: x, y: y, z: z + 1, maxSliceX: clampedSliceX, maxSliceZ: clampedSliceZ) < 0 {
-            maskPosZ[x * ny + y] = mat
-            hasPosZ = true
-          }
-          if volume.materialAt(x: x, y: y, z: z - 1, maxSliceX: clampedSliceX, maxSliceZ: clampedSliceZ) < 0 {
-            maskNegZ[x * ny + y] = mat
-            hasNegZ = true
-          }
-        }
+      let base = UInt32(positions.count)
+      // CCW for +Y: (a, c, b)
+      positions.append(SIMD3<Float>(a.x, 0.0, a.y))
+      positions.append(SIMD3<Float>(c.x, 0.0, c.y))
+      positions.append(SIMD3<Float>(b.x, 0.0, b.y))
+
+      normals.append(SIMD3<Float>(0, 1, 0))
+      normals.append(SIMD3<Float>(0, 1, 0))
+      normals.append(SIMD3<Float>(0, 1, 0))
+
+      indices.append(base)
+      indices.append(base + 1)
+      indices.append(base + 2)
+
+      faceMaterials.append(mat)
+    }
+
+    // 5b. Bottom Bedrock Cap (Y = -totalDepthM, normal = (0, -1, 0))
+    let bottomY = worldY(0)
+    for tri in capTriangles {
+      let a = tri.0
+      let b = tri.1
+      let c = tri.2
+      let centroid = (a + b + c) / 3.0
+      let mat = sampleMaterial(xM: centroid.x, zM: centroid.y, layerY: 0)
+
+      let base = UInt32(positions.count)
+      // CCW for -Y: (a, b, c)
+      positions.append(SIMD3<Float>(a.x, bottomY, a.y))
+      positions.append(SIMD3<Float>(b.x, bottomY, b.y))
+      positions.append(SIMD3<Float>(c.x, bottomY, c.y))
+
+      normals.append(SIMD3<Float>(0, -1, 0))
+      normals.append(SIMD3<Float>(0, -1, 0))
+      normals.append(SIMD3<Float>(0, -1, 0))
+
+      indices.append(base)
+      indices.append(base + 1)
+      indices.append(base + 2)
+
+      faceMaterials.append(mat)
+    }
+
+    // 6. Extrude vertical perimeter and slicing walls along all 2D edges
+    let inwardNudge = 0.25 * min(stepXM, stepZM)
+    for i in 0 ..< subdividedPoly.count {
+      let p0 = subdividedPoly[i]
+      let p1 = subdividedPoly[(i + 1) % subdividedPoly.count]
+      let dx = p1.x - p0.x
+      let dz = p1.y - p0.y
+      let len = sqrt(dx * dx + dz * dz)
+      guard len > 1e-4 else { continue }
+
+      let normX = dz / len
+      let normZ = -dx / len
+
+      // Filter out internal bridge edges from concave polygon clipping:
+      // A cut along X = xCut must face outward (+X); a cut along Z = zCut must face outward (+Z).
+      if abs(p0.x - xCut) < 1e-3, abs(p1.x - xCut) < 1e-3, normX < 0.2 {
+        continue
+      }
+      if abs(p0.y - zCut) < 1e-3, abs(p1.y - zCut) < 1e-3, normZ < 0.2 {
+        continue
       }
 
-      if hasPosZ {
-        let pz = worldZ(z + 1)
-        greedyMerge2D(width: activeNX, height: ny, mask: &maskPosZ) { x0Idx, y0Idx, wX, hY, mat in
-          let x0 = worldX(x0Idx)
-          let x1 = worldX(x0Idx + wX)
-          let y0 = worldY(y0Idx)
-          let y1 = worldY(y0Idx + hY)
-          // CCW for +Z (0, 0, 1): (x0, y0, pz) -> (x1, y0, pz) -> (x1, y1, pz) -> (x0, y1, pz)
-          emitQuad(
-            SIMD3<Float>(x0, y0, pz),
-            SIMD3<Float>(x1, y0, pz),
-            SIMD3<Float>(x1, y1, pz),
-            SIMD3<Float>(x0, y1, pz),
-            normal: SIMD3<Float>(0, 0, 1),
-            materialIndex: UInt32(mat)
-          )
-        }
-      }
+      let wallNormal = SIMD3<Float>(normX, 0.0, normZ)
+      let midX = (p0.x + p1.x) * 0.5
+      let midZ = (p0.y + p1.y) * 0.5
+      let sampleX = midX - normX * inwardNudge
+      let sampleZ = midZ - normZ * inwardNudge
 
-      if hasNegZ {
-        let pz = worldZ(z)
-        greedyMerge2D(width: activeNX, height: ny, mask: &maskNegZ) { x0Idx, y0Idx, wX, hY, mat in
-          let x0 = worldX(x0Idx)
-          let x1 = worldX(x0Idx + wX)
-          let y0 = worldY(y0Idx)
-          let y1 = worldY(y0Idx + hY)
-          // CCW for -Z (0, 0, -1): (x1, y0, pz) -> (x0, y0, pz) -> (x0, y1, pz) -> (x1, y1, pz)
-          emitQuad(
-            SIMD3<Float>(x1, y0, pz),
-            SIMD3<Float>(x0, y0, pz),
-            SIMD3<Float>(x0, y1, pz),
-            SIMD3<Float>(x1, y1, pz),
-            normal: SIMD3<Float>(0, 0, -1),
-            materialIndex: UInt32(mat)
-          )
+      var y = 0
+      while y < ny {
+        let mat = sampleMaterial(xM: sampleX, zM: sampleZ, layerY: y)
+        var hY = 1
+        while y + hY < ny, sampleMaterial(xM: sampleX, zM: sampleZ, layerY: y + hY) == mat {
+          hY += 1
         }
+
+        let yBot = worldY(y)
+        let yTop = worldY(y + hY)
+
+        let v0 = SIMD3<Float>(p0.x, yBot, p0.y)
+        let v1 = SIMD3<Float>(p0.x, yTop, p0.y)
+        let v2 = SIMD3<Float>(p1.x, yTop, p1.y)
+        let v3 = SIMD3<Float>(p1.x, yBot, p1.y)
+
+        emitQuad(v0, v1, v2, v3, normal: wallNormal, materialIndex: mat)
+        y += hY
       }
     }
 
@@ -650,6 +649,138 @@ enum VoxelMeshSynthesizer {
     descriptor.materials = .perFace(faceMaterials)
 
     return try? MeshResource.generate(from: [descriptor])
+  }
+
+  // MARK: - 2D Computational Geometry Helpers for Option 1 Visual Mesh Smoothing
+
+  @inline(__always)
+  private static func polygonSignedArea(_ polygon: [SIMD2<Float>]) -> Float {
+    guard polygon.count >= 3 else { return 0 }
+    var area: Float = 0
+    let count = polygon.count
+    for i in 0 ..< count {
+      let j = (i + 1) % count
+      area += (polygon[i].x * polygon[j].y) - (polygon[j].x * polygon[i].y)
+    }
+    return area * 0.5
+  }
+
+  private static func cleanPolygonVertices(_ polygon: [SIMD2<Float>]) -> [SIMD2<Float>] {
+    guard polygon.count >= 2 else { return polygon }
+    var result: [SIMD2<Float>] = []
+    result.reserveCapacity(polygon.count)
+
+    for p in polygon {
+      if let last = result.last {
+        if simd_distance(p, last) > 1e-4 {
+          result.append(p)
+        }
+      } else {
+        result.append(p)
+      }
+    }
+
+    if result.count > 2, let first = result.first, let last = result.last, simd_distance(first, last) <= 1e-4 {
+      result.removeLast()
+    }
+    return result
+  }
+
+  private static func clipPolygon(
+    _ polygon: [SIMD2<Float>],
+    inside: (SIMD2<Float>) -> Bool,
+    intersection: (SIMD2<Float>, SIMD2<Float>) -> SIMD2<Float>
+  ) -> [SIMD2<Float>] {
+    guard polygon.count >= 3 else { return [] }
+    var output: [SIMD2<Float>] = []
+    output.reserveCapacity(polygon.count + 4)
+
+    var prev = polygon[polygon.count - 1]
+    var prevInside = inside(prev)
+
+    for curr in polygon {
+      let currInside = inside(curr)
+      if currInside {
+        if !prevInside {
+          output.append(intersection(prev, curr))
+        }
+        output.append(curr)
+      } else if prevInside {
+        output.append(intersection(prev, curr))
+      }
+      prev = curr
+      prevInside = currInside
+    }
+    return output
+  }
+
+  private static func triangulateConvexOrConcavePolygon(
+    _ poly: [SIMD2<Float>]
+  ) -> [(SIMD2<Float>, SIMD2<Float>, SIMD2<Float>)] {
+    guard poly.count >= 3 else { return [] }
+    if poly.count == 3 {
+      return [(poly[0], poly[1], poly[2])]
+    }
+
+    var vertices = poly
+    var triangles: [(SIMD2<Float>, SIMD2<Float>, SIMD2<Float>)] = []
+    triangles.reserveCapacity(vertices.count - 2)
+
+    var count = vertices.count
+    var iterations = 0
+    let maxIterations = count * count * 2
+
+    var i = 0
+    while count > 3 && iterations < maxIterations {
+      iterations += 1
+      let prev = (i + count - 1) % count
+      let curr = i
+      let next = (i + 1) % count
+
+      let a = vertices[prev]
+      let b = vertices[curr]
+      let c = vertices[next]
+
+      let cross = (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x)
+      if cross > 1e-6 {
+        var isEar = true
+        for k in 0 ..< count where k != prev && k != curr && k != next {
+          if isPointInTriangle2D(p: vertices[k], a: a, b: b, c: c) {
+            isEar = false
+            break
+          }
+        }
+
+        if isEar {
+          triangles.append((a, b, c))
+          vertices.remove(at: curr)
+          count -= 1
+          i = prev % count
+          continue
+        }
+      }
+
+      i = (i + 1) % count
+    }
+
+    if vertices.count == 3 {
+      triangles.append((vertices[0], vertices[1], vertices[2]))
+    }
+
+    return triangles
+  }
+
+  @inline(__always)
+  private static func isPointInTriangle2D(
+    p: SIMD2<Float>,
+    a: SIMD2<Float>,
+    b: SIMD2<Float>,
+    c: SIMD2<Float>
+  ) -> Bool {
+    let cp1 = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x)
+    let cp2 = (c.x - b.x) * (p.y - b.y) - (c.y - b.y) * (p.x - b.x)
+    let cp3 = (a.x - c.x) * (p.y - c.y) - (a.y - c.y) * (p.x - c.x)
+    return (cp1 > 1e-6 && cp2 > 1e-6 && cp3 > 1e-6) || (cp1 < -1e-6 && cp2 < -1e-6 && cp3 < -1e-6)
   }
 
   /// Run-Length 2D Greedy Meshing over a `width × height` face mask.
@@ -715,22 +846,21 @@ enum VoxelMeshSynthesizer {
     maxSliceZ: Int
   ) -> (voxel: SoilVoxel, isTopSurface: Bool, hitPoint: SIMD3<Float>)? {
     let dir = simd_normalize(rayDirection)
-    let stepXM = max(volume.cellStepXM, 1e-4)
-    let stepZM = max(volume.cellStepZM, 1e-4)
 
     // 1. Analytical intersection with top plane Y = 0 in metric space:
     if abs(dir.y) > 1e-5 {
       let tTop = -rayOrigin.y / dir.y
       if tTop > 0 {
         let hitPoint = rayOrigin + tTop * dir
-        let fx = (hitPoint.x / stepXM) + volume.centerX
-        let fz = (hitPoint.z / stepZM) + volume.centerZ
-        let xGrid = Int(fx.rounded())
-        let zGrid = Int(fz.rounded())
-
-        if xGrid >= 0, xGrid <= maxSliceX,
-           zGrid >= 0, zGrid <= maxSliceZ
-        {
+        if volume.isMetricPointInsideActiveArea(
+          xM: hitPoint.x,
+          zM: hitPoint.z,
+          maxSliceX: maxSliceX,
+          maxSliceZ: maxSliceZ
+        ) {
+          let (fx, fz) = volume.continuousGridCoordinates(forMetricX: hitPoint.x, zM: hitPoint.z)
+          let xGrid = min(max(Int(fx.rounded()), 0), volume.nx - 1)
+          let zGrid = min(max(Int(fz.rounded()), 0), volume.nz - 1)
           let surfaceCoord = GridCoord(x: xGrid, y: volume.ny - 1, z: zGrid)
           if let voxel = volume.voxels[surfaceCoord] {
             return (
@@ -738,6 +868,25 @@ enum VoxelMeshSynthesizer {
               isTopSurface: true,
               hitPoint: SIMD3<Float>(hitPoint.x, 0.0, hitPoint.z)
             )
+          } else {
+            for r in 1 ... 3 {
+              for dx in -r ... r {
+                for dz in -r ... r {
+                  let altCoord = GridCoord(
+                    x: min(max(xGrid + dx, 0), volume.nx - 1),
+                    y: volume.ny - 1,
+                    z: min(max(zGrid + dz, 0), volume.nz - 1)
+                  )
+                  if let altVoxel = volume.voxels[altCoord] {
+                    return (
+                      voxel: altVoxel,
+                      isTopSurface: true,
+                      hitPoint: SIMD3<Float>(hitPoint.x, 0.0, hitPoint.z)
+                    )
+                  }
+                }
+              }
+            }
           }
         }
       }
