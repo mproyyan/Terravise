@@ -3,11 +3,12 @@ import Foundation
 import Observation
 import SwiftUI
 
-struct GeotechnicalConcernItem: Identifiable, Equatable, Sendable {
+nonisolated struct GeotechnicalConcernItem: Identifiable, Equatable, Sendable {
   let id: String
   let title: String
   let implication: String
   let locationAndDepthLines: [String]
+  var affectedVoxels: Set<GridCoord> = []
 }
 
 @MainActor
@@ -164,8 +165,18 @@ final class ResultAnalysisViewModel {
   var groundConditionsSummary: String =
     "The site generally exhibits alternating layers of clay-dominant and sand-like soil behavior. Subsurface conditions vary across the investigation area, with deeper competent strata predicted toward the southern sector."
   var geotechnicalConcerns: [GeotechnicalConcernItem] = ResultAnalysisViewModel.defaultConcerns
-  var selectedConcernID: String? = ResultAnalysisViewModel.defaultConcerns.first?.id
+  var selectedConcernID: String? = nil
   var predictionUncertaintyPercent: Int = 12
+
+  var activeConcernVoxels: Set<GridCoord>? {
+    guard let selectedConcernID,
+          let concern = geotechnicalConcerns.first(where: { $0.id == selectedConcernID }),
+          !concern.affectedVoxels.isEmpty
+    else {
+      return nil
+    }
+    return concern.affectedVoxels
+  }
 
   // Interactive Voxel Selection & Camera Orbit State
   var selectedVoxel: SoilVoxel?
@@ -263,6 +274,7 @@ final class ResultAnalysisViewModel {
       self.predictionUncertaintyPercent = uncertainty
     }
     reevaluateBearingRule()
+    updateGeotechnicalConcernsAndSummary()
   }
 
   var maxSlicingXMeters: Double {
@@ -321,6 +333,7 @@ final class ResultAnalysisViewModel {
     slicingXMeters = Double(builtVolume.widthXM)
     slicingYMeters = Double(builtVolume.lengthZM)
     selectedVoxel = nil
+    selectedConcernID = nil
     selectedBearingVoxel = nil
     isBearingPopoverPresented = false
     comparedBearingPoints.removeAll()
@@ -338,6 +351,7 @@ final class ResultAnalysisViewModel {
       isSubsurfaceConditionsEmpty = false
       isGeotechnicalConcernsEmpty = false
     }
+    updateGeotechnicalConcernsAndSummary()
   }
 
   func presentLeftSheetIfNeeded() {
@@ -409,6 +423,7 @@ final class ResultAnalysisViewModel {
     bearingCameraPitch = Self.defaultBearingCameraPitch
     bearingCameraZoom = Self.defaultBearingCameraZoom
     selectedVoxel = nil
+    selectedConcernID = nil
     selectedPipePosition3D = nil
     isProfilePopoverPresented = false
     isBearingPopoverPresented = false
@@ -755,6 +770,407 @@ final class ResultAnalysisViewModel {
       print("[Bearing uncertainty V3] unavailable: \(error)")
 #endif
     }
+  }
+
+  private func updateGeotechnicalConcernsAndSummary() {
+    let allVoxels = Array(volume.voxels.values)
+    guard !allVoxels.isEmpty else {
+      geotechnicalConcerns = []
+      return
+    }
+
+    let qcfsVolume: QCFSVolume?
+    if case .coreML(let vol) = qcfsResult {
+      qcfsVolume = vol
+    } else {
+      qcfsVolume = nil
+    }
+
+    func sampleQcMPa(for voxel: SoilVoxel) -> Double {
+      if let qv = qcfsVolume {
+        let fx = Double(voxel.coord.x) / Double(max(volume.nx - 1, 1))
+        let fy = 1.0 - (Double(voxel.coord.z) / Double(max(volume.nz - 1, 1)))
+        let depthIdxFromTop = (volume.ny - 1) - voxel.coord.y
+        let fzDepth = (Double(depthIdxFromTop) + 0.5) / Double(max(volume.ny, 1))
+        let qx = min(max(Int((fx * Double(max(qv.grid.nx - 1, 0))).rounded()), 0), max(qv.grid.nx - 1, 0))
+        let qy = min(max(Int((fy * Double(max(qv.grid.ny - 1, 0))).rounded()), 0), max(qv.grid.ny - 1, 0))
+        let qz = min(max(Int((fzDepth * Double(max(qv.grid.nz - 1, 0))).rounded()), 0), max(qv.grid.nz - 1, 0))
+        let val = qv.qcMPa[qx][qy][qz]
+        if val.isFinite, val > 0 {
+          return val
+        }
+      }
+      // Estimate representative qc (MPa) from Robertson Ic when QC-FS CNN V3 is unavailable
+      let ic = Double(voxel.robertsonIc)
+      return max(0.4, min(25.0, 22.0 * exp(-0.85 * max(ic - 1.3, 0.0))))
+    }
+
+    // 1. Build dynamic Ground Conditions Summary from 3D voxel stratigraphy
+    var shallowCounts: [SoilLayerType: Int] = [:]
+    var midCounts: [SoilLayerType: Int] = [:]
+    var deepCounts: [SoilLayerType: Int] = [:]
+    let ny = max(volume.ny, 1)
+
+    for v in allVoxels {
+      let depthRatio = Double(v.layerIdx) / Double(ny)
+      if depthRatio < 0.34 {
+        shallowCounts[v.soilClassification, default: 0] += 1
+      } else if depthRatio < 0.67 {
+        midCounts[v.soilClassification, default: 0] += 1
+      } else {
+        deepCounts[v.soilClassification, default: 0] += 1
+      }
+    }
+
+    let dominantShallow = shallowCounts.max(by: { $0.value < $1.value })?.key.displayName.lowercased() ?? "sand mixtures"
+    let dominantMid = midCounts.max(by: { $0.value < $1.value })?.key.displayName.lowercased() ?? "silt mixtures"
+    let dominantDeep = deepCounts.max(by: { $0.value < $1.value })?.key.displayName.lowercased() ?? "dense sand"
+
+    if !project.cptPoints.isEmpty {
+      if let out = bearingRuleOutput,
+         let shallowB = out.summary.shallowestTopDepthM,
+         let deepB = out.summary.deepestBottomDepthM
+      {
+        groundConditionsSummary = String(
+          format: "Reconstructed 3D stratigraphy transitions from predominantly %@ in the upper profile to %@ at mid-depth and %@ at deeper horizons. Competent bearing strata are identified between %.1f m and %.1f m depth across the site.",
+          dominantShallow,
+          dominantMid,
+          dominantDeep,
+          shallowB,
+          deepB
+        )
+      } else {
+        groundConditionsSummary = String(
+          format: "Reconstructed 3D stratigraphy transitions from predominantly %@ near the surface to %@ at mid-depth and %@ across deeper horizons (up to %.1f m investigation depth).",
+          dominantShallow,
+          dominantMid,
+          dominantDeep,
+          Double(volume.depthYM)
+        )
+      }
+    }
+
+    // 2. Evaluate the 3 Potential Geotechnical Concerns across the 3D voxel grid
+    let minVerticalCells = max(1, Int(ceil(1.0 / Double(max(volume.cellStepYM, 0.25)))))
+    var settlementVoxels = Set<GridCoord>()
+    var settlementQcSum = 0.0
+    var settlementIcSum = 0.0
+
+    var liquefactionVoxels = Set<GridCoord>()
+    var liquefactionQcSum = 0.0
+    var liquefactionIcSum = 0.0
+
+    var contrastVoxels = Set<GridCoord>()
+    var maxDeltaQc = 0.0
+
+    for ix in 0 ..< volume.nx {
+      for iz in 0 ..< volume.nz {
+        guard volume.voxels[GridCoord(x: ix, y: volume.ny - 1, z: iz)] != nil else { continue }
+
+        // A. Consolidation Settlement: contiguous fine-grained / organic clay runs (Ic >= 2.95 & low qc)
+        var softRun: [SoilVoxel] = []
+        for iy in stride(from: volume.ny - 1, through: 0, by: -1) {
+          if let v = volume.voxels[GridCoord(x: ix, y: iy, z: iz)] {
+            let qc = sampleQcMPa(for: v)
+            let isSoftClay = (v.robertsonIc >= 2.95 && qc <= 2.4) ||
+              v.soilClassification == .sensitiveFineGrained ||
+              v.soilClassification == .organicClay ||
+              (v.soilClassification == .clayToSiltyClay && qc <= 2.2)
+            if isSoftClay {
+              softRun.append(v)
+            } else {
+              if softRun.count >= minVerticalCells {
+                for sv in softRun {
+                  settlementVoxels.insert(sv.coord)
+                  settlementQcSum += sampleQcMPa(for: sv)
+                  settlementIcSum += Double(sv.robertsonIc)
+                }
+              }
+              softRun.removeAll(keepingCapacity: true)
+            }
+          }
+        }
+        if softRun.count >= minVerticalCells {
+          for sv in softRun {
+            settlementVoxels.insert(sv.coord)
+            settlementQcSum += sampleQcMPa(for: sv)
+            settlementIcSum += Double(sv.robertsonIc)
+          }
+        }
+
+        // B. Liquefaction Susceptibility: shallow-to-moderate loose cohesionless sand/silty sand (depth <= 15m)
+        var looseSandRun: [SoilVoxel] = []
+        for iy in stride(from: volume.ny - 1, through: 0, by: -1) {
+          if let v = volume.voxels[GridCoord(x: ix, y: iy, z: iz)] {
+            let qc = sampleQcMPa(for: v)
+            let isShallowEnough = v.topDepthM <= 15.0
+            let isSandLike = (v.robertsonIc >= 1.65 && v.robertsonIc < 2.65) ||
+              v.soilClassification == .sandMixtures ||
+              v.soilClassification == .cleanSands
+            let isLoose = qc < 7.5
+            if isShallowEnough && isSandLike && isLoose {
+              looseSandRun.append(v)
+            } else {
+              if looseSandRun.count >= minVerticalCells {
+                for lv in looseSandRun {
+                  liquefactionVoxels.insert(lv.coord)
+                  liquefactionQcSum += sampleQcMPa(for: lv)
+                  liquefactionIcSum += Double(lv.robertsonIc)
+                }
+              }
+              looseSandRun.removeAll(keepingCapacity: true)
+            }
+          }
+        }
+        if looseSandRun.count >= minVerticalCells {
+          for lv in looseSandRun {
+            liquefactionVoxels.insert(lv.coord)
+            liquefactionQcSum += sampleQcMPa(for: lv)
+            liquefactionIcSum += Double(lv.robertsonIc)
+          }
+        }
+
+        // C. Soil Stiffness Contrast: sharp vertical jump between adjacent depth layers or variable bearing horizon
+        for iy in 0 ..< (volume.ny - 1) {
+          guard let vLower = volume.voxels[GridCoord(x: ix, y: iy, z: iz)],
+                let vUpper = volume.voxels[GridCoord(x: ix, y: iy + 1, z: iz)]
+          else { continue }
+          let qcLower = sampleQcMPa(for: vLower)
+          let qcUpper = sampleQcMPa(for: vUpper)
+          let deltaQc = abs(qcLower - qcUpper)
+          let deltaIc = abs(Double(vLower.robertsonIc - vUpper.robertsonIc))
+          if deltaQc >= 6.0 || deltaIc >= 0.45 ||
+             (vUpper.robertsonIc >= 2.75 && vLower.robertsonIc <= 2.15) ||
+             (vLower.robertsonIc >= 2.75 && vUpper.robertsonIc <= 2.15)
+          {
+            contrastVoxels.insert(vLower.coord)
+            contrastVoxels.insert(vUpper.coord)
+            maxDeltaQc = max(maxDeltaQc, deltaQc)
+          }
+        }
+      }
+    }
+
+    // Fallback: if any of the 3 buckets is empty on a very uniform site, highlight the most representative horizon
+    // so all 3 early-warning cards can still be inspected when desired.
+    if settlementVoxels.isEmpty {
+      let sortedByIc = allVoxels.sorted { $0.robertsonIc > $1.robertsonIc }
+      let topSlice = sortedByIc.prefix(max(allVoxels.count / 8, 1))
+      for v in topSlice where v.robertsonIc >= 2.55 {
+        settlementVoxels.insert(v.coord)
+        settlementQcSum += sampleQcMPa(for: v)
+        settlementIcSum += Double(v.robertsonIc)
+      }
+    }
+
+    if liquefactionVoxels.isEmpty {
+      let shallowSands = allVoxels.filter { $0.topDepthM <= 15.0 && $0.robertsonIc < 2.70 }
+      let sortedByLowQc = shallowSands.sorted { sampleQcMPa(for: $0) < sampleQcMPa(for: $1) }
+      for v in sortedByLowQc.prefix(max(shallowSands.count / 5, 1)) {
+        liquefactionVoxels.insert(v.coord)
+        liquefactionQcSum += sampleQcMPa(for: v)
+        liquefactionIcSum += Double(v.robertsonIc)
+      }
+    }
+
+    if contrastVoxels.isEmpty {
+      let deepCompetent = allVoxels.filter { $0.robertsonIc <= 2.15 || $0.layerIdx >= (volume.ny * 2) / 3 }
+      for v in deepCompetent {
+        contrastVoxels.insert(v.coord)
+        maxDeltaQc = max(maxDeltaQc, sampleQcMPa(for: v))
+      }
+    }
+
+    var builtConcerns: [GeotechnicalConcernItem] = []
+
+    // Build Concern 1: Consolidation Settlement
+    if !settlementVoxels.isEmpty {
+      let stats = computeClusterStats(for: settlementVoxels)
+      let count = Double(settlementVoxels.count)
+      let meanQc = settlementQcSum / count
+      let meanIc = settlementIcSum / count
+      let implication: String
+      if stats.thicknessM >= 2.5 {
+        implication = String(
+          format: "Thick low-resistance clay strata (mean qc %.1f MPa, Ic %.2f) indicate high compressibility under sustained loads. Shallow foundations may experience excessive settlement without ground improvement or deep pile transfer.",
+          meanQc,
+          meanIc
+        )
+      } else {
+        implication = String(
+          format: "Compressible fine-grained lens (mean qc %.1f MPa, Ic %.2f) may cause localized consolidation settlement beneath shallow footings or ground-bearing slabs.",
+          meanQc,
+          meanIc
+        )
+      }
+      builtConcerns.append(
+        GeotechnicalConcernItem(
+          id: "soft-sensitive-clay-lens",
+          title: "Soft Compressible Clay Zone (Consolidation Settlement)",
+          implication: implication,
+          locationAndDepthLines: [
+            "\(stats.sectorName) (E: \(stats.minEM)–\(stats.maxEM) m, N: \(stats.minNM)–\(stats.maxNM) m)",
+            String(format: "Depth: %.1f m to %.1f m (thickness %.1f m)", stats.topDepthM, stats.bottomDepthM, stats.thicknessM)
+          ],
+          affectedVoxels: settlementVoxels
+        )
+      )
+    }
+
+    // Build Concern 2: Liquefaction Susceptibility
+    if !liquefactionVoxels.isEmpty {
+      let stats = computeClusterStats(for: liquefactionVoxels)
+      let count = Double(liquefactionVoxels.count)
+      let meanQc = liquefactionQcSum / count
+      let meanIc = liquefactionIcSum / count
+      let implication = String(
+        format: "Shallow loose sand-like strata (mean qc %.1f MPa, Ic %.2f) exhibit low penetration resistance. If saturated below the groundwater table, this zone may be susceptible to cyclic pore-pressure buildup during seismic events.",
+        meanQc,
+        meanIc
+      )
+      builtConcerns.append(
+        GeotechnicalConcernItem(
+          id: "loose-saturated-sand",
+          title: "Loose Cohesionless Sand (Liquefaction Susceptibility)",
+          implication: implication,
+          locationAndDepthLines: [
+            "\(stats.sectorName) (E: \(stats.minEM)–\(stats.maxEM) m, N: \(stats.minNM)–\(stats.maxNM) m)",
+            String(format: "Depth: %.1f m to %.1f m (thickness %.1f m)", stats.topDepthM, stats.bottomDepthM, stats.thicknessM)
+          ],
+          affectedVoxels: liquefactionVoxels
+        )
+      )
+    }
+
+    // Build Concern 3: Soil Stiffness Contrast / Variable Bearing Depth
+    if !contrastVoxels.isEmpty {
+      let stats = computeClusterStats(for: contrastVoxels)
+      let bearingDepths = volume.bearingVoxels.values.map(\.bearingDepthM)
+      let minB = bearingDepths.min() ?? Float(stats.topDepthM)
+      let maxB = bearingDepths.max() ?? Float(stats.bottomDepthM)
+      let deltaB = max(maxB - minB, 0.0)
+
+      let implication: String
+      let depthLine: String
+      if deltaB >= 1.5 {
+        implication = String(
+          format: "Competent bearing strata vary by %.1f m across the site, accompanied by sharp vertical stiffness transitions. Foundation design should account for differential settlement or stepped pile embedment lengths.",
+          deltaB
+        )
+        depthLine = String(format: "Bearing Horizon: %.1f m → %.1f m (Δ%.1f m)", minB, maxB, deltaB)
+      } else {
+        implication = String(
+          format: "Abrupt vertical transitions between softer strata and stiffer layers (Δqc up to %.1f MPa) can induce localized stress concentrations and differential settlement across the footprint.",
+          max(maxDeltaQc, 5.5)
+        )
+        depthLine = String(format: "Transition Depth: %.1f m to %.1f m", stats.topDepthM, stats.bottomDepthM)
+      }
+
+      builtConcerns.append(
+        GeotechnicalConcernItem(
+          id: "dipping-hard-stratum",
+          title: "High Soil Stiffness Contrast / Variable Bearing Depth",
+          implication: implication,
+          locationAndDepthLines: [
+            "\(stats.sectorName) (E: \(stats.minEM)–\(stats.maxEM) m, N: \(stats.minNM)–\(stats.maxNM) m)",
+            depthLine
+          ],
+          affectedVoxels: contrastVoxels
+        )
+      )
+    }
+
+    geotechnicalConcerns = builtConcerns
+    if let selectedConcernID, !builtConcerns.contains(where: { $0.id == selectedConcernID }) {
+      self.selectedConcernID = nil
+    }
+  }
+
+  private func computeClusterStats(for coords: Set<GridCoord>) -> (
+    sectorName: String,
+    minEM: Int,
+    maxEM: Int,
+    minNM: Int,
+    maxNM: Int,
+    topDepthM: Double,
+    bottomDepthM: Double,
+    thicknessM: Double
+  ) {
+    var minX = Int.max
+    var maxX = Int.min
+    var minZ = Int.max
+    var maxZ = Int.min
+    var sumX = 0.0
+    var sumZ = 0.0
+    var topDepth = Double.greatestFiniteMagnitude
+    var bottomDepth = 0.0
+
+    for c in coords {
+      minX = min(minX, c.x)
+      maxX = max(maxX, c.x)
+      minZ = min(minZ, c.z)
+      maxZ = max(maxZ, c.z)
+      sumX += Double(c.x)
+      sumZ += Double(c.z)
+      if let v = volume.voxels[c] {
+        topDepth = min(topDepth, Double(v.topDepthM))
+        bottomDepth = max(bottomDepth, Double(v.bottomDepthM))
+      }
+    }
+
+    let count = max(Double(coords.count), 1.0)
+    let meanXRatio = (sumX / count) / Double(max(volume.nx - 1, 1))
+    // Note: z == 0 is North, z == nz - 1 is South, so North ratio is 1.0 - (z / (nz - 1))
+    let meanNRatio = 1.0 - ((sumZ / count) / Double(max(volume.nz - 1, 1)))
+
+    let ewLabel: String = if meanXRatio < 0.38 {
+      "West"
+    } else if meanXRatio > 0.62 {
+      "East"
+    } else {
+      "Central"
+    }
+
+    let nsLabel: String = if meanNRatio < 0.38 {
+      "South"
+    } else if meanNRatio > 0.62 {
+      "North"
+    } else {
+      "Central"
+    }
+
+    let sectorName: String
+    if nsLabel == "Central" && ewLabel == "Central" {
+      sectorName = "Central Sector"
+    } else if nsLabel == "Central" {
+      sectorName = "\(ewLabel)ern & Central Sector"
+    } else if ewLabel == "Central" {
+      sectorName = "\(nsLabel)ern & Central Sector"
+    } else {
+      sectorName = "\(nsLabel)\(ewLabel.lowercased()) Quadrant"
+    }
+
+    let stepE = Double(volume.cellStepXM)
+    let stepN = Double(volume.cellStepZM)
+    let minEM = Int((Double(minX) * stepE).rounded())
+    let maxEM = max(Int((Double(maxX + 1) * stepE).rounded()), minEM + 1)
+    let minNIdx = max(volume.nz - 1 - maxZ, 0)
+    let maxNIdx = max(volume.nz - minZ, minNIdx + 1)
+    let minNM = Int((Double(minNIdx) * stepN).rounded())
+    let maxNM = max(Int((Double(maxNIdx) * stepN).rounded()), minNM + 1)
+
+    let safeTop = topDepth.isFinite ? topDepth : 0.0
+    let safeBot = max(bottomDepth, safeTop + Double(volume.cellStepYM))
+    return (
+      sectorName: sectorName,
+      minEM: minEM,
+      maxEM: maxEM,
+      minNM: minNM,
+      maxNM: maxNM,
+      topDepthM: safeTop,
+      bottomDepthM: safeBot,
+      thicknessM: max(safeBot - safeTop, Double(volume.cellStepYM))
+    )
   }
 
   private func findClosestCPTPoint(to voxel: SoilVoxel) -> (title: String, latitude: String, longitude: String)? {

@@ -328,49 +328,103 @@ struct CPTRecommendedPointSheetView: View {
   }
 
   private var reasonsCard: some View {
+    let spotName = CPTRecommendationResult.normalizeSpotName(recommendation.spotName)
+    let distText = String(format: "%.1f", recommendation.nearestCPTDistance)
+    let deltaIcText = String(format: "%.2f", recommendation.lateralIcDifference)
     let nearbyCountText = recommendation.nearbyCountWithin4m == 0
       ? "none within 4 m"
       : "\(recommendation.nearbyCountWithin4m) within 4 m"
 
     return VStack(alignment: .leading, spacing: 14) {
-      // Reason 1
+      // Reason 1: Spatial Coverage (3-Tier)
       VStack(alignment: .leading, spacing: 4) {
-        Text("Fills a data gap")
-          .font(.subheadline.weight(.bold))
-          .foregroundStyle(Color.primary)
+        if recommendation.nearestCPTDistance >= 15.0 && recommendation.nearbyCountWithin4m == 0 {
+          Text("Closes a major coverage gap")
+            .font(.subheadline.weight(.bold))
+            .foregroundStyle(Color.primary)
 
-        Text("\(recommendation.spotName) is \(String(format: "%.1f", recommendation.nearestCPTDistance)) m from the nearest CPT, with \(nearbyCountText). There is less nearby data to describe the ground in this area.")
-          .font(.caption)
-          .foregroundStyle(Color.secondary)
-          .fixedSize(horizontal: false, vertical: true)
+          Text("**\(spotName)** lies **\(distText) m** from the nearest sounding in an untested sector of the site (\(nearbyCountText)). Sampling here prevents long-distance extrapolation across this zone.")
+            .font(.caption)
+            .foregroundStyle(Color.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        } else if recommendation.nearbyCountWithin4m == 0 && recommendation.nearestCPTDistance >= 4.0 {
+          Text("Fills a local data gap")
+            .font(.subheadline.weight(.bold))
+            .foregroundStyle(Color.primary)
+
+          Text("**\(spotName)** is **\(distText) m** from the closest CPT with \(nearbyCountText), adding direct control where current interpolation relies on surrounding points.")
+            .font(.caption)
+            .foregroundStyle(Color.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        } else {
+          Text("Refines a high-variability zone")
+            .font(.subheadline.weight(.bold))
+            .foregroundStyle(Color.primary)
+
+          Text("Although **\(spotName)** is **\(distText) m** from an existing CPT (\(nearbyCountText)), the model prioritizes tighter spacing here to pin down local soil changes.")
+            .font(.caption)
+            .foregroundStyle(Color.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
       }
 
       Divider()
 
-      // Reason 2
+      // Reason 2: Vertical Stratigraphy
       VStack(alignment: .leading, spacing: 4) {
-        Text("Soil layers may change with depth")
-          .font(.subheadline.weight(.bold))
-          .foregroundStyle(Color.primary)
+        if recommendation.shallowSoilType.caseInsensitiveCompare(recommendation.deepSoilType) != .orderedSame {
+          Text("Pinpoints a vertical layer transition")
+            .font(.subheadline.weight(.bold))
+            .foregroundStyle(Color.primary)
 
-        Text("The model predicts **\(recommendation.shallowSoilType)** near the surface and **\(recommendation.deepSoilType)** deeper down. A CPT can check where that change occurs.")
-          .font(.caption)
-          .foregroundStyle(Color.secondary)
-          .fixedSize(horizontal: false, vertical: true)
+          Text("The reconstruction indicates **\(recommendation.shallowSoilType)** in the upper profile transitioning to **\(recommendation.deepSoilType)** at depth. A sounding at **\(spotName)** verifies the exact depth of this interface.")
+            .font(.caption)
+            .foregroundStyle(Color.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        } else {
+          Text("Confirms deep layer continuity")
+            .font(.subheadline.weight(.bold))
+            .foregroundStyle(Color.primary)
+
+          Text("The model predicts a consistent **\(recommendation.shallowSoilType)** profile from surface to depth. Testing **\(spotName)** confirms vertical consistency and exact layer thickness.")
+            .font(.caption)
+            .foregroundStyle(Color.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
       }
 
       Divider()
 
-      // Reason 3
+      // Reason 3: Lateral Transition (3-Tier)
       VStack(alignment: .leading, spacing: 4) {
-        Text("Soil may differ from nearby areas")
-          .font(.subheadline.weight(.bold))
-          .foregroundStyle(Color.primary)
+        if recommendation.lateralIcDifference >= 0.20 {
+          Text("Maps a sharp lateral soil boundary")
+            .font(.subheadline.weight(.bold))
+            .foregroundStyle(Color.primary)
 
-        Text("The predicted soil profile at **\(recommendation.spotName)** differs (ΔIc \(String(format: "%.2f", recommendation.lateralIcDifference))) from the average nearby profile within 4 m. \(recommendation.spotName) may be close to a boundary between soil zones.")
-          .font(.caption)
-          .foregroundStyle(Color.secondary)
-          .fixedSize(horizontal: false, vertical: true)
+          Text("The predicted profile at **\(spotName)** shifts significantly (ΔIc \(deltaIcText)) compared to adjacent cells within 4 m, suggesting a lateral boundary or pinching lens.")
+            .font(.caption)
+            .foregroundStyle(Color.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        } else if recommendation.lateralIcDifference >= 0.05 {
+          Text("Tracks a gradual lateral transition")
+            .font(.subheadline.weight(.bold))
+            .foregroundStyle(Color.primary)
+
+          Text("Soil behavior at **\(spotName)** differs moderately (ΔIc \(deltaIcText)) from the surrounding 4 m average, helping trace how strata dip or grade across the site.")
+            .font(.caption)
+            .foregroundStyle(Color.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        } else {
+          Text("Anchors uncertainty in a broad zone")
+            .font(.subheadline.weight(.bold))
+            .foregroundStyle(Color.primary)
+
+          Text("Nearby cells show a similar predicted profile (ΔIc \(deltaIcText)), but **\(spotName)** sits where local uncertainty is elevated—anchoring the reconstruction for this sector.")
+            .font(.caption)
+            .foregroundStyle(Color.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
       }
 
       Divider()

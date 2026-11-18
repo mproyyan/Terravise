@@ -60,6 +60,9 @@ struct ResultAnalysisView: View {
             maxSliceZ: viewModel.maxSliceZIndex,
             selectedVoxel: viewModel.selectedVoxel,
             selectedPipePosition3D: viewModel.selectedPipePosition3D,
+            isHardSoilVisible: viewModel.isHardSoilVisible,
+            selectedConcernID: viewModel.selectedConcernID,
+            isolatedVoxels: viewModel.activeConcernVoxels,
             cameraYaw: $viewModel.cameraYaw,
             cameraPitch: $viewModel.cameraPitch,
             cameraZoom: $viewModel.cameraZoom,
@@ -206,6 +209,12 @@ struct ResultAnalysisView: View {
               concerns: viewModel.geotechnicalConcerns,
               isSubsurfaceConditionsEmpty: viewModel.isSubsurfaceConditionsEmpty,
               isGeotechnicalConcernsEmpty: viewModel.isGeotechnicalConcernsEmpty,
+              selectedConcernID: viewModel.selectedConcernID,
+              onSelectConcern: { concern in
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
+                  viewModel.selectConcern(concern)
+                }
+              },
               predictionUncertaintyPercent: viewModel.predictionUncertaintyPercent,
               cptPointsCount: viewModel.displayedCPTPointsCount
             )

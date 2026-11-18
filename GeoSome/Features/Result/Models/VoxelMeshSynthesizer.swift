@@ -16,6 +16,20 @@ enum VoxelMeshSynthesizer {
     }
   }
 
+  /// Translucent ghost material palette used for framing the full site boundary when a geotechnical concern is isolated.
+  @MainActor
+  static func makeGhostMaterialPalette() -> [SimpleMaterial] {
+    SoilLayerType.allCases.map { layer in
+      var material = SimpleMaterial(
+        color: layer.uiColor.withAlphaComponent(0.11),
+        roughness: 0.92,
+        isMetallic: false
+      )
+      material.faceCulling = .back
+      return material
+    }
+  }
+
   /// Constructs a `SubsurfaceVoxelVolume` (`[GridCoord: SoilVoxel]`) shaped to the user-drawn boundary polygon.
   static func buildVolume(
     boundaryCoordinates: [CLLocationCoordinate2D],
@@ -344,13 +358,35 @@ enum VoxelMeshSynthesizer {
   static func synthesizeMesh(
     volume: SubsurfaceVoxelVolume,
     maxSliceX: Int,
-    maxSliceZ: Int
+    maxSliceZ: Int,
+    isolatedVoxels: Set<GridCoord>? = nil,
+    isHardSoilVisible: Bool = true
   ) -> MeshResource? {
     let nx = volume.nx
     let ny = volume.ny
     let nz = volume.nz
     let clampedSliceX = min(max(maxSliceX, 0), nx - 1)
     let clampedSliceZ = min(max(maxSliceZ, 0), nz - 1)
+
+    @inline(__always)
+    func activeMaterialAt(x: Int, y: Int, z: Int) -> Int16 {
+      let mat = volume.materialAt(x: x, y: y, z: z, maxSliceX: clampedSliceX, maxSliceZ: clampedSliceZ)
+      guard mat >= 0 else { return -1 }
+      if !isHardSoilVisible {
+        if mat == Int16(SoilLayerType.denseSandToGravelly.rawValue) ||
+           mat == Int16(SoilLayerType.stiffSandToClayey.rawValue) ||
+           mat == Int16(SoilLayerType.stiffFineGrained.rawValue)
+        {
+          return -1
+        }
+      }
+      if let isolatedVoxels {
+        guard isolatedVoxels.contains(GridCoord(x: x, y: y, z: z)) else {
+          return -1
+        }
+      }
+      return mat
+    }
 
     let centerX = volume.centerX
     let centerZ = volume.centerZ
@@ -433,9 +469,9 @@ enum VoxelMeshSynthesizer {
       var hasPosY = false
       for x in 0 ..< activeNX {
         for z in 0 ..< activeNZ {
-          let mat = volume.materialAt(x: x, y: y, z: z, maxSliceX: clampedSliceX, maxSliceZ: clampedSliceZ)
+          let mat = activeMaterialAt(x: x, y: y, z: z)
           guard mat >= 0 else { continue }
-          let neighborAbove = volume.materialAt(x: x, y: y + 1, z: z, maxSliceX: clampedSliceX, maxSliceZ: clampedSliceZ)
+          let neighborAbove = activeMaterialAt(x: x, y: y + 1, z: z)
           // Only emit top face when there is no active voxel above (surface layer)
           if neighborAbove < 0 {
             maskPosY[x * activeNZ + z] = mat
@@ -468,9 +504,9 @@ enum VoxelMeshSynthesizer {
       var hasNegY = false
       for x in 0 ..< activeNX {
         for z in 0 ..< activeNZ {
-          let mat = volume.materialAt(x: x, y: y, z: z, maxSliceX: clampedSliceX, maxSliceZ: clampedSliceZ)
+          let mat = activeMaterialAt(x: x, y: y, z: z)
           guard mat >= 0 else { continue }
-          let neighborBelow = volume.materialAt(x: x, y: y - 1, z: z, maxSliceX: clampedSliceX, maxSliceZ: clampedSliceZ)
+          let neighborBelow = activeMaterialAt(x: x, y: y - 1, z: z)
           // Only emit bottom face for the deepest bedrock layer (no active voxel below)
           if neighborBelow < 0 {
             maskNegY[x * activeNZ + z] = mat
@@ -511,14 +547,14 @@ enum VoxelMeshSynthesizer {
 
       for z in 0 ..< activeNZ {
         for y in 0 ..< ny {
-          let mat = volume.materialAt(x: x, y: y, z: z, maxSliceX: clampedSliceX, maxSliceZ: clampedSliceZ)
+          let mat = activeMaterialAt(x: x, y: y, z: z)
           guard mat >= 0 else { continue }
 
-          if volume.materialAt(x: x + 1, y: y, z: z, maxSliceX: clampedSliceX, maxSliceZ: clampedSliceZ) < 0 {
+          if activeMaterialAt(x: x + 1, y: y, z: z) < 0 {
             maskPosX[z * ny + y] = mat
             hasPosX = true
           }
-          if volume.materialAt(x: x - 1, y: y, z: z, maxSliceX: clampedSliceX, maxSliceZ: clampedSliceZ) < 0 {
+          if activeMaterialAt(x: x - 1, y: y, z: z) < 0 {
             maskNegX[z * ny + y] = mat
             hasNegX = true
           }
@@ -576,14 +612,14 @@ enum VoxelMeshSynthesizer {
 
       for x in 0 ..< activeNX {
         for y in 0 ..< ny {
-          let mat = volume.materialAt(x: x, y: y, z: z, maxSliceX: clampedSliceX, maxSliceZ: clampedSliceZ)
+          let mat = activeMaterialAt(x: x, y: y, z: z)
           guard mat >= 0 else { continue }
 
-          if volume.materialAt(x: x, y: y, z: z + 1, maxSliceX: clampedSliceX, maxSliceZ: clampedSliceZ) < 0 {
+          if activeMaterialAt(x: x, y: y, z: z + 1) < 0 {
             maskPosZ[x * ny + y] = mat
             hasPosZ = true
           }
-          if volume.materialAt(x: x, y: y, z: z - 1, maxSliceX: clampedSliceX, maxSliceZ: clampedSliceZ) < 0 {
+          if activeMaterialAt(x: x, y: y, z: z - 1) < 0 {
             maskNegZ[x * ny + y] = mat
             hasNegZ = true
           }

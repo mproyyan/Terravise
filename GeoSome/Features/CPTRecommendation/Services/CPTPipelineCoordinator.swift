@@ -154,14 +154,10 @@ enum CPTPipelineCoordinator {
     return latestResult
   }
 
-  /// Generates "Spot B" after 1st CPT, "Spot C" after 2nd CPT, etc.
+  /// Generates "Spot 2" after 1st CPT, "Spot 3" after 2nd CPT, etc.
   static func spotLabel(forNextIndex currentCPTCount: Int) -> String {
-    let letters = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
-    let index = max(currentCPTCount, 0)
-    if index < letters.count {
-      return "Spot \(letters[index])"
-    }
-    return "Spot #\(index + 1)"
+    let nextNumber = max(currentCPTCount, 0) + 1
+    return "Spot \(nextNumber)"
   }
 }
 

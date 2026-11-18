@@ -399,7 +399,7 @@ struct CPTRecommendationResult: Hashable, Codable, Sendable {
     coordinate: CLLocationCoordinate2D = CLLocationCoordinate2D(latitude: -6.2418, longitude: 106.8315),
     rmse: Double = 0.0064,
     confidenceLevel: Int = 90,
-    spotName: String = "Spot B",
+    spotName: String = "Spot 2",
     nearestCPTDistance: Double = 16.2,
     nearbyCountWithin4m: Int = 0,
     shallowSoilType: String = "sand",
@@ -444,7 +444,8 @@ struct CPTRecommendationResult: Hashable, Codable, Sendable {
     coordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
     rmse = try container.decode(Double.self, forKey: .rmse)
     confidenceLevel = try container.decode(Int.self, forKey: .confidenceLevel)
-    spotName = try container.decodeIfPresent(String.self, forKey: .spotName) ?? "Spot B"
+    let rawSpotName = try container.decodeIfPresent(String.self, forKey: .spotName) ?? "Spot 2"
+    spotName = Self.normalizeSpotName(rawSpotName)
     nearestCPTDistance = try container.decodeIfPresent(Double.self, forKey: .nearestCPTDistance) ?? 16.2
     nearbyCountWithin4m = try container.decodeIfPresent(Int.self, forKey: .nearbyCountWithin4m) ?? 0
     shallowSoilType = try container.decodeIfPresent(String.self, forKey: .shallowSoilType) ?? "sand"
@@ -488,6 +489,24 @@ struct CPTRecommendationResult: Hashable, Codable, Sendable {
 
   var formattedCoordinate: String {
     hasRecommendation ? String(format: "%.6f, %.6f", coordinate.latitude, coordinate.longitude) : "—"
+  }
+
+  /// Converts legacy letter labels ("Spot A", "Spot B", "Spot #2") into numeric labels ("Spot 1", "Spot 2").
+  static func normalizeSpotName(_ raw: String) -> String {
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    if trimmed.hasPrefix("Spot #") {
+      let suffix = trimmed.dropFirst("Spot #".count)
+      if let num = Int(suffix) {
+        return "Spot \(num)"
+      }
+    }
+    if trimmed.hasPrefix("Spot "), trimmed.count == 6, let char = trimmed.last, char.isASCII, char.isUppercase {
+      let letters = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+      if let idx = letters.firstIndex(of: char) {
+        return "Spot \(idx + 1)"
+      }
+    }
+    return trimmed
   }
 
   func hash(into hasher: inout Hasher) {

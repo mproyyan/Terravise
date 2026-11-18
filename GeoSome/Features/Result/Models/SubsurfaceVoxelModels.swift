@@ -7,7 +7,7 @@ import UIKit
 /// - `x`: Easting grid index (1.0 m step)
 /// - `y`: Vertical layer/depth index from bottom (`0` = deepest bedrock) to top (`maxY` = surface `Y = 0`)
 /// - `z`: Northing grid index (1.0 m step)
-struct GridCoord: Hashable, Sendable {
+nonisolated struct GridCoord: Hashable, Sendable {
   let x: Int
   let y: Int
   let z: Int

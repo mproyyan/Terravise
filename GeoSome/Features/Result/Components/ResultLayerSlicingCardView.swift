@@ -25,7 +25,7 @@ struct ResultLayerSlicingCardView: View {
     isHardSoilVisible: Binding<Bool> = .constant(true),
     concerns: [GeotechnicalConcernItem] = ResultAnalysisViewModel.defaultConcerns,
     isGeotechnicalConcernsEmpty: Bool = false,
-    selectedConcernID: String? = ResultAnalysisViewModel.defaultConcerns.first?.id,
+    selectedConcernID: String? = nil,
     onSelectConcern: ((GeotechnicalConcernItem) -> Void)? = nil,
     slicingXMeters: Binding<Double>,
     slicingYMeters: Binding<Double>,

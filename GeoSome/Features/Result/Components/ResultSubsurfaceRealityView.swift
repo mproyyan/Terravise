@@ -9,6 +9,9 @@ struct ResultSubsurfaceRealityView: View {
   let maxSliceZ: Int
   let selectedVoxel: SoilVoxel?
   var selectedPipePosition3D: SIMD3<Float>? = nil
+  var isHardSoilVisible: Bool = true
+  var selectedConcernID: String? = nil
+  var isolatedVoxels: Set<GridCoord>? = nil
   @Binding var cameraYaw: Float
   @Binding var cameraPitch: Float
   @Binding var cameraZoom: Float
@@ -28,6 +31,8 @@ struct ResultSubsurfaceRealityView: View {
   @State private var lastBuiltSliceZ: Int = -1
   @State private var lastBuiltVoxelCount: Int = -1
   @State private var lastBuiltVolumeID: UUID?
+  @State private var lastBuiltHardSoilVisible: Bool = true
+  @State private var lastBuiltConcernID: String? = nil
 
   init(
     volume: SubsurfaceVoxelVolume,
@@ -35,6 +40,9 @@ struct ResultSubsurfaceRealityView: View {
     maxSliceZ: Int,
     selectedVoxel: SoilVoxel?,
     selectedPipePosition3D: SIMD3<Float>? = nil,
+    isHardSoilVisible: Bool = true,
+    selectedConcernID: String? = nil,
+    isolatedVoxels: Set<GridCoord>? = nil,
     cameraYaw: Binding<Float>,
     cameraPitch: Binding<Float>,
     cameraZoom: Binding<Float>,
@@ -52,6 +60,9 @@ struct ResultSubsurfaceRealityView: View {
     self.maxSliceZ = maxSliceZ
     self.selectedVoxel = selectedVoxel
     self.selectedPipePosition3D = selectedPipePosition3D
+    self.isHardSoilVisible = isHardSoilVisible
+    self.selectedConcernID = selectedConcernID
+    self.isolatedVoxels = isolatedVoxels
     self._cameraYaw = cameraYaw
     self._cameraPitch = cameraPitch
     self._cameraZoom = cameraZoom
@@ -91,11 +102,31 @@ struct ResultSubsurfaceRealityView: View {
           if let mesh = VoxelMeshSynthesizer.synthesizeMesh(
             volume: volume,
             maxSliceX: maxSliceX,
-            maxSliceZ: maxSliceZ
+            maxSliceZ: maxSliceZ,
+            isolatedVoxels: isolatedVoxels,
+            isHardSoilVisible: isHardSoilVisible
           ) {
             terrainEntity.model = ModelComponent(mesh: mesh, materials: materials)
           }
           pivotEntity.addChild(terrainEntity)
+
+          // 2b. Translucent Ghost Shell Entity (shown only when a Geotechnical Concern is isolated)
+          let ghostEntity = ModelEntity()
+          ghostEntity.name = "SubsurfaceGhostEntity"
+          if isolatedVoxels != nil,
+             let ghostMesh = VoxelMeshSynthesizer.synthesizeMesh(
+               volume: volume,
+               maxSliceX: maxSliceX,
+               maxSliceZ: maxSliceZ
+             )
+          {
+            let ghostMaterials = VoxelMeshSynthesizer.makeGhostMaterialPalette()
+            ghostEntity.model = ModelComponent(mesh: ghostMesh, materials: ghostMaterials)
+            ghostEntity.isEnabled = true
+          } else {
+            ghostEntity.isEnabled = false
+          }
+          pivotEntity.addChild(ghostEntity)
 
           // 3. Single Ephemeral Highlight Marker (VoxelSelectionMarker: Visual 3D Pipe)
           let selectionMarker = makeVoxelSelectionMarker()
@@ -186,21 +217,44 @@ struct ResultSubsurfaceRealityView: View {
             }
           }
 
-          // Rebuild the single batched MeshResource only when slicing thresholds or volume data change
+          // Rebuild the single batched MeshResource only when slicing thresholds, concern filter, or volume data change
           if lastBuiltSliceX != maxSliceX ||
             lastBuiltSliceZ != maxSliceZ ||
             lastBuiltVoxelCount != volume.voxels.count ||
-            lastBuiltVolumeID != volume.id
+            lastBuiltVolumeID != volume.id ||
+            lastBuiltHardSoilVisible != isHardSoilVisible ||
+            lastBuiltConcernID != selectedConcernID
           {
-            if let terrainEntity = pivotEntity.findEntity(named: "SubsurfaceTerrainEntity") as? ModelEntity,
-               let updatedMesh = VoxelMeshSynthesizer.synthesizeMesh(
-                 volume: volume,
-                 maxSliceX: maxSliceX,
-                 maxSliceZ: maxSliceZ
-               )
-            {
-              let materials = VoxelMeshSynthesizer.makeMaterialPalette()
-              terrainEntity.model = ModelComponent(mesh: updatedMesh, materials: materials)
+            if let terrainEntity = pivotEntity.findEntity(named: "SubsurfaceTerrainEntity") as? ModelEntity {
+              if let updatedMesh = VoxelMeshSynthesizer.synthesizeMesh(
+                volume: volume,
+                maxSliceX: maxSliceX,
+                maxSliceZ: maxSliceZ,
+                isolatedVoxels: isolatedVoxels,
+                isHardSoilVisible: isHardSoilVisible
+              ) {
+                let materials = VoxelMeshSynthesizer.makeMaterialPalette()
+                terrainEntity.model = ModelComponent(mesh: updatedMesh, materials: materials)
+                terrainEntity.isEnabled = true
+              } else {
+                terrainEntity.isEnabled = false
+              }
+            }
+
+            if let ghostEntity = pivotEntity.findEntity(named: "SubsurfaceGhostEntity") as? ModelEntity {
+              if isolatedVoxels != nil,
+                 let ghostMesh = VoxelMeshSynthesizer.synthesizeMesh(
+                   volume: volume,
+                   maxSliceX: maxSliceX,
+                   maxSliceZ: maxSliceZ
+                 )
+              {
+                let ghostMaterials = VoxelMeshSynthesizer.makeGhostMaterialPalette()
+                ghostEntity.model = ModelComponent(mesh: ghostMesh, materials: ghostMaterials)
+                ghostEntity.isEnabled = true
+              } else {
+                ghostEntity.isEnabled = false
+              }
             }
 
             if lastBuiltVolumeID != volume.id {
@@ -224,6 +278,8 @@ struct ResultSubsurfaceRealityView: View {
               lastBuiltSliceZ = maxSliceZ
               lastBuiltVoxelCount = volume.voxels.count
               lastBuiltVolumeID = volume.id
+              lastBuiltHardSoilVisible = isHardSoilVisible
+              lastBuiltConcernID = selectedConcernID
             }
           }
         }
