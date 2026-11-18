@@ -182,17 +182,7 @@ struct HomePage: View {
   private var logoPlaceholder: some View {
     ZStack {
       RoundedRectangle(cornerRadius: 14, style: .continuous)
-        .fill(
-          LinearGradient(
-            colors: [
-              Color.green.opacity(0.9),
-              Color.orange.opacity(0.85),
-              Color.blue.opacity(0.9)
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-          )
-        )
+
         .frame(width: logoWidth, height: logoHeight)
         .overlay(
           RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -203,9 +193,10 @@ struct HomePage: View {
         )
         .shadow(color: Color.black.opacity(0.25), radius: 8, x: 0, y: 4)
 
-      Image(systemName: "square.3.layers.3d.down.right")
-        .font(.title2.weight(.semibold))
-        .foregroundStyle(.white)
+        Image("logo-fix")
+            .resizable()
+            .scaledToFit()
+            .frame(width: 56, height: 56)
     }
     .accessibilityHidden(true)
   }
