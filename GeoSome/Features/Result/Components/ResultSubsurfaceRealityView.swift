@@ -119,22 +119,10 @@ struct ResultSubsurfaceRealityView: View {
           }
           pivotEntity.addChild(terrainEntity)
 
-          // 2b. Translucent Ghost Shell Entity (shown only when a Geotechnical Concern is isolated)
+          // 2b. Translucent Ghost Shell Entity (unused: terrainEntity handles both highlight & untextured transparent gray in 1 pass)
           let ghostEntity = ModelEntity()
           ghostEntity.name = "SubsurfaceGhostEntity"
-          if isolatedVoxels != nil,
-             let ghostMesh = VoxelMeshSynthesizer.synthesizeMesh(
-               volume: volume,
-               maxSliceX: maxSliceX,
-               maxSliceZ: maxSliceZ
-             )
-          {
-            let ghostMaterials = VoxelMeshSynthesizer.makeGhostMaterialPalette()
-            ghostEntity.model = ModelComponent(mesh: ghostMesh, materials: ghostMaterials)
-            ghostEntity.isEnabled = true
-          } else {
-            ghostEntity.isEnabled = false
-          }
+          ghostEntity.isEnabled = false
           pivotEntity.addChild(ghostEntity)
 
           // 3. Single Ephemeral Highlight Marker (VoxelSelectionMarker: Visual 3D Pipe at exact metric tap)
@@ -266,19 +254,7 @@ struct ResultSubsurfaceRealityView: View {
             }
 
             if let ghostEntity = pivotEntity.findEntity(named: "SubsurfaceGhostEntity") as? ModelEntity {
-              if isolatedVoxels != nil,
-                 let ghostMesh = VoxelMeshSynthesizer.synthesizeMesh(
-                   volume: volume,
-                   maxSliceX: maxSliceX,
-                   maxSliceZ: maxSliceZ
-                 )
-              {
-                let ghostMaterials = VoxelMeshSynthesizer.makeGhostMaterialPalette()
-                ghostEntity.model = ModelComponent(mesh: ghostMesh, materials: ghostMaterials)
-                ghostEntity.isEnabled = true
-              } else {
-                ghostEntity.isEnabled = false
-              }
+              ghostEntity.isEnabled = false
             }
 
             if lastBuiltVolumeID != volume.id {
@@ -429,14 +405,11 @@ struct ResultSubsurfaceRealityView: View {
       let (fx, fz) = volume.continuousGridCoordinates(forMetricX: groundHit.x, zM: groundHit.z)
       let xGrid = min(max(Int(fx.rounded()), 0), volume.nx - 1)
       let zGrid = min(max(Int(fz.rounded()), 0), volume.nz - 1)
-      if let voxel = volume.voxels[GridCoord(x: xGrid, y: volume.ny - 1, z: zGrid)] {
+      let voxel = volume.voxels[GridCoord(x: xGrid, y: volume.ny - 1, z: zGrid)]
+      if let voxel {
         onSelectVoxel(voxel)
-        onTapTopSurface?(screenPoint, groundHit, voxel)
-      } else if isProfilePopoverPresented {
-        withAnimation(.easeInOut(duration: 0.2)) {
-          isProfilePopoverPresented = false
-        }
       }
+      onTapTopSurface?(screenPoint, groundHit, voxel)
     } else if isProfilePopoverPresented {
       withAnimation(.easeInOut(duration: 0.2)) {
         isProfilePopoverPresented = false

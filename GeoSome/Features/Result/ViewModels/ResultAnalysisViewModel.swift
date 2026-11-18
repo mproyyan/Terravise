@@ -239,10 +239,7 @@ final class ResultAnalysisViewModel {
   var selectedPopoverLayers: [SBTProfileLayerItem] = CPTPointProfilePopoverView.defaultLayers
 
   var displayedCPTPointsCount: Int {
-    if isSubsurfaceConditionsEmpty {
-      return project.cptPoints.count
-    }
-    return project.cptPoints.isEmpty ? 12 : project.cptPoints.count
+    project.cptPoints.count
   }
 
   init(project: Project? = nil) {
@@ -622,6 +619,12 @@ final class ResultAnalysisViewModel {
   }
 
   func handleTopSurfaceTap(at screenPoint: CGPoint, local3DPoint: SIMD3<Float>?, voxel: SoilVoxel?) {
+    guard !project.cptPoints.isEmpty else {
+      isProfilePopoverPresented = false
+      AccessibilityCaptionCenter.shared.announce("Belum ada data CPT untuk proyek ini.")
+      return
+    }
+
     if let hitPt = local3DPoint {
       guard volume.isMetricPointInsideActiveArea(
         xM: hitPt.x,
@@ -644,34 +647,60 @@ final class ResultAnalysisViewModel {
 
     // Query continuous bilinearly interpolated field at the exact tapped metric (x, z) coordinate
     if let hitPt = local3DPoint {
-      selectedPopoverLayers = buildBilinearPopoverLayers(metricX: hitPt.x, metricZ: hitPt.z)
       let exactGeo = volume.geographicCoordinate(forMetricX: hitPt.x, zM: hitPt.z)
-      selectedCPTPointLatitude = String(format: "%.6f", exactGeo.latitude)
-      selectedCPTPointLongitude = String(format: "%.6f", exactGeo.longitude)
 
       if let pinHit = findPinNearMetricPoint(metricX: hitPt.x, metricZ: hitPt.z) {
         // Tapped an Actual CPT borehole pin: keep the orange Actual CPT visible without overlapping a Virtual CPT pipe
         selectedCPTPointTitle = pinHit.title
         selectedPipePosition3D = nil
         selectedVoxel = nil
+
+        if pinHit.index < project.cptPoints.count {
+          let actualPoint = project.cptPoints[pinHit.index]
+          selectedCPTPointLatitude = actualPoint.formattedLatitude
+          selectedCPTPointLongitude = actualPoint.formattedLongitude
+          let actualLayers = buildLayers(from: actualPoint)
+          selectedPopoverLayers = actualLayers.isEmpty
+            ? buildBilinearPopoverLayers(metricX: hitPt.x, metricZ: hitPt.z)
+            : actualLayers
+        } else {
+          selectedCPTPointLatitude = String(format: "%.6f", exactGeo.latitude)
+          selectedCPTPointLongitude = String(format: "%.6f", exactGeo.longitude)
+          selectedPopoverLayers = buildBilinearPopoverLayers(metricX: hitPt.x, metricZ: hitPt.z)
+        }
       } else {
         // Tapped a custom location: place the Cyan/Blue Virtual CPT pipe at this exact metric coordinate
         selectedCPTPointTitle = String(format: "Virtual CPT (%.1fm, %.1fm)", hitPt.x, hitPt.z)
         selectedPipePosition3D = SIMD3<Float>(hitPt.x, 0.0, hitPt.z)
         selectedVoxel = voxel
+        selectedCPTPointLatitude = String(format: "%.6f", exactGeo.latitude)
+        selectedCPTPointLongitude = String(format: "%.6f", exactGeo.longitude)
+        selectedPopoverLayers = buildBilinearPopoverLayers(metricX: hitPt.x, metricZ: hitPt.z)
       }
     } else if let voxel {
       selectedVoxel = voxel
       selectedPipePosition3D = nil
-      selectedPopoverLayers = buildPopoverLayers(forColumnX: voxel.coord.x, z: voxel.coord.z)
       if let closest = findClosestCPTPoint(to: voxel) {
         selectedCPTPointTitle = closest.title
         selectedCPTPointLatitude = closest.latitude
         selectedCPTPointLongitude = closest.longitude
+
+        let ptIdx = project.cptPoints.firstIndex(where: {
+          $0.formattedLatitude == closest.latitude && $0.formattedLongitude == closest.longitude
+        })
+        if let ptIdx {
+          let actualLayers = buildLayers(from: project.cptPoints[ptIdx])
+          selectedPopoverLayers = actualLayers.isEmpty
+            ? buildPopoverLayers(forColumnX: voxel.coord.x, z: voxel.coord.z)
+            : actualLayers
+        } else {
+          selectedPopoverLayers = buildPopoverLayers(forColumnX: voxel.coord.x, z: voxel.coord.z)
+        }
       } else {
         selectedCPTPointTitle = "CPT Point-01"
         selectedCPTPointLatitude = String(format: "%.6f", voxel.latitude)
         selectedCPTPointLongitude = String(format: "%.6f", voxel.longitude)
+        selectedPopoverLayers = buildPopoverLayers(forColumnX: voxel.coord.x, z: voxel.coord.z)
       }
     } else {
       isProfilePopoverPresented = false
@@ -686,6 +715,12 @@ final class ResultAnalysisViewModel {
   /// Creates/places a Virtual CPT in the 3D scene at the current minimap center position (`cameraController.target`)
   /// and presents the SBT stratigraphy popover immediately, only if the minimap center lies inside the active boundary area.
   func createVirtualCPTAtMinimapCenter() {
+    guard !project.cptPoints.isEmpty else {
+      isProfilePopoverPresented = false
+      AccessibilityCaptionCenter.shared.announce("Belum ada data CPT untuk proyek ini.")
+      return
+    }
+
     let centerPt = SIMD3<Float>(cameraController.target.x, 0.0, cameraController.target.z)
     guard volume.isMetricPointInsideActiveArea(
       xM: centerPt.x,
@@ -741,6 +776,17 @@ final class ResultAnalysisViewModel {
       selectedCPTPointTitle = String(format: "CPT Point-%02d", clampedIdx + 1)
       selectedCPTPointLatitude = pt.formattedLatitude
       selectedCPTPointLongitude = pt.formattedLongitude
+
+      let actualLayers = buildLayers(from: pt)
+      if !actualLayers.isEmpty {
+        selectedPopoverLayers = actualLayers
+      } else if !volume.cptMetricSurfacePositions.isEmpty {
+        let posIdx = min(safeIndex, volume.cptMetricSurfacePositions.count - 1)
+        let pos = volume.cptMetricSurfacePositions[posIdx]
+        selectedPopoverLayers = buildBilinearPopoverLayers(metricX: pos.x, metricZ: pos.z)
+      } else {
+        selectedPopoverLayers = CPTPointProfilePopoverView.defaultLayers
+      }
     } else {
       let defaultCoords: [(String, String, String)] = [
         ("CPT Point-01", "-6.215432", "106.845321"),
@@ -751,20 +797,147 @@ final class ResultAnalysisViewModel {
       selectedCPTPointTitle = item.0
       selectedCPTPointLatitude = item.1
       selectedCPTPointLongitude = item.2
-    }
 
-    if !volume.cptSurfacePositions.isEmpty {
-      let posIdx = min(safeIndex, volume.cptSurfacePositions.count - 1)
-      let pos = volume.cptSurfacePositions[posIdx]
-      let xGrid = min(max(Int((pos.x + volume.centerX).rounded()), 0), volume.nx - 1)
-      let zGrid = min(max(Int((pos.z + volume.centerZ).rounded()), 0), volume.nz - 1)
-      selectedPopoverLayers = buildPopoverLayers(forColumnX: xGrid, z: zGrid)
-    } else {
-      selectedPopoverLayers = CPTPointProfilePopoverView.defaultLayers
+      if !volume.cptMetricSurfacePositions.isEmpty {
+        let posIdx = min(safeIndex, volume.cptMetricSurfacePositions.count - 1)
+        let pos = volume.cptMetricSurfacePositions[posIdx]
+        selectedPopoverLayers = buildBilinearPopoverLayers(metricX: pos.x, metricZ: pos.z)
+      } else if !volume.cptSurfacePositions.isEmpty {
+        let posIdx = min(safeIndex, volume.cptSurfacePositions.count - 1)
+        let pos = volume.cptSurfacePositions[posIdx]
+        let xGrid = min(max(Int((pos.x + volume.centerX).rounded()), 0), volume.nx - 1)
+        let zGrid = min(max(Int((pos.z + volume.centerZ).rounded()), 0), volume.nz - 1)
+        selectedPopoverLayers = buildPopoverLayers(forColumnX: xGrid, z: zGrid)
+      } else {
+        selectedPopoverLayers = CPTPointProfilePopoverView.defaultLayers
+      }
     }
 
     isProfilePopoverPresented = true
     AccessibilityCaptionCenter.shared.announce("Showing \(selectedCPTPointTitle) SBT profile popover.")
+  }
+
+  /// Builds dynamic SBT stratigraphy layers from an actual uploaded CPT point's sounding rows.
+  private func buildLayers(from cptPoint: CPTPointEntry) -> [SBTProfileLayerItem] {
+    let sortedRows = cptPoint.rows.sorted { $0.depth < $1.depth }
+    guard !sortedRows.isEmpty else { return [] }
+
+    let maxDepth = max(sortedRows.last?.depth ?? 20.0, 1.0)
+
+    // Subdivide the sounding profile into uniform fine depth slices
+    // so we get a continuous, smooth stratigraphy profile.
+    let sliceCount = max(min(Int((maxDepth / 0.25).rounded()), 80), 20)
+    let sliceStepM = maxDepth / Double(sliceCount)
+
+    struct RawSlice {
+      var topDepthM: Double
+      var bottomDepthM: Double
+      var soilType: SoilLayerType
+    }
+
+    var slices: [RawSlice] = []
+    slices.reserveCapacity(sliceCount)
+
+    var currentRowIdx = 0
+    for s in 0 ..< sliceCount {
+      let topM = Double(s) * sliceStepM
+      let botM = Double(s + 1) * sliceStepM
+      let midM = (topM + botM) * 0.5
+      let depthRatio = min(max(midM / maxDepth, 0.0), 1.0)
+
+      // Find nearest CPT row by depth
+      while currentRowIdx + 1 < sortedRows.count &&
+            abs(sortedRows[currentRowIdx + 1].depth - midM) < abs(sortedRows[currentRowIdx].depth - midM) {
+        currentRowIdx += 1
+      }
+      let row = sortedRows[currentRowIdx]
+      let ic = row.ic(for: cptPoint.type)
+      let soilType = SoilLayerType.fromRobertsonIc(ic, depthRatio: depthRatio)
+      slices.append(RawSlice(topDepthM: topM, bottomDepthM: botM, soilType: soilType))
+    }
+
+    // Merge contiguous slices of the same soil type
+    struct RawSegment {
+      var topDepthM: Double
+      var bottomDepthM: Double
+      var soilType: SoilLayerType
+    }
+
+    var segments: [RawSegment] = []
+    for slice in slices {
+      if let last = segments.last, last.soilType == slice.soilType {
+        segments[segments.count - 1].bottomDepthM = slice.bottomDepthM
+      } else {
+        segments.append(
+          RawSegment(
+            topDepthM: slice.topDepthM,
+            bottomDepthM: slice.bottomDepthM,
+            soilType: slice.soilType
+          )
+        )
+      }
+    }
+
+    // Merge tiny noise segments (< 0.25m) with their adjacent neighbor to avoid clutter
+    var i = 0
+    while i < segments.count {
+      let thickness = segments[i].bottomDepthM - segments[i].topDepthM
+      if thickness < 0.25 && segments.count > 1 {
+        if i > 0 {
+          segments[i - 1].bottomDepthM = segments[i].bottomDepthM
+          segments.remove(at: i)
+        } else {
+          segments[1].topDepthM = segments[0].topDepthM
+          segments.remove(at: 0)
+        }
+      } else {
+        i += 1
+      }
+    }
+
+    // Greedily reduce to at most 6 segments so the popover remains neat and readable
+    while segments.count > 6 {
+      var minIdx = 0
+      var minThickness = Double.greatestFiniteMagnitude
+      for (idx, seg) in segments.enumerated() {
+        let thick = seg.bottomDepthM - seg.topDepthM
+        if thick < minThickness {
+          minThickness = thick
+          minIdx = idx
+        }
+      }
+      if minIdx > 0 {
+        segments[minIdx - 1].bottomDepthM = segments[minIdx].bottomDepthM
+        segments.remove(at: minIdx)
+      } else if segments.count > 1 {
+        segments[1].topDepthM = segments[0].topDepthM
+        segments.remove(at: 0)
+      } else {
+        break
+      }
+    }
+
+    let totalDepth = max(segments.last?.bottomDepthM ?? maxDepth, 1.0)
+    let targetTotalHeight: CGFloat = 220.0
+
+    return segments.map { seg in
+      let ratio = CGFloat((seg.bottomDepthM - seg.topDepthM) / totalDepth)
+      let barHeight = min(max((ratio * targetTotalHeight).rounded(), 30), 64)
+      let isLightLayer: Bool = switch seg.soilType {
+      case .sandMixtures, .cleanSands, .stiffFineGrained:
+        true
+      default:
+        false
+      }
+      return SBTProfileLayerItem(
+        topDepthM: (seg.topDepthM * 10).rounded() / 10,
+        bottomDepthM: (seg.bottomDepthM * 10).rounded() / 10,
+        name: seg.soilType.displayName,
+        color: Color(seg.soilType.uiColor),
+        textColor: isLightLayer ? Color.black.opacity(0.9) : Color.white,
+        barHeight: barHeight
+      )
+    }
   }
 
   /// Builds the SBT stratigraphy popover layers from the continuous bilinearly interpolated `Ic` field
@@ -776,6 +949,10 @@ final class ResultAnalysisViewModel {
       verticalSubdivisions: 40
     )
     guard !interpolatedSlices.isEmpty else {
+      if let first = project.cptPoints.first {
+        let layers = buildLayers(from: first)
+        if !layers.isEmpty { return layers }
+      }
       return CPTPointProfilePopoverView.defaultLayers
     }
 
@@ -876,6 +1053,10 @@ final class ResultAnalysisViewModel {
       }
     }
     guard !columnVoxels.isEmpty else {
+      if let first = project.cptPoints.first {
+        let layers = buildLayers(from: first)
+        if !layers.isEmpty { return layers }
+      }
       return CPTPointProfilePopoverView.defaultLayers
     }
 
