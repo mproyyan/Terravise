@@ -429,14 +429,11 @@ struct ResultSubsurfaceRealityView: View {
       let (fx, fz) = volume.continuousGridCoordinates(forMetricX: groundHit.x, zM: groundHit.z)
       let xGrid = min(max(Int(fx.rounded()), 0), volume.nx - 1)
       let zGrid = min(max(Int(fz.rounded()), 0), volume.nz - 1)
-      if let voxel = volume.voxels[GridCoord(x: xGrid, y: volume.ny - 1, z: zGrid)] {
+      let voxel = volume.voxels[GridCoord(x: xGrid, y: volume.ny - 1, z: zGrid)]
+      if let voxel {
         onSelectVoxel(voxel)
-        onTapTopSurface?(screenPoint, groundHit, voxel)
-      } else if isProfilePopoverPresented {
-        withAnimation(.easeInOut(duration: 0.2)) {
-          isProfilePopoverPresented = false
-        }
       }
+      onTapTopSurface?(screenPoint, groundHit, voxel)
     } else if isProfilePopoverPresented {
       withAnimation(.easeInOut(duration: 0.2)) {
         isProfilePopoverPresented = false
