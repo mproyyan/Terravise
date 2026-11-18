@@ -85,13 +85,17 @@ final class SoilTextureManager {
 }
 
 enum VoxelMeshSynthesizer {
+  /// Index for untextured, translucent gray material used for non-highlighted areas when a concern is active.
+  static let dimmedMaterialIndex: UInt32 = 9
+
   /// Builds the shared palette of materials corresponding to `SoilLayerType.allCases`.
   /// Uses photo-macro textures tinted with `layer.uiColor` and physically-based roughness
   /// with `meshDescriptor.materials = .perFace(...)` so the entire voxel volume renders in 1 draw call.
+  /// Index `dimmedMaterialIndex` (9) is an untextured, translucent gray material for non-highlighted zones.
   @MainActor
   static func makeMaterialPalette() -> [SimpleMaterial] {
     let textureManager = SoilTextureManager.shared
-    return SoilLayerType.allCases.map { layer in
+    var palette = SoilLayerType.allCases.map { layer in
       var material = SimpleMaterial()
       if let tex = textureManager.texture(for: layer.textureCategory) {
         material.color = .init(tint: layer.uiColor, texture: .init(tex))
@@ -103,6 +107,16 @@ enum VoxelMeshSynthesizer {
       material.faceCulling = .back
       return material
     }
+
+    // Index 9: Untextured, translucent neutral gray for non-highlighted areas (removes texture & eliminates blinking)
+    var dimmedMaterial = SimpleMaterial()
+    dimmedMaterial.color = .init(tint: UIColor(white: 0.68, alpha: 0.22))
+    dimmedMaterial.roughness = .init(floatLiteral: 0.95)
+    dimmedMaterial.metallic = .init(floatLiteral: 0.0)
+    dimmedMaterial.faceCulling = .back
+    palette.append(dimmedMaterial)
+
+    return palette
   }
 
   /// Translucent ghost material palette used for framing the full site boundary when a geotechnical concern is isolated.
@@ -110,8 +124,8 @@ enum VoxelMeshSynthesizer {
   static func makeGhostMaterialPalette() -> [SimpleMaterial] {
     SoilLayerType.allCases.map { layer in
       var material = SimpleMaterial(
-        color: layer.uiColor.withAlphaComponent(0.11),
-        roughness: 0.92,
+        color: UIColor(white: 0.68, alpha: 0.18),
+        roughness: 0.95,
         isMetallic: false
       )
       material.faceCulling = .back
@@ -482,11 +496,6 @@ enum VoxelMeshSynthesizer {
           return -1
         }
       }
-      if let isolatedVoxels {
-        guard isolatedVoxels.contains(GridCoord(x: x, y: y, z: z)) else {
-          return -1
-        }
-      }
       return mat
     }
 
@@ -567,6 +576,19 @@ enum VoxelMeshSynthesizer {
       let gx = min(max(Int(fx.rounded()), 0), nx - 1)
       let gz = min(max(Int(fz.rounded()), 0), nz - 1)
       let clampedY = min(max(layerY, 0), ny - 1)
+
+      // When a geotechnical concern is active:
+      if let isolatedVoxels {
+        let coord = GridCoord(x: gx, y: clampedY, z: gz)
+        if isolatedVoxels.contains(coord) {
+          let rawMat = activeMaterialAt(x: gx, y: clampedY, z: gz)
+          if rawMat >= 0 { return UInt32(rawMat) }
+        } else {
+          // Area outside the active concern is rendered in untextured, translucent neutral gray
+          return Self.dimmedMaterialIndex
+        }
+      }
+
       let rawMat = activeMaterialAt(x: gx, y: clampedY, z: gz)
       if rawMat >= 0 {
         return UInt32(rawMat)
@@ -797,6 +819,105 @@ enum VoxelMeshSynthesizer {
 
         emitQuad(v0, v1, v2, v3, uv0: uv0, uv1: uv1, uv2: uv2, uv3: uv3, normal: wallNormal, materialIndex: mat)
         y += hY
+      }
+    }
+
+    // 7. If a Geotechnical Concern is isolated, synthesize the 3D boundary faces of the concern cluster
+    // so that the affected zone is fully visible inside the translucent gray boundary shell.
+    if let iso = isolatedVoxels, !iso.isEmpty {
+      for coord in iso {
+        guard coord.x <= clampedSliceX, coord.z <= clampedSliceZ else { continue }
+        guard coord.x >= 0, coord.x < nx, coord.y >= 0, coord.y < ny, coord.z >= 0, coord.z < nz else { continue }
+
+        let rawMat = activeMaterialAt(x: coord.x, y: coord.y, z: coord.z)
+        guard rawMat >= 0 else { continue }
+        let mat = UInt32(rawMat)
+
+        let x0 = (Float(coord.x) - 0.5 - centerX) * stepXM
+        let x1 = (Float(coord.x) + 0.5 - centerX) * stepXM
+        let z0 = (Float(coord.z) - 0.5 - centerZ) * stepZM
+        let z1 = (Float(coord.z) + 0.5 - centerZ) * stepZM
+        let y0 = worldY(coord.y)
+        let y1 = worldY(coord.y + 1)
+
+        let u0 = x0 * uvScale
+        let u1 = x1 * uvScale
+        let v0Z = z0 * uvScale
+        let v1Z = z1 * uvScale
+        let v0Y = y0 * uvScale
+        let v1Y = y1 * uvScale
+
+        // +Y (Top face of this voxel if voxel above is not in concern)
+        if coord.y < ny - 1 && !iso.contains(GridCoord(x: coord.x, y: coord.y + 1, z: coord.z)) {
+          let pA = SIMD3<Float>(x0, y1, z1)
+          let pB = SIMD3<Float>(x1, y1, z1)
+          let pC = SIMD3<Float>(x1, y1, z0)
+          let pD = SIMD3<Float>(x0, y1, z0)
+          emitQuad(pA, pB, pC, pD,
+                   uv0: SIMD2<Float>(u0, v1Z), uv1: SIMD2<Float>(u1, v1Z),
+                   uv2: SIMD2<Float>(u1, v0Z), uv3: SIMD2<Float>(u0, v0Z),
+                   normal: SIMD3<Float>(0, 1, 0), materialIndex: mat)
+        }
+
+        // -Y (Bottom face of this voxel if voxel below is not in concern)
+        if coord.y > 0 && !iso.contains(GridCoord(x: coord.x, y: coord.y - 1, z: coord.z)) {
+          let pA = SIMD3<Float>(x0, y0, z0)
+          let pB = SIMD3<Float>(x1, y0, z0)
+          let pC = SIMD3<Float>(x1, y0, z1)
+          let pD = SIMD3<Float>(x0, y0, z1)
+          emitQuad(pA, pB, pC, pD,
+                   uv0: SIMD2<Float>(u0, v0Z), uv1: SIMD2<Float>(u1, v0Z),
+                   uv2: SIMD2<Float>(u1, v1Z), uv3: SIMD2<Float>(u0, v1Z),
+                   normal: SIMD3<Float>(0, -1, 0), materialIndex: mat)
+        }
+
+        // +X (East face if neighbor +X is not in concern)
+        if coord.x < clampedSliceX && !iso.contains(GridCoord(x: coord.x + 1, y: coord.y, z: coord.z)) {
+          let pA = SIMD3<Float>(x1, y0, z1)
+          let pB = SIMD3<Float>(x1, y1, z1)
+          let pC = SIMD3<Float>(x1, y1, z0)
+          let pD = SIMD3<Float>(x1, y0, z0)
+          emitQuad(pA, pB, pC, pD,
+                   uv0: SIMD2<Float>(v1Z, v0Y), uv1: SIMD2<Float>(v1Z, v1Y),
+                   uv2: SIMD2<Float>(v0Z, v1Y), uv3: SIMD2<Float>(v0Z, v0Y),
+                   normal: SIMD3<Float>(1, 0, 0), materialIndex: mat)
+        }
+
+        // -X (West face if neighbor -X is not in concern)
+        if coord.x > 0 && !iso.contains(GridCoord(x: coord.x - 1, y: coord.y, z: coord.z)) {
+          let pA = SIMD3<Float>(x0, y0, z0)
+          let pB = SIMD3<Float>(x0, y1, z0)
+          let pC = SIMD3<Float>(x0, y1, z1)
+          let pD = SIMD3<Float>(x0, y0, z1)
+          emitQuad(pA, pB, pC, pD,
+                   uv0: SIMD2<Float>(v0Z, v0Y), uv1: SIMD2<Float>(v0Z, v1Y),
+                   uv2: SIMD2<Float>(v1Z, v1Y), uv3: SIMD2<Float>(v1Z, v0Y),
+                   normal: SIMD3<Float>(-1, 0, 0), materialIndex: mat)
+        }
+
+        // +Z (South face if neighbor +Z is not in concern)
+        if coord.z < clampedSliceZ && !iso.contains(GridCoord(x: coord.x, y: coord.y, z: coord.z + 1)) {
+          let pA = SIMD3<Float>(x0, y0, z1)
+          let pB = SIMD3<Float>(x0, y1, z1)
+          let pC = SIMD3<Float>(x1, y1, z1)
+          let pD = SIMD3<Float>(x1, y0, z1)
+          emitQuad(pA, pB, pC, pD,
+                   uv0: SIMD2<Float>(u0, v0Y), uv1: SIMD2<Float>(u0, v1Y),
+                   uv2: SIMD2<Float>(u1, v1Y), uv3: SIMD2<Float>(u1, v0Y),
+                   normal: SIMD3<Float>(0, 0, 1), materialIndex: mat)
+        }
+
+        // -Z (North face if neighbor -Z is not in concern)
+        if coord.z > 0 && !iso.contains(GridCoord(x: coord.x, y: coord.y, z: coord.z - 1)) {
+          let pA = SIMD3<Float>(x1, y0, z0)
+          let pB = SIMD3<Float>(x1, y1, z0)
+          let pC = SIMD3<Float>(x0, y1, z0)
+          let pD = SIMD3<Float>(x0, y0, z0)
+          emitQuad(pA, pB, pC, pD,
+                   uv0: SIMD2<Float>(u1, v0Y), uv1: SIMD2<Float>(u1, v1Y),
+                   uv2: SIMD2<Float>(u0, v1Y), uv3: SIMD2<Float>(u0, v0Y),
+                   normal: SIMD3<Float>(0, 0, -1), materialIndex: mat)
+        }
       }
     }
 
