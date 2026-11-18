@@ -335,7 +335,23 @@ struct CPTPointEntry: Identifiable, Hashable, Codable, Sendable {
   }
 
   var formattedCoordinate: String {
-    String(format: "%.6f, %.6f", coordinate.latitude, coordinate.longitude)
+    UTMCoordinateConverter.formatAsUTM(coordinate)
+  }
+
+  var utmCoordinate: UTMCoordinate {
+    UTMCoordinateConverter.coordinateToUTM(coordinate)
+  }
+
+  var formattedEasting: String {
+    "\(Int(utmCoordinate.easting.rounded())) m E"
+  }
+
+  var formattedNorthing: String {
+    "\(Int(utmCoordinate.northing.rounded())) m N"
+  }
+
+  var formattedZone: String {
+    utmCoordinate.zoneIdentifier
   }
 
   var formattedLatitude: String {
@@ -488,7 +504,7 @@ struct CPTRecommendationResult: Hashable, Codable, Sendable {
   }
 
   var formattedCoordinate: String {
-    hasRecommendation ? String(format: "%.6f, %.6f", coordinate.latitude, coordinate.longitude) : "—"
+    hasRecommendation ? UTMCoordinateConverter.formatAsUTM(coordinate) : "—"
   }
 
   /// Converts legacy letter labels ("Spot A", "Spot B", "Spot #2") into numeric labels ("Spot 1", "Spot 2").

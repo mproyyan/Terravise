@@ -301,10 +301,9 @@ struct CPTRecommendedPointSheetView: View {
     // Single Spot Confidence Metric Card
     VStack(alignment: .leading, spacing: 6) {
       HStack {
-          Text("Recommendation Confidence")
-            .font(.caption.weight(.medium))
-            .foregroundStyle(Color.secondary)
-
+        Text("Current Ground Certainty")
+          .font(.caption.weight(.medium))
+          .foregroundStyle(Color.secondary)
 
         Spacer()
 
@@ -319,20 +318,20 @@ struct CPTRecommendedPointSheetView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Spot Confidence Information")
+        .accessibilityLabel("Current Ground Certainty Information")
         .popover(isPresented: $isConfidenceTooltipPresented) {
-          Text("How confident the AI is that this is the best spot to test next to reduce blind spots.")
+          Text("Shows how well the ground at this spot is currently understood from surrounding soundings. A lower percentage means this area is an untested blind spot, which is why testing here is recommended.")
             .font(.subheadline)
             .foregroundStyle(Color.primary)
             .fixedSize(horizontal: false, vertical: true)
             .padding(14)
-            .frame(maxWidth: 260)
+            .frame(maxWidth: 280)
             .presentationCompactAdaptation(.popover)
         }
       }
-        Text("\(recommendation.confidenceLevel)%")
-          .font(.title2.weight(.bold))
-          .foregroundStyle(Color.primary)
+      Text("\(recommendation.confidenceLevel)%")
+        .font(.title2.weight(.bold))
+        .foregroundStyle(Color.primary)
     }
     .padding(14)
     .frame(maxWidth: .infinity, alignment: .leading)
