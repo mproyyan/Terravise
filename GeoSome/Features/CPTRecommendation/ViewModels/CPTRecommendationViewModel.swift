@@ -37,10 +37,15 @@ final class CPTRecommendationViewModel {
 
   static let collapsedSheetDetent: PresentationDetent = .height(68)
   static let defaultSheetDetent: PresentationDetent = .height(260)
+  static let sufficientSheetDetent: PresentationDetent = .height(310)
   static let populatedSheetDetent: PresentationDetent = .height(420)
   static let cptDataListSheetDetent: PresentationDetent = .height(560)
   static let recommendationSheetDetent: PresentationDetent = .height(620)
   static let uploadSheetDetent: PresentationDetent = .height(640)
+
+  var targetRecommendationSheetDetent: PresentationDetent {
+    recommendation.isSufficient ? Self.sufficientSheetDetent : Self.recommendationSheetDetent
+  }
 
   var project: Project
   var cameraPosition: MapCameraPosition
@@ -166,7 +171,7 @@ final class CPTRecommendationViewModel {
     isUploadSheetPresented = false
     isCPTListPresented = false
     isSheetPresented = true
-    selectedSheetDetent = hasUploadedCPTData ? Self.recommendationSheetDetent : Self.defaultSheetDetent
+    selectedSheetDetent = hasUploadedCPTData ? targetRecommendationSheetDetent : Self.defaultSheetDetent
   }
 
   func presentEmptyStateSheet() {
@@ -197,7 +202,7 @@ final class CPTRecommendationViewModel {
 
   func dismissUploadSheet() {
     isUploadSheetPresented = false
-    selectedSheetDetent = hasUploadedCPTData ? Self.recommendationSheetDetent : Self.defaultSheetDetent
+    selectedSheetDetent = hasUploadedCPTData ? targetRecommendationSheetDetent : Self.defaultSheetDetent
   }
 
   func submitCPTUpload() {
@@ -243,7 +248,7 @@ final class CPTRecommendationViewModel {
 
     isUploadSheetPresented = false
     isCPTListPresented = false
-    selectedSheetDetent = Self.recommendationSheetDetent
+    selectedSheetDetent = result.isSufficient ? Self.sufficientSheetDetent : Self.recommendationSheetDetent
 
     if result.isSufficient {
       AccessibilityCaptionCenter.shared.announce(
@@ -266,7 +271,7 @@ final class CPTRecommendationViewModel {
 
   func dismissCPTDataList() {
     isCPTListPresented = false
-    selectedSheetDetent = hasUploadedCPTData ? Self.recommendationSheetDetent : Self.defaultSheetDetent
+    selectedSheetDetent = hasUploadedCPTData ? targetRecommendationSheetDetent : Self.defaultSheetDetent
   }
 
   func deleteCPTPoint(id: UUID) {

@@ -33,44 +33,57 @@ struct CPTRecommendedPointSheetView: View {
 
   var body: some View {
     ScrollView(.vertical, showsIndicators: false) {
-      VStack(alignment: .leading, spacing: 18) {
+      VStack(alignment: .leading, spacing: 16) {
         // Sheet Title
-        Text(recommendation.isSufficient ? "Sufficiency Reached" : (recommendation.hasRecommendation ? "Recommended Point" : "Rekomendasi belum tersedia"))
+        Text(sheetTitle)
           .font(.title2.weight(.bold))
           .foregroundStyle(Color.primary)
           .accessibilityAddTraits(.isHeader)
 
-        // Top Card: Recommendation Coordinate & Run CPT Warning (or Sufficiency Banner)
-        if recommendation.isSufficient || recommendation.hasRecommendation {
-          topRecommendationCard
+        if recommendation.isSufficient {
+          // Sufficient State matching target design
+          sufficientCoverageCard
+
+          uploadButton
+
+          cptDataListCard
         } else {
-          Text("Tidak ada kandidat DQN yang tersedia untuk kriteria jarak dan area saat ini, atau model tidak dapat dijalankan.")
-            .foregroundStyle(.secondary)
+          // Top Card: Recommendation Coordinate & Run CPT Warning
+          if recommendation.hasRecommendation {
+            topRecommendationCard
+          } else {
+            Text("Tidak ada kandidat DQN yang tersedia untuk kriteria jarak dan area saat ini, atau model tidak dapat dijalankan.")
+              .foregroundStyle(.secondary)
+          }
+
+          VStack(alignment: .leading, spacing: 2) {
+            Text("Sumber rekonstruksi: \(recommendation.reconstructionSource)")
+            Text("Sumber rekomendasi: \(recommendation.recommendationSource)")
+            Text("Sumber assessment: \(recommendation.assessmentSource)")
+            Text("QC-FS: \(recommendation.qcfsInferenceSource)")
+          }
+          .font(.caption)
+          .foregroundStyle(.secondary)
+
+          // Primary Action: Upload CPT Data
+          uploadButton
+
+          // "Why this point?" Section
+          if recommendation.hasRecommendation {
+            whyThisPointSection
+          }
+
+          // Metrics: RMSE and Confidence Level
+          metricsSection
+
+          // Reasons & Supporting Data Card
+          if recommendation.hasRecommendation {
+            reasonsCard
+          }
+
+          // Bottom Navigation Card: CPT Data entered
+          cptDataListCard
         }
-
-        VStack(alignment: .leading, spacing: 2) {
-          Text("Sumber rekonstruksi: \(recommendation.reconstructionSource)")
-          Text("Sumber rekomendasi: \(recommendation.recommendationSource)")
-          Text("Sumber assessment: \(recommendation.assessmentSource)")
-          Text("QC-FS: \(recommendation.qcfsInferenceSource)")
-        }
-        .font(.caption)
-        .foregroundStyle(.secondary)
-
-        // Primary Action: Upload Data CPT
-        uploadButton
-
-        // "Why this point?" Section
-        if recommendation.hasRecommendation && !recommendation.isSufficient { whyThisPointSection }
-
-        // Metrics: RMSE and Confidence Level
-        metricsSection
-
-        // Reasons & Supporting Data Card
-        if recommendation.hasRecommendation && !recommendation.isSufficient { reasonsCard }
-
-        // Bottom Navigation Card: CPT Data entered
-        cptDataListCard
       }
       .padding(.horizontal, 20)
       .padding(.top, 16)
@@ -78,6 +91,52 @@ struct CPTRecommendedPointSheetView: View {
     }
     .scrollBounceBehavior(.basedOnSize)
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+  }
+
+  private var sheetTitle: String {
+    if recommendation.isSufficient || recommendation.hasRecommendation {
+      return "Recommended Point"
+    } else {
+      return "Rekomendasi belum tersedia"
+    }
+  }
+
+  private var sufficientCoverageCard: some View {
+    HStack(alignment: .top, spacing: 12) {
+      Image(systemName: "checkmark.circle.fill")
+        .font(.system(size: 24, weight: .bold))
+        .foregroundStyle(Color.green)
+        .padding(.top, 1)
+        .accessibilityHidden(true)
+
+      VStack(alignment: .leading, spacing: 4) {
+        Text("CPT coverage is sufficient")
+          .font(.headline.weight(.bold))
+          .foregroundStyle(Color.primary)
+
+        Text("Current CPT data meets the assessment requirements.")
+          .font(.subheadline)
+          .foregroundStyle(Color.secondary)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+
+      Spacer(minLength: 0)
+    }
+    .padding(16)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(
+      RoundedRectangle(cornerRadius: 18, style: .continuous)
+        .fill(Color(.secondarySystemGroupedBackground))
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: 18, style: .continuous)
+        .stroke(
+          Color.primary.opacity(contrast == .increased ? 0.35 : 0.08),
+          lineWidth: contrast == .increased ? 1.5 : 1
+        )
+    )
+    .accessibilityElement(children: .combine)
+    .accessibilityLabel("CPT coverage is sufficient. Current CPT data meets the assessment requirements.")
   }
 
   // MARK: - Subviews
@@ -216,16 +275,19 @@ struct CPTRecommendedPointSheetView: View {
         Image(systemName: "square.and.arrow.up")
           .font(.body.weight(.semibold))
 
-        Text("Upload Data CPT")
+        Text("Upload CPT Data")
           .font(.body.weight(.semibold))
       }
       .foregroundStyle(Color.white)
       .frame(maxWidth: .infinity)
-      .frame(height: 50)
-      .background(Color.blue, in: Capsule())
+      .frame(height: 52)
+      .background(
+        RoundedRectangle(cornerRadius: 18, style: .continuous)
+          .fill(Color.blue)
+      )
     }
     .buttonStyle(.plain)
-    .accessibilityLabel("Upload Data CPT")
+    .accessibilityLabel("Upload CPT Data")
     .accessibilityHint("Opens sheet to upload additional CPT data")
   }
 
@@ -474,28 +536,29 @@ struct CPTRecommendedPointSheetView: View {
     }) {
       HStack {
         Text("CPT Data • \(cptPointsCount) entered")
-          .font(.subheadline.weight(.bold))
+          .font(.headline.weight(.bold))
           .foregroundStyle(Color.primary)
 
         Spacer()
 
         Image(systemName: "chevron.right")
-          .font(.caption.weight(.semibold))
+          .font(.subheadline.weight(.semibold))
           .foregroundStyle(Color.secondary)
       }
       .padding(.horizontal, 16)
-      .frame(height: 52)
+      .frame(height: 54)
       .background(
-        RoundedRectangle(cornerRadius: 16, style: .continuous)
+        RoundedRectangle(cornerRadius: 18, style: .continuous)
           .fill(Color(.secondarySystemGroupedBackground))
       )
       .overlay(
-        RoundedRectangle(cornerRadius: 16, style: .continuous)
+        RoundedRectangle(cornerRadius: 18, style: .continuous)
           .stroke(
             Color.primary.opacity(contrast == .increased ? 0.35 : 0.08),
             lineWidth: contrast == .increased ? 1.5 : 1
           )
       )
+      .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
     .accessibilityLabel("CPT Data, \(cptPointsCount) entered")
@@ -503,7 +566,19 @@ struct CPTRecommendedPointSheetView: View {
   }
 }
 
-#Preview {
+#Preview("Sufficient Coverage") {
+  CPTRecommendedPointSheetView(
+    recommendation: CPTRecommendationResult(
+      consecutiveSufficientCount: 3,
+      isSufficient: true
+    ),
+    cptPointsCount: 1
+  )
+  .padding()
+  .background(Color(.systemGroupedBackground))
+}
+
+#Preview("Recommendation") {
   CPTRecommendedPointSheetView(
     recommendation: CPTRecommendationResult(),
     cptPointsCount: 1
