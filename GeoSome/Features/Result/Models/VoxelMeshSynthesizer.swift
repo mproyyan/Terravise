@@ -104,13 +104,13 @@ enum VoxelMeshSynthesizer {
       }
       material.roughness = .init(floatLiteral: layer.typicalRoughness)
       material.metallic = .init(floatLiteral: 0.0)
-      material.faceCulling = .back
+      material.faceCulling = .none // Double-sided so highlighted concern zones inside the volume are always visible
       return material
     }
 
     // Index 9: Untextured, translucent neutral gray for non-highlighted areas (removes texture & eliminates blinking)
     var dimmedMaterial = SimpleMaterial()
-    dimmedMaterial.color = .init(tint: UIColor(white: 0.68, alpha: 0.22))
+    dimmedMaterial.color = .init(tint: UIColor(white: 0.72, alpha: 0.18))
     dimmedMaterial.roughness = .init(floatLiteral: 0.95)
     dimmedMaterial.metallic = .init(floatLiteral: 0.0)
     dimmedMaterial.faceCulling = .back
@@ -604,6 +604,105 @@ enum VoxelMeshSynthesizer {
       return 0
     }
 
+    // 0. If a Geotechnical Concern is isolated, synthesize the solid 3D faces of the concern cluster FIRST
+    // so that the opaque concern voxels are drawn into the depth buffer before the translucent gray boundary shell.
+    if let iso = isolatedVoxels, !iso.isEmpty {
+      for coord in iso {
+        guard coord.x <= clampedSliceX, coord.z <= clampedSliceZ else { continue }
+        guard coord.x >= 0, coord.x < nx, coord.y >= 0, coord.y < ny, coord.z >= 0, coord.z < nz else { continue }
+
+        let rawMat = activeMaterialAt(x: coord.x, y: coord.y, z: coord.z)
+        guard rawMat >= 0 else { continue }
+        let mat = UInt32(rawMat)
+
+        let x0 = (Float(coord.x) - 0.5 - centerX) * stepXM
+        let x1 = (Float(coord.x) + 0.5 - centerX) * stepXM
+        let z0 = (Float(coord.z) - 0.5 - centerZ) * stepZM
+        let z1 = (Float(coord.z) + 0.5 - centerZ) * stepZM
+        let y0 = worldY(coord.y)
+        let y1 = worldY(coord.y + 1)
+
+        let u0 = x0 * uvScale
+        let u1 = x1 * uvScale
+        let v0Z = z0 * uvScale
+        let v1Z = z1 * uvScale
+        let v0Y = y0 * uvScale
+        let v1Y = y1 * uvScale
+
+        // +Y (Top face of this voxel if voxel above is not in concern)
+        if coord.y == ny - 1 || !iso.contains(GridCoord(x: coord.x, y: coord.y + 1, z: coord.z)) {
+          let pA = SIMD3<Float>(x0, y1, z1)
+          let pB = SIMD3<Float>(x1, y1, z1)
+          let pC = SIMD3<Float>(x1, y1, z0)
+          let pD = SIMD3<Float>(x0, y1, z0)
+          emitQuad(pA, pB, pC, pD,
+                   uv0: SIMD2<Float>(u0, v1Z), uv1: SIMD2<Float>(u1, v1Z),
+                   uv2: SIMD2<Float>(u1, v0Z), uv3: SIMD2<Float>(u0, v0Z),
+                   normal: SIMD3<Float>(0, 1, 0), materialIndex: mat)
+        }
+
+        // -Y (Bottom face of this voxel if voxel below is not in concern)
+        if coord.y == 0 || !iso.contains(GridCoord(x: coord.x, y: coord.y - 1, z: coord.z)) {
+          let pA = SIMD3<Float>(x0, y0, z0)
+          let pB = SIMD3<Float>(x1, y0, z0)
+          let pC = SIMD3<Float>(x1, y0, z1)
+          let pD = SIMD3<Float>(x0, y0, z1)
+          emitQuad(pA, pB, pC, pD,
+                   uv0: SIMD2<Float>(u0, v0Z), uv1: SIMD2<Float>(u1, v0Z),
+                   uv2: SIMD2<Float>(u1, v1Z), uv3: SIMD2<Float>(u0, v1Z),
+                   normal: SIMD3<Float>(0, -1, 0), materialIndex: mat)
+        }
+
+        // +X (East face if neighbor +X is not in concern)
+        if coord.x == clampedSliceX || !iso.contains(GridCoord(x: coord.x + 1, y: coord.y, z: coord.z)) {
+          let pA = SIMD3<Float>(x1, y0, z1)
+          let pB = SIMD3<Float>(x1, y0, z0)
+          let pC = SIMD3<Float>(x1, y1, z0)
+          let pD = SIMD3<Float>(x1, y1, z1)
+          emitQuad(pA, pB, pC, pD,
+                   uv0: SIMD2<Float>(v1Z, v0Y), uv1: SIMD2<Float>(v0Z, v0Y),
+                   uv2: SIMD2<Float>(v0Z, v1Y), uv3: SIMD2<Float>(v1Z, v1Y),
+                   normal: SIMD3<Float>(1, 0, 0), materialIndex: mat)
+        }
+
+        // -X (West face if neighbor -X is not in concern)
+        if coord.x == 0 || !iso.contains(GridCoord(x: coord.x - 1, y: coord.y, z: coord.z)) {
+          let pA = SIMD3<Float>(x0, y0, z0)
+          let pB = SIMD3<Float>(x0, y0, z1)
+          let pC = SIMD3<Float>(x0, y1, z1)
+          let pD = SIMD3<Float>(x0, y1, z0)
+          emitQuad(pA, pB, pC, pD,
+                   uv0: SIMD2<Float>(v0Z, v0Y), uv1: SIMD2<Float>(v1Z, v0Y),
+                   uv2: SIMD2<Float>(v1Z, v1Y), uv3: SIMD2<Float>(v0Z, v1Y),
+                   normal: SIMD3<Float>(-1, 0, 0), materialIndex: mat)
+        }
+
+        // +Z (South face if neighbor +Z is not in concern)
+        if coord.z == clampedSliceZ || !iso.contains(GridCoord(x: coord.x, y: coord.y, z: coord.z + 1)) {
+          let pA = SIMD3<Float>(x0, y0, z1)
+          let pB = SIMD3<Float>(x1, y0, z1)
+          let pC = SIMD3<Float>(x1, y1, z1)
+          let pD = SIMD3<Float>(x0, y1, z1)
+          emitQuad(pA, pB, pC, pD,
+                   uv0: SIMD2<Float>(u0, v0Y), uv1: SIMD2<Float>(u1, v0Y),
+                   uv2: SIMD2<Float>(u1, v1Y), uv3: SIMD2<Float>(u0, v1Y),
+                   normal: SIMD3<Float>(0, 0, 1), materialIndex: mat)
+        }
+
+        // -Z (North face if neighbor -Z is not in concern)
+        if coord.z == 0 || !iso.contains(GridCoord(x: coord.x, y: coord.y, z: coord.z - 1)) {
+          let pA = SIMD3<Float>(x1, y0, z0)
+          let pB = SIMD3<Float>(x0, y0, z0)
+          let pC = SIMD3<Float>(x0, y1, z0)
+          let pD = SIMD3<Float>(x1, y1, z0)
+          emitQuad(pA, pB, pC, pD,
+                   uv0: SIMD2<Float>(u1, v0Y), uv1: SIMD2<Float>(u0, v0Y),
+                   uv2: SIMD2<Float>(u0, v1Y), uv3: SIMD2<Float>(u1, v1Y),
+                   normal: SIMD3<Float>(0, 0, -1), materialIndex: mat)
+        }
+      }
+    }
+
     // 1. Build initial metric 2D boundary polygon from `volume.boundaryPolygonUV`
     var rawPolygon: [SIMD2<Float>] = []
     let halfWidthM = volume.widthXM * 0.5
@@ -819,105 +918,6 @@ enum VoxelMeshSynthesizer {
 
         emitQuad(v0, v1, v2, v3, uv0: uv0, uv1: uv1, uv2: uv2, uv3: uv3, normal: wallNormal, materialIndex: mat)
         y += hY
-      }
-    }
-
-    // 7. If a Geotechnical Concern is isolated, synthesize the 3D boundary faces of the concern cluster
-    // so that the affected zone is fully visible inside the translucent gray boundary shell.
-    if let iso = isolatedVoxels, !iso.isEmpty {
-      for coord in iso {
-        guard coord.x <= clampedSliceX, coord.z <= clampedSliceZ else { continue }
-        guard coord.x >= 0, coord.x < nx, coord.y >= 0, coord.y < ny, coord.z >= 0, coord.z < nz else { continue }
-
-        let rawMat = activeMaterialAt(x: coord.x, y: coord.y, z: coord.z)
-        guard rawMat >= 0 else { continue }
-        let mat = UInt32(rawMat)
-
-        let x0 = (Float(coord.x) - 0.5 - centerX) * stepXM
-        let x1 = (Float(coord.x) + 0.5 - centerX) * stepXM
-        let z0 = (Float(coord.z) - 0.5 - centerZ) * stepZM
-        let z1 = (Float(coord.z) + 0.5 - centerZ) * stepZM
-        let y0 = worldY(coord.y)
-        let y1 = worldY(coord.y + 1)
-
-        let u0 = x0 * uvScale
-        let u1 = x1 * uvScale
-        let v0Z = z0 * uvScale
-        let v1Z = z1 * uvScale
-        let v0Y = y0 * uvScale
-        let v1Y = y1 * uvScale
-
-        // +Y (Top face of this voxel if voxel above is not in concern)
-        if coord.y < ny - 1 && !iso.contains(GridCoord(x: coord.x, y: coord.y + 1, z: coord.z)) {
-          let pA = SIMD3<Float>(x0, y1, z1)
-          let pB = SIMD3<Float>(x1, y1, z1)
-          let pC = SIMD3<Float>(x1, y1, z0)
-          let pD = SIMD3<Float>(x0, y1, z0)
-          emitQuad(pA, pB, pC, pD,
-                   uv0: SIMD2<Float>(u0, v1Z), uv1: SIMD2<Float>(u1, v1Z),
-                   uv2: SIMD2<Float>(u1, v0Z), uv3: SIMD2<Float>(u0, v0Z),
-                   normal: SIMD3<Float>(0, 1, 0), materialIndex: mat)
-        }
-
-        // -Y (Bottom face of this voxel if voxel below is not in concern)
-        if coord.y > 0 && !iso.contains(GridCoord(x: coord.x, y: coord.y - 1, z: coord.z)) {
-          let pA = SIMD3<Float>(x0, y0, z0)
-          let pB = SIMD3<Float>(x1, y0, z0)
-          let pC = SIMD3<Float>(x1, y0, z1)
-          let pD = SIMD3<Float>(x0, y0, z1)
-          emitQuad(pA, pB, pC, pD,
-                   uv0: SIMD2<Float>(u0, v0Z), uv1: SIMD2<Float>(u1, v0Z),
-                   uv2: SIMD2<Float>(u1, v1Z), uv3: SIMD2<Float>(u0, v1Z),
-                   normal: SIMD3<Float>(0, -1, 0), materialIndex: mat)
-        }
-
-        // +X (East face if neighbor +X is not in concern)
-        if coord.x < clampedSliceX && !iso.contains(GridCoord(x: coord.x + 1, y: coord.y, z: coord.z)) {
-          let pA = SIMD3<Float>(x1, y0, z1)
-          let pB = SIMD3<Float>(x1, y1, z1)
-          let pC = SIMD3<Float>(x1, y1, z0)
-          let pD = SIMD3<Float>(x1, y0, z0)
-          emitQuad(pA, pB, pC, pD,
-                   uv0: SIMD2<Float>(v1Z, v0Y), uv1: SIMD2<Float>(v1Z, v1Y),
-                   uv2: SIMD2<Float>(v0Z, v1Y), uv3: SIMD2<Float>(v0Z, v0Y),
-                   normal: SIMD3<Float>(1, 0, 0), materialIndex: mat)
-        }
-
-        // -X (West face if neighbor -X is not in concern)
-        if coord.x > 0 && !iso.contains(GridCoord(x: coord.x - 1, y: coord.y, z: coord.z)) {
-          let pA = SIMD3<Float>(x0, y0, z0)
-          let pB = SIMD3<Float>(x0, y1, z0)
-          let pC = SIMD3<Float>(x0, y1, z1)
-          let pD = SIMD3<Float>(x0, y0, z1)
-          emitQuad(pA, pB, pC, pD,
-                   uv0: SIMD2<Float>(v0Z, v0Y), uv1: SIMD2<Float>(v0Z, v1Y),
-                   uv2: SIMD2<Float>(v1Z, v1Y), uv3: SIMD2<Float>(v1Z, v0Y),
-                   normal: SIMD3<Float>(-1, 0, 0), materialIndex: mat)
-        }
-
-        // +Z (South face if neighbor +Z is not in concern)
-        if coord.z < clampedSliceZ && !iso.contains(GridCoord(x: coord.x, y: coord.y, z: coord.z + 1)) {
-          let pA = SIMD3<Float>(x0, y0, z1)
-          let pB = SIMD3<Float>(x0, y1, z1)
-          let pC = SIMD3<Float>(x1, y1, z1)
-          let pD = SIMD3<Float>(x1, y0, z1)
-          emitQuad(pA, pB, pC, pD,
-                   uv0: SIMD2<Float>(u0, v0Y), uv1: SIMD2<Float>(u0, v1Y),
-                   uv2: SIMD2<Float>(u1, v1Y), uv3: SIMD2<Float>(u1, v0Y),
-                   normal: SIMD3<Float>(0, 0, 1), materialIndex: mat)
-        }
-
-        // -Z (North face if neighbor -Z is not in concern)
-        if coord.z > 0 && !iso.contains(GridCoord(x: coord.x, y: coord.y, z: coord.z - 1)) {
-          let pA = SIMD3<Float>(x1, y0, z0)
-          let pB = SIMD3<Float>(x1, y1, z0)
-          let pC = SIMD3<Float>(x0, y1, z0)
-          let pD = SIMD3<Float>(x0, y0, z0)
-          emitQuad(pA, pB, pC, pD,
-                   uv0: SIMD2<Float>(u1, v0Y), uv1: SIMD2<Float>(u1, v1Y),
-                   uv2: SIMD2<Float>(u0, v1Y), uv3: SIMD2<Float>(u0, v0Y),
-                   normal: SIMD3<Float>(0, 0, -1), materialIndex: mat)
-        }
       }
     }
 
