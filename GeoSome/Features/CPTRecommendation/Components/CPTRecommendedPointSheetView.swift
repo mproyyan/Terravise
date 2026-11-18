@@ -12,6 +12,7 @@ struct CPTRecommendedPointSheetView: View {
 
   @Environment(\.colorSchemeContrast) private var contrast
   @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
+  @State private var isConfidenceTooltipPresented = false
 
   init(
     recommendation: CPTRecommendationResult = CPTRecommendationResult(),
@@ -308,6 +309,7 @@ struct CPTRecommendedPointSheetView: View {
         Spacer()
 
         Button(action: {
+          isConfidenceTooltipPresented.toggle()
           onConfidenceInfoTap?()
         }) {
           Image(systemName: "info.circle")
@@ -318,6 +320,15 @@ struct CPTRecommendedPointSheetView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Spot Confidence Information")
+        .popover(isPresented: $isConfidenceTooltipPresented) {
+          Text("How confident the AI is that this is the best spot to test next to reduce blind spots.")
+            .font(.subheadline)
+            .foregroundStyle(Color.primary)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(14)
+            .frame(maxWidth: 260)
+            .presentationCompactAdaptation(.popover)
+        }
       }
         Text("\(recommendation.confidenceLevel)%")
           .font(.title2.weight(.bold))
