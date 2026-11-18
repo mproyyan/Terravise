@@ -391,7 +391,7 @@ final class BoundaryCreationViewModel {
     result.reserveCapacity(lines.count)
 
     for line in lines {
-      guard let point = parseCoordinateLine(line) else {
+      guard let point = parseCoordinateLine(line, referenceCoordinate: result.first?.coordinate) else {
         return nil
       }
       result.append(point)
@@ -400,9 +400,17 @@ final class BoundaryCreationViewModel {
     return result
   }
 
-  private static func parseCoordinateLine(_ line: String) -> BoundaryPoint? {
+  private static func parseCoordinateLine(
+    _ line: String,
+    referenceCoordinate: CLLocationCoordinate2D? = nil
+  ) -> BoundaryPoint? {
     let trimmedLine = line.trimmingCharacters(in: .whitespaces)
     guard !trimmedLine.isEmpty else { return nil }
+
+    if let coord = UTMCoordinateConverter.parseCoordinate(from: trimmedLine, referenceCoordinate: referenceCoordinate),
+       CLLocationCoordinate2DIsValid(coord) {
+      return BoundaryPoint(latitude: coord.latitude, longitude: coord.longitude)
+    }
 
     let parts = trimmedLine.split(separator: ",", omittingEmptySubsequences: false)
     guard parts.count == 2,

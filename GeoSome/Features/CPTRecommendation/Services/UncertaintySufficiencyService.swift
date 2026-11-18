@@ -251,6 +251,95 @@ enum UncertaintySufficiencyService {
     )
   }
 
+  /// Evaluates the local prediction confidence (0–100%) specifically at the recommended candidate column `(ix, iy)`
+  /// by running `UncertaintyV3` across all depth layers `0 ..< nz` at that coordinate.
+  static func evaluateSpotConfidence(
+    reconstruction: SchemaGANReconstructionOutput,
+    grid: CPTGridConfig,
+    ix: Int,
+    iy: Int
+  ) -> Int {
+    let nx = grid.nx
+    let ny = grid.ny
+    let nz = grid.nz
+    let dx = grid.dxM
+    let dy = grid.dyM
+    let dz = grid.dzM
+
+    let clampedX = min(max(ix, 0), max(nx - 1, 0))
+    let clampedY = min(max(iy, 0), max(ny - 1, 0))
+
+    let rec = reconstruction.reconstructedIc
+    let valid = reconstruction.validMask
+    let sites = reconstruction.observedSitesXY
+    let nCPT = max(sites.count, 1)
+
+    let xM = Double(clampedX) * dx
+    let yM = Double(clampedY) * dy
+    var minD = Double.greatestFiniteMagnitude
+    var within25Count = 0
+    for site in sites {
+      let d = hypot(xM - Double(site.ix) * dx, yM - Double(site.iy) * dy)
+      minD = min(minD, d)
+      if d <= 25.0 {
+        within25Count += 1
+      }
+    }
+    let distToNearestM = minD.isFinite ? minD : grid.siteDiagonalM
+    let nearbyFrac25m = Double(within25Count) / Double(nCPT)
+
+    let (lateralGrad, verticalGrad) = compute3DGradients(
+      rec: rec,
+      nx: nx,
+      ny: ny,
+      nz: nz,
+      dx: dx,
+      dy: dy,
+      dz: dz
+    )
+
+    let correction = uncertaintyModel?.calibrationCorrection ?? 0.0030156622852133743
+    var columnBounds: [Double] = []
+    columnBounds.reserveCapacity(nz)
+
+    for iz in 0 ..< nz where valid[clampedX][clampedY][iz] {
+      let features: [Double] = [
+        distToNearestM,
+        Double(iz) * dz,
+        rec[clampedX][clampedY][iz],
+        lateralGrad[clampedX][clampedY][iz],
+        verticalGrad[clampedX][clampedY][iz],
+        nearbyFrac25m,
+        Double(nCPT),
+        dx,
+        dy,
+        dz
+      ]
+
+      let bound: Double
+      if let uModel = uncertaintyModel {
+        let raw = predictTreeEnsemble(features: features, model: uModel)
+        bound = max(0.0, raw) + correction
+      } else {
+        let distFactor = min(distToNearestM / max(grid.siteDiagonalM, 1.0), 1.0)
+        bound = 0.08 + 0.14 * distFactor / sqrt(Double(nCPT))
+      }
+      columnBounds.append(bound)
+    }
+
+    guard !columnBounds.isEmpty else {
+      return 60
+    }
+
+    let meanColumnBound = columnBounds.reduce(0.0, +) / Double(columnBounds.count)
+    let localCoverage = Double(columnBounds.filter { $0 <= icTolerance }.count) / Double(columnBounds.count)
+    let boundScore = min(max(1.0 - (meanColumnBound / 0.35), 0.0), 1.0)
+    let distanceFactor = exp(-distToNearestM / max(grid.siteDiagonalM * 0.85, 20.0))
+
+    let blendedSpotConfidence = 0.55 * boundScore + 0.25 * localCoverage + 0.20 * distanceFactor
+    return min(max(Int((blendedSpotConfidence * 100.0).rounded()), 15), 95)
+  }
+
   private static func predictTreeEnsemble(
     features: [Double],
     model: ExportedTreeModel

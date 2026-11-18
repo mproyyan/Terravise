@@ -284,8 +284,8 @@ final class ResultAnalysisViewModel {
     }
 
     if let rec = resolvedProject.latestRecommendation {
-      let uncertainty = max(1, 100 - rec.confidenceLevel)
-      self.predictionUncertaintyPercent = uncertainty
+      let siteUncertainty = Int(((1.0 - min(max(rec.predictedCoverage, 0.01), 0.99)) * 100.0).rounded())
+      self.predictionUncertaintyPercent = max(1, siteUncertainty)
     }
     reevaluateBearingRule()
     updateGeotechnicalConcernsAndSummary()
@@ -374,8 +374,8 @@ final class ResultAnalysisViewModel {
     cameraController.configure(for: builtVolume, resetState: true)
 
     if let rec = newProject.latestRecommendation {
-      let uncertainty = max(1, 100 - rec.confidenceLevel)
-      predictionUncertaintyPercent = uncertainty
+      let siteUncertainty = Int(((1.0 - min(max(rec.predictedCoverage, 0.01), 0.99)) * 100.0).rounded())
+      predictionUncertaintyPercent = max(1, siteUncertainty)
     }
 
     if newProject.cptPoints.isEmpty {

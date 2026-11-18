@@ -333,7 +333,7 @@ struct CPTUploadDataSheetView: View {
         .accessibilityAddTraits(.isHeader)
 
       HStack {
-        TextField("e.g -6.215432, 106.845321", text: $coordinatesText)
+        TextField("e.g. 48S 702634 E, 9309747 N", text: $coordinatesText)
           .font(.body)
           .foregroundStyle(Color.primary)
           .autocorrectionDisabled()
@@ -574,16 +574,6 @@ struct CPTUploadDataSheetView: View {
         } isTargeted: { targeted in
           isDropTargetActive = targeted
         }
-
-        Button("Gunakan data contoh (simulasi)") {
-          importError = nil
-          lastLoadedCSVText = nil
-          parsedRows = CPTRowData.sampleRows
-          uploadedFile = CPTUploadedFile(name: "Data contoh — bukan pengukuran.csv",
-                                         byteSize: 0, rowCount: parsedRows.count,
-                                         matchedColumns: selectedCPTType.requiredColumns, isDemo: true)
-        }
-        .font(.footnote)
       }
     }
   }

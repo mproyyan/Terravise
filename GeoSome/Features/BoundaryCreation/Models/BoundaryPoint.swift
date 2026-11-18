@@ -44,8 +44,12 @@ struct BoundaryPoint: Identifiable, Hashable, Codable, Sendable {
     longitude.formatted(Self.coordinateFormat)
   }
 
+  var utmCoordinate: UTMCoordinate {
+    UTMCoordinateConverter.coordinateToUTM(coordinate)
+  }
+
   var formattedCoordinate: String {
-    "\(formattedLatitude), \(formattedLongitude)"
+    UTMCoordinateConverter.formatAsUTM(coordinate)
   }
 }
 

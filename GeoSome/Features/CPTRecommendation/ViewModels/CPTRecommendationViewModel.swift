@@ -120,7 +120,7 @@ final class CPTRecommendationViewModel {
 
   var pendingUploadCoordinate: CLLocationCoordinate2D? {
     guard isUploadSheetPresented else { return nil }
-    guard let coordinate = Self.parseCoordinate(from: uploadCoordinatesText) else { return nil }
+    guard let coordinate = Self.parseCoordinate(from: uploadCoordinatesText, referenceCoordinate: coordinates.first) else { return nil }
     guard isCoordinateInsideBoundary(coordinate) else { return nil }
     return coordinate
   }
@@ -159,7 +159,7 @@ final class CPTRecommendationViewModel {
     }
 
     UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-    uploadCoordinatesText = String(format: "%.6f, %.6f", coordinate.latitude, coordinate.longitude)
+    uploadCoordinatesText = UTMCoordinateConverter.formatAsUTM(coordinate)
     uploadValidationError = nil
     AccessibilityCaptionCenter.shared.announce(
       "Coordinate updated to \(uploadCoordinatesText).",
@@ -192,7 +192,7 @@ final class CPTRecommendationViewModel {
       uploadCoordinatesText = recommendation.formattedCoordinate
     } else if uploadCoordinatesText.isEmpty {
       let center = resolvedBoundaryRegion.center
-      uploadCoordinatesText = String(format: "%.6f, %.6f", center.latitude, center.longitude)
+      uploadCoordinatesText = UTMCoordinateConverter.formatAsUTM(center)
     }
     isUploadSheetPresented = true
     isCPTListPresented = false
@@ -212,8 +212,8 @@ final class CPTRecommendationViewModel {
       uploadValidationError = "Pilih file CSV CPT yang valid dengan kolom dan data yang lengkap."
       return
     }
-    guard let coordinate = Self.parseCoordinate(from: uploadCoordinatesText) else {
-      uploadValidationError = "Koordinat tidak valid. Masukkan latitude, longitude dalam derajat."
+    guard let coordinate = Self.parseCoordinate(from: uploadCoordinatesText, referenceCoordinate: coordinates.first) else {
+      uploadValidationError = "Koordinat tidak valid. Masukkan format UTM (misal: 48S 702634 E, 9309747 N) atau Latitude, Longitude."
       return
     }
     guard isCoordinateInsideBoundary(coordinate) else {
@@ -356,16 +356,10 @@ final class CPTRecommendationViewModel {
 
   // MARK: - Helpers
 
-  static func parseCoordinate(from text: String) -> CLLocationCoordinate2D? {
-    let parts = text.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-    guard parts.count == 2,
-          let lat = Double(parts[0]),
-          let lon = Double(parts[1]),
-          (-90.0 ... 90.0).contains(lat),
-          (-180.0 ... 180.0).contains(lon)
-    else {
-      return nil
-    }
-    return CLLocationCoordinate2D(latitude: lat, longitude: lon)
+  static func parseCoordinate(
+    from text: String,
+    referenceCoordinate: CLLocationCoordinate2D? = nil
+  ) -> CLLocationCoordinate2D? {
+    UTMCoordinateConverter.parseCoordinate(from: text, referenceCoordinate: referenceCoordinate)
   }
 }
