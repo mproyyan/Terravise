@@ -2,6 +2,39 @@ import CoreLocation
 import Foundation
 import Observation
 import SwiftUI
+#if canImport(FoundationModels)
+import FoundationModels
+
+@available(iOS 26.0, *)
+@Generable
+struct GeneratedGroundConditionSummary: Sendable {
+  @Guide(
+    description:
+      "A concise 2 to 3 sentence geotechnical engineering summary of the 3D subsurface stratigraphy and bearing horizon using only the provided soil types, depth numbers, and directional trends."
+  )
+  var summary: String
+}
+#endif
+
+nonisolated struct SiteGroundFacts: Sendable {
+  let cptCount: Int
+  let siteWidthM: Double
+  let siteLengthM: Double
+  let maxDepthM: Double
+  let shallowDominantSoil: String
+  let shallowMeanIc: Double
+  let shallowMeanQcMPa: Double
+  let midDominantSoil: String
+  let midMeanIc: Double
+  let midMeanQcMPa: Double
+  let deepDominantSoil: String
+  let deepMeanIc: Double
+  let deepMeanQcMPa: Double
+  let shallowestBearingDepthM: Double?
+  let deepestBearingDepthM: Double?
+  let deeperBearingSector: String
+  let detectedConcerns: [String]
+}
 
 nonisolated struct GeotechnicalConcernItem: Identifiable, Equatable, Sendable {
   let id: String
@@ -167,6 +200,7 @@ final class ResultAnalysisViewModel {
   var geotechnicalConcerns: [GeotechnicalConcernItem] = ResultAnalysisViewModel.defaultConcerns
   var selectedConcernID: String? = nil
   var predictionUncertaintyPercent: Int = 12
+  private var summaryGenerationTask: Task<Void, Never>?
 
   var activeConcernVoxels: Set<GridCoord>? {
     guard let selectedConcernID,
@@ -809,28 +843,41 @@ final class ResultAnalysisViewModel {
     var shallowCounts: [SoilLayerType: Int] = [:]
     var midCounts: [SoilLayerType: Int] = [:]
     var deepCounts: [SoilLayerType: Int] = [:]
+    var shallowIcSum = 0.0, shallowQcSum = 0.0, shallowN = 0.0
+    var midIcSum = 0.0, midQcSum = 0.0, midN = 0.0
+    var deepIcSum = 0.0, deepQcSum = 0.0, deepN = 0.0
     let ny = max(volume.ny, 1)
 
     for v in allVoxels {
       let depthRatio = Double(v.layerIdx) / Double(ny)
+      let qc = sampleQcMPa(for: v)
+      let ic = Double(v.robertsonIc)
       if depthRatio < 0.34 {
         shallowCounts[v.soilClassification, default: 0] += 1
+        shallowIcSum += ic
+        shallowQcSum += qc
+        shallowN += 1
       } else if depthRatio < 0.67 {
         midCounts[v.soilClassification, default: 0] += 1
+        midIcSum += ic
+        midQcSum += qc
+        midN += 1
       } else {
         deepCounts[v.soilClassification, default: 0] += 1
+        deepIcSum += ic
+        deepQcSum += qc
+        deepN += 1
       }
     }
 
     let dominantShallow = shallowCounts.max(by: { $0.value < $1.value })?.key.displayName.lowercased() ?? "sand mixtures"
     let dominantMid = midCounts.max(by: { $0.value < $1.value })?.key.displayName.lowercased() ?? "silt mixtures"
     let dominantDeep = deepCounts.max(by: { $0.value < $1.value })?.key.displayName.lowercased() ?? "dense sand"
+    let shallowB = bearingRuleOutput?.summary.shallowestTopDepthM
+    let deepB = bearingRuleOutput?.summary.deepestBottomDepthM
 
     if !project.cptPoints.isEmpty {
-      if let out = bearingRuleOutput,
-         let shallowB = out.summary.shallowestTopDepthM,
-         let deepB = out.summary.deepestBottomDepthM
-      {
+      if let shallowB, let deepB {
         groundConditionsSummary = String(
           format: "Reconstructed 3D stratigraphy transitions from predominantly %@ in the upper profile to %@ at mid-depth and %@ at deeper horizons. Competent bearing strata are identified between %.1f m and %.1f m depth across the site.",
           dominantShallow,
@@ -1084,6 +1131,139 @@ final class ResultAnalysisViewModel {
     if let selectedConcernID, !builtConcerns.contains(where: { $0.id == selectedConcernID }) {
       self.selectedConcernID = nil
     }
+
+    // 3. Launch on-device Foundation Model generation for Ground Conditions Summary when CPT data exists
+    summaryGenerationTask?.cancel()
+    guard !project.cptPoints.isEmpty else { return }
+
+    // Determine which sector has deeper bearing strata
+    var northDepthSum = 0.0, northCount = 0.0
+    var southDepthSum = 0.0, southCount = 0.0
+    for bv in volume.bearingVoxels.values {
+      if bv.coord.z < volume.nz / 2 {
+        northDepthSum += Double(bv.bearingDepthM)
+        northCount += 1
+      } else {
+        southDepthSum += Double(bv.bearingDepthM)
+        southCount += 1
+      }
+    }
+    let northMean = northCount > 0 ? (northDepthSum / northCount) : 0.0
+    let southMean = southCount > 0 ? (southDepthSum / southCount) : 0.0
+    let deeperSector = southMean >= northMean ? "southern sector" : "northern sector"
+
+    let facts = SiteGroundFacts(
+      cptCount: project.cptPoints.count,
+      siteWidthM: Double(volume.widthXM),
+      siteLengthM: Double(volume.lengthZM),
+      maxDepthM: Double(volume.depthYM),
+      shallowDominantSoil: dominantShallow,
+      shallowMeanIc: shallowN > 0 ? (shallowIcSum / shallowN) : 2.4,
+      shallowMeanQcMPa: shallowN > 0 ? (shallowQcSum / shallowN) : 4.0,
+      midDominantSoil: dominantMid,
+      midMeanIc: midN > 0 ? (midIcSum / midN) : 2.3,
+      midMeanQcMPa: midN > 0 ? (midQcSum / midN) : 7.0,
+      deepDominantSoil: dominantDeep,
+      deepMeanIc: deepN > 0 ? (deepIcSum / deepN) : 1.9,
+      deepMeanQcMPa: deepN > 0 ? (deepQcSum / deepN) : 14.0,
+      shallowestBearingDepthM: shallowB,
+      deepestBearingDepthM: deepB,
+      deeperBearingSector: deeperSector,
+      detectedConcerns: builtConcerns.map(\.title)
+    )
+
+    let currentVolumeID = volume.id
+    summaryGenerationTask = Task { [weak self] in
+      await self?.generateFoundationModelGroundSummary(facts: facts, volumeID: currentVolumeID)
+    }
+  }
+
+  private func generateFoundationModelGroundSummary(facts: SiteGroundFacts, volumeID: UUID) async {
+    #if canImport(FoundationModels)
+    guard #available(iOS 26.0, *) else { return }
+    let model = SystemLanguageModel.default
+    guard model.availability == .available else { return }
+
+    let instructions = Instructions(
+      """
+      You are a geotechnical engineering assistant summarizing a 3D CPT subsurface reconstruction.
+      STRICT RULES:
+      1. Use ONLY the soil classifications, depths, qc/Ic values, and directional trends provided in the input facts.
+      2. Do NOT invent groundwater table (GWL) depths, seismic PGA, SPT N-values, borehole logs, or laboratory test results.
+      3. Write 2 to 3 concise sentences (35 to 65 words) in plain prose without bullet points or markdown headings.
+      """
+    )
+
+    let bearingFactLine: String
+    if let s = facts.shallowestBearingDepthM, let d = facts.deepestBearingDepthM {
+      bearingFactLine = String(
+        format: "Competent bearing horizon depth range: %.1f m to %.1f m (deeper toward the %@).",
+        s,
+        d,
+        facts.deeperBearingSector
+      )
+    } else {
+      bearingFactLine = String(
+        format: "Competentstrata trend deeper toward the %@ within the %.1f m investigation depth.",
+        facts.deeperBearingSector,
+        facts.maxDepthM
+      )
+    }
+
+    let prompt = """
+    Summarize the following 3D CPT site facts in 2 to 3 sentences:
+    - CPT soundings: \(facts.cptCount), Investigation depth: \(String(format: "%.1f", facts.maxDepthM)) m
+    - Shallow zone (upper third): predominantly \(facts.shallowDominantSoil) (mean Ic \(String(format: "%.2f", facts.shallowMeanIc)), mean qc \(String(format: "%.1f", facts.shallowMeanQcMPa)) MPa)
+    - Mid-depth zone (middle third): predominantly \(facts.midDominantSoil) (mean Ic \(String(format: "%.2f", facts.midMeanIc)), mean qc \(String(format: "%.1f", facts.midMeanQcMPa)) MPa)
+    - Deep zone (lower third): predominantly \(facts.deepDominantSoil) (mean Ic \(String(format: "%.2f", facts.deepMeanIc)), mean qc \(String(format: "%.1f", facts.deepMeanQcMPa)) MPa)
+    - \(bearingFactLine)
+    """
+
+    do {
+      let session = LanguageModelSession(instructions: instructions)
+      let options = GenerationOptions(temperature: 0.2)
+      let response = try await session.respond(
+        to: prompt,
+        generating: GeneratedGroundConditionSummary.self,
+        options: options
+      )
+      guard !Task.isCancelled, self.volume.id == volumeID else { return }
+
+      let candidate = response.content.summary.trimmingCharacters(in: .whitespacesAndNewlines)
+      if Self.isValidGeneratedGroundSummary(candidate, facts: facts) {
+        self.groundConditionsSummary = candidate
+      }
+    } catch {
+      // Keep the deterministic baseline summary in place if on-device generation fails or is cancelled
+    }
+    #endif
+  }
+
+  private static func isValidGeneratedGroundSummary(_ text: String, facts: SiteGroundFacts) -> Bool {
+    guard text.count >= 40, text.count <= 480 else { return false }
+    let lower = text.lowercased()
+
+    // Reject hallucinated non-CPT parameters
+    let forbiddenTerms = [
+      "water table",
+      "groundwater table",
+      "gwl",
+      "spt",
+      "triaxial",
+      "atterberg",
+      "pga"
+    ]
+    if forbiddenTerms.contains(where: { lower.contains($0) }) {
+      return false
+    }
+
+    // Require at least one valid soil behavior keyword from the site
+    let soilKeywords = ["clay", "silt", "sand", "gravel", "fine-grained", "organic", "strata", "soil"]
+    guard soilKeywords.contains(where: { lower.contains($0) }) else {
+      return false
+    }
+
+    return true
   }
 
   private func computeClusterStats(for coords: Set<GridCoord>) -> (
