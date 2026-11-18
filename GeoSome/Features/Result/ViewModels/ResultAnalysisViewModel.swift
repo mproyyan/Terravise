@@ -239,10 +239,7 @@ final class ResultAnalysisViewModel {
   var selectedPopoverLayers: [SBTProfileLayerItem] = CPTPointProfilePopoverView.defaultLayers
 
   var displayedCPTPointsCount: Int {
-    if isSubsurfaceConditionsEmpty {
-      return project.cptPoints.count
-    }
-    return project.cptPoints.isEmpty ? 12 : project.cptPoints.count
+    project.cptPoints.count
   }
 
   init(project: Project? = nil) {
@@ -622,6 +619,12 @@ final class ResultAnalysisViewModel {
   }
 
   func handleTopSurfaceTap(at screenPoint: CGPoint, local3DPoint: SIMD3<Float>?, voxel: SoilVoxel?) {
+    guard !project.cptPoints.isEmpty else {
+      isProfilePopoverPresented = false
+      AccessibilityCaptionCenter.shared.announce("Belum ada data CPT untuk proyek ini.")
+      return
+    }
+
     if let hitPt = local3DPoint {
       guard volume.isMetricPointInsideActiveArea(
         xM: hitPt.x,
@@ -712,6 +715,12 @@ final class ResultAnalysisViewModel {
   /// Creates/places a Virtual CPT in the 3D scene at the current minimap center position (`cameraController.target`)
   /// and presents the SBT stratigraphy popover immediately, only if the minimap center lies inside the active boundary area.
   func createVirtualCPTAtMinimapCenter() {
+    guard !project.cptPoints.isEmpty else {
+      isProfilePopoverPresented = false
+      AccessibilityCaptionCenter.shared.announce("Belum ada data CPT untuk proyek ini.")
+      return
+    }
+
     let centerPt = SIMD3<Float>(cameraController.target.x, 0.0, cameraController.target.z)
     guard volume.isMetricPointInsideActiveArea(
       xM: centerPt.x,

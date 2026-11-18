@@ -245,6 +245,8 @@ struct SubsurfaceVoxelVolume: Sendable {
   ]
   /// Normalized `[0, 1] x [0, 1]` UV coordinates of CPT points inside the boundary polygon.
   var cptNormalizedUVs: [SIMD2<Float>] = []
+  /// True if at least one measured CPT sounding borehole is present in the volume.
+  var hasMeasuredCPTData: Bool = false
 
   @inline(__always)
   func flatIndex(x: Int, y: Int, z: Int) -> Int {

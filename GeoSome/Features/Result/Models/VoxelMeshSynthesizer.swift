@@ -405,35 +405,6 @@ enum VoxelMeshSynthesizer {
         cptMetricPositions.append(SIMD3<Float>(metricWX, 0.0, metricWZ))
         cptUVs.append(SIMD2<Float>(Float(normX), Float(normZ)))
       }
-    } else {
-      // Sample 3 reference CPT borehole markers strictly inside the active boundary polygon
-      let targetFractions: [Double] = [0.27, 0.58, 0.85]
-      for frac in targetFractions {
-        let targetIX = min(max(Int((frac * Double(nx - 1)).rounded()), 1), nx - 2)
-        // Find active Z span at targetIX (or nearest active column)
-        var bestIX = targetIX
-        var activeZs: [Int] = []
-        for radius in 0 ..< nx {
-          let candidates = radius == 0 ? [targetIX] : [targetIX - radius, targetIX + radius]
-          for cix in candidates where cix >= 0 && cix < nx {
-            let zs = (0 ..< nz).filter { activeColumns[cix][$0] }
-            if !zs.isEmpty {
-              bestIX = cix
-              activeZs = zs
-              break
-            }
-          }
-          if !activeZs.isEmpty { break }
-        }
-        let chosenIZ = activeZs.isEmpty ? (nz / 2) : activeZs[activeZs.count / 2]
-        let wx = Float(bestIX) - centerX
-        let wz = Float(chosenIZ) - centerZ
-        cptPositions.append(SIMD3<Float>(wx, 0.0, wz))
-        cptMetricPositions.append(SIMD3<Float>(wx * stepXM, 0.0, wz * stepZM))
-        let u = Float(bestIX) / Float(max(nx - 1, 1))
-        let v = Float(chosenIZ) / Float(max(nz - 1, 1))
-        cptUVs.append(SIMD2<Float>(u, v))
-      }
     }
 
     return SubsurfaceVoxelVolume(
@@ -460,7 +431,8 @@ enum VoxelMeshSynthesizer {
       minLongitude: minLon,
       maxLongitude: maxLon,
       boundaryPolygonUV: boundaryUVs,
-      cptNormalizedUVs: cptUVs
+      cptNormalizedUVs: cptUVs,
+      hasMeasuredCPTData: !cptPoints.isEmpty
     )
   }
 
@@ -572,6 +544,11 @@ enum VoxelMeshSynthesizer {
 
     @inline(__always)
     func sampleMaterial(xM: Float, zM: Float, layerY: Int) -> UInt32 {
+      // If no CPT sounding tests exist yet, render the entire site volume in untextured translucent gray
+      guard volume.hasMeasuredCPTData else {
+        return Self.dimmedMaterialIndex
+      }
+
       let (fx, fz) = volume.continuousGridCoordinates(forMetricX: xM, zM: zM)
       let gx = min(max(Int(fx.rounded()), 0), nx - 1)
       let gz = min(max(Int(fz.rounded()), 0), nz - 1)
