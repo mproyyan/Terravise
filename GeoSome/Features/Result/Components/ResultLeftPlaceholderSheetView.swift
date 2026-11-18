@@ -102,8 +102,6 @@ struct ResultLeftPlaceholderSheetView: View {
   var concerns: [GeotechnicalConcernItem]
   var isSubsurfaceConditionsEmpty: Bool
   var isGeotechnicalConcernsEmpty: Bool
-  var selectedConcernID: String?
-  var onSelectConcern: ((GeotechnicalConcernItem) -> Void)?
   var legendItems: [LegendMapItem]
   var predictionUncertaintyPercent: Int
   var cptPointsCount: Int
@@ -120,8 +118,6 @@ struct ResultLeftPlaceholderSheetView: View {
     concerns: [GeotechnicalConcernItem] = ResultAnalysisViewModel.defaultConcerns,
     isSubsurfaceConditionsEmpty: Bool = false,
     isGeotechnicalConcernsEmpty: Bool = false,
-    selectedConcernID: String? = nil,
-    onSelectConcern: ((GeotechnicalConcernItem) -> Void)? = nil,
     legendItems: [LegendMapItem] = Self.defaultLegendItems,
     predictionUncertaintyPercent: Int = 12,
     cptPointsCount: Int = 12
@@ -130,8 +126,6 @@ struct ResultLeftPlaceholderSheetView: View {
     self.concerns = concerns
     self.isSubsurfaceConditionsEmpty = isSubsurfaceConditionsEmpty
     self.isGeotechnicalConcernsEmpty = isGeotechnicalConcernsEmpty
-    self.selectedConcernID = selectedConcernID
-    self.onSelectConcern = onSelectConcern
     self.legendItems = legendItems
     self.predictionUncertaintyPercent = predictionUncertaintyPercent
     self.cptPointsCount = cptPointsCount
@@ -323,60 +317,36 @@ struct ResultLeftPlaceholderSheetView: View {
   }
 
   private func concernRow(for concern: GeotechnicalConcernItem) -> some View {
-    let isSelected = selectedConcernID == concern.id
+    VStack(alignment: .leading, spacing: 8) {
+      Text(concern.title)
+        .font(.subheadline.weight(.bold))
+        .foregroundStyle(Color.primary)
+        .multilineTextAlignment(.leading)
+        .fixedSize(horizontal: false, vertical: true)
 
-    return Button(action: {
-      onSelectConcern?(concern)
-    }) {
-      VStack(alignment: .leading, spacing: 8) {
-        HStack(alignment: .top, spacing: 8) {
-          Text(concern.title)
-            .font(.subheadline.weight(.bold))
-            .foregroundStyle(isSelected ? Color.blue : Color.primary)
+      Text(concern.implication)
+        .font(.footnote)
+        .foregroundStyle(Color.secondary)
+        .multilineTextAlignment(.leading)
+        .fixedSize(horizontal: false, vertical: true)
+
+      VStack(alignment: .leading, spacing: 2) {
+        ForEach(concern.locationAndDepthLines, id: \.self) { line in
+          Text(line)
+            .font(.footnote)
+            .foregroundStyle(Color.secondary)
             .multilineTextAlignment(.leading)
             .fixedSize(horizontal: false, vertical: true)
-
-          Spacer(minLength: 4)
-
-          Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-            .font(.system(size: 18))
-            .foregroundStyle(isSelected ? Color.blue : Color(.systemGray3))
-            .accessibilityHidden(true)
-        }
-
-        Text(concern.implication)
-          .font(.footnote)
-          .foregroundStyle(Color.secondary)
-          .multilineTextAlignment(.leading)
-          .fixedSize(horizontal: false, vertical: true)
-
-        VStack(alignment: .leading, spacing: 2) {
-          ForEach(concern.locationAndDepthLines, id: \.self) { line in
-            Text(line)
-              .font(.footnote)
-              .foregroundStyle(Color.secondary)
-              .multilineTextAlignment(.leading)
-              .fixedSize(horizontal: false, vertical: true)
-          }
         }
       }
-      .padding(isSelected ? 10 : 0)
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .background(
-        RoundedRectangle(cornerRadius: 12, style: .continuous)
-          .fill(isSelected ? Color.blue.opacity(0.08) : Color.clear)
-      )
-      .contentShape(Rectangle())
     }
-    .buttonStyle(.plain)
+    .frame(maxWidth: .infinity, alignment: .leading)
     .accessibilityElement(children: .combine)
     .accessibilityLabel(concern.title)
     .accessibilityValue(
-      ([isSelected ? "Selected" : "Not selected", concern.implication] + concern.locationAndDepthLines)
+      ([concern.implication] + concern.locationAndDepthLines)
         .joined(separator: ", ")
     )
-    .accessibilityHint("Double-tap to toggle 3D highlight for this concern")
-    .accessibilityAddTraits(isSelected ? .isSelected : [])
   }
 
   private var legendMapSectionHeader: some View {

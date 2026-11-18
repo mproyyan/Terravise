@@ -224,12 +224,6 @@ struct ResultAnalysisView: View {
               concerns: viewModel.geotechnicalConcerns,
               isSubsurfaceConditionsEmpty: viewModel.isSubsurfaceConditionsEmpty,
               isGeotechnicalConcernsEmpty: viewModel.isGeotechnicalConcernsEmpty,
-              selectedConcernID: viewModel.selectedConcernID,
-              onSelectConcern: { concern in
-                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
-                  viewModel.selectConcern(concern)
-                }
-              },
               legendItems: viewModel.activeLegendItems,
               predictionUncertaintyPercent: viewModel.predictionUncertaintyPercent,
               cptPointsCount: viewModel.displayedCPTPointsCount
