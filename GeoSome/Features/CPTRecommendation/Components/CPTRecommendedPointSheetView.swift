@@ -56,14 +56,8 @@ struct CPTRecommendedPointSheetView: View {
               .foregroundStyle(.secondary)
           }
 
-          VStack(alignment: .leading, spacing: 2) {
-            Text("Sumber rekonstruksi: \(recommendation.reconstructionSource)")
-            Text("Sumber rekomendasi: \(recommendation.recommendationSource)")
-            Text("Sumber assessment: \(recommendation.assessmentSource)")
-            Text("QC-FS: \(recommendation.qcfsInferenceSource)")
-          }
-          .font(.caption)
-          .foregroundStyle(.secondary)
+          // Spot Confidence Metric Card
+          metricsSection
 
           // Primary Action: Upload CPT Data
           uploadButton
@@ -72,9 +66,6 @@ struct CPTRecommendedPointSheetView: View {
           if recommendation.hasRecommendation {
             whyThisPointSection
           }
-
-          // Metrics: RMSE and Confidence Level
-          metricsSection
 
           // Reasons & Supporting Data Card
           if recommendation.hasRecommendation {
@@ -306,87 +297,45 @@ struct CPTRecommendedPointSheetView: View {
   }
 
   private var metricsSection: some View {
-    HStack(spacing: 12) {
-      // RMSE Metric Card
-      VStack(alignment: .leading, spacing: 6) {
-        HStack {
-          Text(String(format: "%.4f", recommendation.rmse))
-            .font(.title2.weight(.bold))
-            .foregroundStyle(Color.primary)
+    // Single Spot Confidence Metric Card
+    VStack(alignment: .leading, spacing: 6) {
+      HStack {
+          Text("Recommendation Confidence")
+            .font(.caption.weight(.medium))
+            .foregroundStyle(Color.secondary)
 
-          Spacer()
 
-          Button(action: {
-            onRMSEInfoTap?()
-          }) {
-            Image(systemName: "info.circle")
-              .font(.subheadline)
-              .foregroundStyle(Color.secondary)
-              .frame(minWidth: 28, minHeight: 28)
-              .contentShape(Rectangle())
-          }
-          .buttonStyle(.plain)
-          .accessibilityLabel("RMSE Information")
+        Spacer()
+
+        Button(action: {
+          onConfidenceInfoTap?()
+        }) {
+          Image(systemName: "info.circle")
+            .font(.subheadline)
+            .foregroundStyle(Color.secondary)
+            .frame(minWidth: 28, minHeight: 28)
+            .contentShape(Rectangle())
         }
-
-        Text("RMSE")
-          .font(.caption.weight(.medium))
-          .foregroundStyle(Color.secondary)
+        .buttonStyle(.plain)
+        .accessibilityLabel("Spot Confidence Information")
       }
-      .padding(14)
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .background(
-        RoundedRectangle(cornerRadius: 16, style: .continuous)
-          .fill(Color(.secondarySystemGroupedBackground))
-      )
-      .overlay(
-        RoundedRectangle(cornerRadius: 16, style: .continuous)
-          .stroke(
-            Color.primary.opacity(contrast == .increased ? 0.35 : 0.08),
-            lineWidth: contrast == .increased ? 1.5 : 1
-          )
-      )
-
-      // Confidence Level Metric Card
-      VStack(alignment: .leading, spacing: 6) {
-        HStack {
-          Text("\(recommendation.confidenceLevel)%")
-            .font(.title2.weight(.bold))
-            .foregroundStyle(Color.primary)
-
-          Spacer()
-
-          Button(action: {
-            onConfidenceInfoTap?()
-          }) {
-            Image(systemName: "info.circle")
-              .font(.subheadline)
-              .foregroundStyle(Color.secondary)
-              .frame(minWidth: 28, minHeight: 28)
-              .contentShape(Rectangle())
-          }
-          .buttonStyle(.plain)
-          .accessibilityLabel("Confidence Level Information")
-        }
-
-        Text("Confidence Level")
-          .font(.caption.weight(.medium))
-          .foregroundStyle(Color.secondary)
-      }
-      .padding(14)
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .background(
-        RoundedRectangle(cornerRadius: 16, style: .continuous)
-          .fill(Color(.secondarySystemGroupedBackground))
-      )
-      .overlay(
-        RoundedRectangle(cornerRadius: 16, style: .continuous)
-          .stroke(
-            Color.primary.opacity(contrast == .increased ? 0.35 : 0.08),
-            lineWidth: contrast == .increased ? 1.5 : 1
-          )
-      )
+        Text("\(recommendation.confidenceLevel)%")
+          .font(.title2.weight(.bold))
+          .foregroundStyle(Color.primary)
     }
+    .padding(14)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(
+      RoundedRectangle(cornerRadius: 16, style: .continuous)
+        .fill(Color(.secondarySystemGroupedBackground))
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: 16, style: .continuous)
+        .stroke(
+          Color.primary.opacity(contrast == .increased ? 0.35 : 0.08),
+          lineWidth: contrast == .increased ? 1.5 : 1
+        )
+    )
   }
 
   private var reasonsCard: some View {
@@ -489,32 +438,7 @@ struct CPTRecommendedPointSheetView: View {
         }
       }
 
-      Divider()
 
-      // Action row: See Supporting Data
-      Button(action: {
-        onSeeSupportingDataTap?()
-      }) {
-        HStack(spacing: 8) {
-          Image(systemName: "info.circle")
-            .font(.subheadline.weight(.medium))
-            .foregroundStyle(Color.blue)
-
-          Text("See Supporting Data")
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(Color.blue)
-
-          Spacer()
-
-          Image(systemName: "chevron.right")
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(Color.secondary)
-        }
-        .contentShape(Rectangle())
-      }
-      .buttonStyle(.plain)
-      .accessibilityLabel("See Supporting Data")
-      .accessibilityHint("Opens supporting data analysis for recommended point")
     }
     .padding(16)
     .background(

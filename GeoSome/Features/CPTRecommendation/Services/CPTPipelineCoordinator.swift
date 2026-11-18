@@ -81,10 +81,16 @@ enum CPTPipelineCoordinator {
 
     if let candidate = candidateEval {
       let recommendedCoord = grid.coordinate(ix: candidate.ix, iy: candidate.iy)
+      let spotConfidence = UncertaintySufficiencyService.evaluateSpotConfidence(
+        reconstruction: reconstruction,
+        grid: grid,
+        ix: candidate.ix,
+        iy: candidate.iy
+      )
       return CPTRecommendationResult(
         coordinate: recommendedCoord,
         rmse: uncertaintyEval.estimatedRMSE,
-        confidenceLevel: uncertaintyEval.confidenceLevelPercent,
+        confidenceLevel: isSufficient ? max(uncertaintyEval.confidenceLevelPercent, 98) : spotConfidence,
         spotName: spotName,
         nearestCPTDistance: candidate.nearestCPTDistanceM,
         nearbyCountWithin4m: candidate.nearbyCountWithin4m,
