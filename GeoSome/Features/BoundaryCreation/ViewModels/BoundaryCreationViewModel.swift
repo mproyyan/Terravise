@@ -21,6 +21,7 @@ final class BoundaryCreationViewModel {
   var isDiscardConfirmationPresented: Bool
   var isInvalidCoordinateAlertPresented: Bool
   var editingPoint: BoundaryPoint?
+  var editCoordinateText: String
   var editLatitudeText: String
   var editLongitudeText: String
   var isDeletePointAlertPresented: Bool
@@ -99,13 +100,20 @@ final class BoundaryCreationViewModel {
 
   var hasUnsavedEditCoordinateChanges: Bool {
     guard let editingPoint else { return false }
+    let trimmedCoord = editCoordinateText.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !trimmedCoord.isEmpty && trimmedCoord != editingPoint.formattedCoordinate {
+      return true
+    }
     let trimmedLat = editLatitudeText.trimmingCharacters(in: .whitespacesAndNewlines)
     let trimmedLon = editLongitudeText.trimmingCharacters(in: .whitespacesAndNewlines)
     return trimmedLat != editingPoint.formattedLatitude || trimmedLon != editingPoint.formattedLongitude
   }
 
   var canSubmitEditedCoordinate: Bool {
-    !editLatitudeText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+    if !editCoordinateText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      return true
+    }
+    return !editLatitudeText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
       !editLongitudeText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 
@@ -119,6 +127,7 @@ final class BoundaryCreationViewModel {
     isDiscardConfirmationPresented: Bool = false,
     isInvalidCoordinateAlertPresented: Bool = false,
     editingPoint: BoundaryPoint? = nil,
+    editCoordinateText: String = "",
     editLatitudeText: String = "",
     editLongitudeText: String = "",
     isDeletePointAlertPresented: Bool = false,
@@ -137,6 +146,7 @@ final class BoundaryCreationViewModel {
     self.isDiscardConfirmationPresented = isDiscardConfirmationPresented
     self.isInvalidCoordinateAlertPresented = isInvalidCoordinateAlertPresented
     self.editingPoint = editingPoint
+    self.editCoordinateText = editCoordinateText
     self.editLatitudeText = editLatitudeText
     self.editLongitudeText = editLongitudeText
     self.isDeletePointAlertPresented = isDeletePointAlertPresented
@@ -218,6 +228,7 @@ final class BoundaryCreationViewModel {
     isDeletePointAlertPresented = false
     isEditDiscardConfirmationPresented = false
     isEditInvalidCoordinateAlertPresented = false
+    editCoordinateText = currentPoint.formattedCoordinate
     editLatitudeText = currentPoint.formattedLatitude
     editLongitudeText = currentPoint.formattedLongitude
     editingPoint = currentPoint
@@ -239,31 +250,42 @@ final class BoundaryCreationViewModel {
     isDeletePointAlertPresented = false
     isEditDiscardConfirmationPresented = false
     isEditInvalidCoordinateAlertPresented = false
+    editCoordinateText = ""
     editLatitudeText = ""
     editLongitudeText = ""
     editingPoint = nil
   }
 
   func submitEditedCoordinate() {
-    guard
-      let editingPoint,
-      let updatedCoordinate = Self.parseCoordinatePair(
+    guard let editingPoint else { return }
+
+    let trimmedCoord = editCoordinateText.trimmingCharacters(in: .whitespacesAndNewlines)
+    let updatedCoordinate: CLLocationCoordinate2D?
+    if !trimmedCoord.isEmpty {
+      updatedCoordinate = UTMCoordinateConverter.parseCoordinate(
+        from: trimmedCoord,
+        referenceCoordinate: editingPoint.coordinate
+      )
+    } else {
+      updatedCoordinate = Self.parseCoordinatePair(
         latitudeText: editLatitudeText,
         longitudeText: editLongitudeText
       )
-    else {
+    }
+
+    guard let finalCoordinate = updatedCoordinate, CLLocationCoordinate2DIsValid(finalCoordinate) else {
       isEditInvalidCoordinateAlertPresented = true
       return
     }
 
     if let index = points.firstIndex(where: { $0.id == editingPoint.id }) {
       let hasChanged =
-        points[index].latitude != updatedCoordinate.latitude ||
-        points[index].longitude != updatedCoordinate.longitude
+        points[index].latitude != finalCoordinate.latitude ||
+        points[index].longitude != finalCoordinate.longitude
       if hasChanged {
         recordUndoSnapshot()
-        points[index].latitude = updatedCoordinate.latitude
-        points[index].longitude = updatedCoordinate.longitude
+        points[index].latitude = finalCoordinate.latitude
+        points[index].longitude = finalCoordinate.longitude
         AccessibilityCaptionCenter.shared.announce(
           "Updated CPT Point \(index + 1) to \(points[index].formattedCoordinate)."
         )

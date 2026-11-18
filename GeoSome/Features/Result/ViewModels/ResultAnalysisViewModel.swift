@@ -234,6 +234,9 @@ final class ResultAnalysisViewModel {
   var isProfilePopoverPresented: Bool = false
   var profilePopoverLocation: CGPoint?
   var selectedCPTPointTitle: String = "CPT Point-01"
+  var selectedCPTPointEasting: String = "702634 m E"
+  var selectedCPTPointNorthing: String = "9309747 m N"
+  var selectedCPTPointZone: String = "48S"
   var selectedCPTPointLatitude: String = "-6.215432"
   var selectedCPTPointLongitude: String = "106.845321"
   var selectedPopoverLayers: [SBTProfileLayerItem] = CPTPointProfilePopoverView.defaultLayers
@@ -618,6 +621,24 @@ final class ResultAnalysisViewModel {
     AccessibilityCaptionCenter.shared.announce("Cleared geotechnical concern highlight.")
   }
 
+  private func updateSelectedCoordinates(with point: CPTPointEntry) {
+    selectedCPTPointEasting = point.formattedEasting
+    selectedCPTPointNorthing = point.formattedNorthing
+    selectedCPTPointZone = point.formattedZone
+    selectedCPTPointLatitude = point.formattedLatitude
+    selectedCPTPointLongitude = point.formattedLongitude
+  }
+
+  private func updateSelectedCoordinates(latitude: Double, longitude: Double) {
+    let coord = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+    let utm = UTMCoordinateConverter.coordinateToUTM(coord)
+    selectedCPTPointEasting = "\(Int(utm.easting.rounded())) m E"
+    selectedCPTPointNorthing = "\(Int(utm.northing.rounded())) m N"
+    selectedCPTPointZone = utm.zoneIdentifier
+    selectedCPTPointLatitude = String(format: "%.6f", latitude)
+    selectedCPTPointLongitude = String(format: "%.6f", longitude)
+  }
+
   func handleTopSurfaceTap(at screenPoint: CGPoint, local3DPoint: SIMD3<Float>?, voxel: SoilVoxel?) {
     guard !project.cptPoints.isEmpty else {
       isProfilePopoverPresented = false
@@ -657,15 +678,13 @@ final class ResultAnalysisViewModel {
 
         if pinHit.index < project.cptPoints.count {
           let actualPoint = project.cptPoints[pinHit.index]
-          selectedCPTPointLatitude = actualPoint.formattedLatitude
-          selectedCPTPointLongitude = actualPoint.formattedLongitude
+          updateSelectedCoordinates(with: actualPoint)
           let actualLayers = buildLayers(from: actualPoint)
           selectedPopoverLayers = actualLayers.isEmpty
             ? buildBilinearPopoverLayers(metricX: hitPt.x, metricZ: hitPt.z)
             : actualLayers
         } else {
-          selectedCPTPointLatitude = String(format: "%.6f", exactGeo.latitude)
-          selectedCPTPointLongitude = String(format: "%.6f", exactGeo.longitude)
+          updateSelectedCoordinates(latitude: exactGeo.latitude, longitude: exactGeo.longitude)
           selectedPopoverLayers = buildBilinearPopoverLayers(metricX: hitPt.x, metricZ: hitPt.z)
         }
       } else {
@@ -673,8 +692,7 @@ final class ResultAnalysisViewModel {
         selectedCPTPointTitle = String(format: "Virtual CPT (%.1fm, %.1fm)", hitPt.x, hitPt.z)
         selectedPipePosition3D = SIMD3<Float>(hitPt.x, 0.0, hitPt.z)
         selectedVoxel = voxel
-        selectedCPTPointLatitude = String(format: "%.6f", exactGeo.latitude)
-        selectedCPTPointLongitude = String(format: "%.6f", exactGeo.longitude)
+        updateSelectedCoordinates(latitude: exactGeo.latitude, longitude: exactGeo.longitude)
         selectedPopoverLayers = buildBilinearPopoverLayers(metricX: hitPt.x, metricZ: hitPt.z)
       }
     } else if let voxel {
@@ -682,24 +700,15 @@ final class ResultAnalysisViewModel {
       selectedPipePosition3D = nil
       if let closest = findClosestCPTPoint(to: voxel) {
         selectedCPTPointTitle = closest.title
-        selectedCPTPointLatitude = closest.latitude
-        selectedCPTPointLongitude = closest.longitude
+        updateSelectedCoordinates(with: closest.point)
 
-        let ptIdx = project.cptPoints.firstIndex(where: {
-          $0.formattedLatitude == closest.latitude && $0.formattedLongitude == closest.longitude
-        })
-        if let ptIdx {
-          let actualLayers = buildLayers(from: project.cptPoints[ptIdx])
-          selectedPopoverLayers = actualLayers.isEmpty
-            ? buildPopoverLayers(forColumnX: voxel.coord.x, z: voxel.coord.z)
-            : actualLayers
-        } else {
-          selectedPopoverLayers = buildPopoverLayers(forColumnX: voxel.coord.x, z: voxel.coord.z)
-        }
+        let actualLayers = buildLayers(from: closest.point)
+        selectedPopoverLayers = actualLayers.isEmpty
+          ? buildPopoverLayers(forColumnX: voxel.coord.x, z: voxel.coord.z)
+          : actualLayers
       } else {
         selectedCPTPointTitle = "CPT Point-01"
-        selectedCPTPointLatitude = String(format: "%.6f", voxel.latitude)
-        selectedCPTPointLongitude = String(format: "%.6f", voxel.longitude)
+        updateSelectedCoordinates(latitude: voxel.latitude, longitude: voxel.longitude)
         selectedPopoverLayers = buildPopoverLayers(forColumnX: voxel.coord.x, z: voxel.coord.z)
       }
     } else {
@@ -748,8 +757,7 @@ final class ResultAnalysisViewModel {
 
     selectedPopoverLayers = buildBilinearPopoverLayers(metricX: centerPt.x, metricZ: centerPt.z)
     let exactGeo = volume.geographicCoordinate(forMetricX: centerPt.x, zM: centerPt.z)
-    selectedCPTPointLatitude = String(format: "%.6f", exactGeo.latitude)
-    selectedCPTPointLongitude = String(format: "%.6f", exactGeo.longitude)
+    updateSelectedCoordinates(latitude: exactGeo.latitude, longitude: exactGeo.longitude)
     selectedCPTPointTitle = String(format: "Virtual CPT (%.1fm, %.1fm)", centerPt.x, centerPt.z)
 
     // Since `cameraController.target` is at the center of the 3D camera's look axis,
@@ -774,8 +782,7 @@ final class ResultAnalysisViewModel {
       let clampedIdx = min(safeIndex, project.cptPoints.count - 1)
       let pt = project.cptPoints[clampedIdx]
       selectedCPTPointTitle = String(format: "CPT Point-%02d", clampedIdx + 1)
-      selectedCPTPointLatitude = pt.formattedLatitude
-      selectedCPTPointLongitude = pt.formattedLongitude
+      updateSelectedCoordinates(with: pt)
 
       let actualLayers = buildLayers(from: pt)
       if !actualLayers.isEmpty {
@@ -788,15 +795,14 @@ final class ResultAnalysisViewModel {
         selectedPopoverLayers = CPTPointProfilePopoverView.defaultLayers
       }
     } else {
-      let defaultCoords: [(String, String, String)] = [
-        ("CPT Point-01", "-6.215432", "106.845321"),
-        ("CPT Point-02", "-6.215510", "106.845640"),
-        ("CPT Point-03", "-6.215485", "106.845912")
+      let defaultCoords: [(String, Double, Double)] = [
+        ("CPT Point-01", -6.215432, 106.845321),
+        ("CPT Point-02", -6.215510, 106.845640),
+        ("CPT Point-03", -6.215485, 106.845912)
       ]
       let item = defaultCoords[min(safeIndex, defaultCoords.count - 1)]
       selectedCPTPointTitle = item.0
-      selectedCPTPointLatitude = item.1
-      selectedCPTPointLongitude = item.2
+      updateSelectedCoordinates(latitude: item.1, longitude: item.2)
 
       if !volume.cptMetricSurfacePositions.isEmpty {
         let posIdx = min(safeIndex, volume.cptMetricSurfacePositions.count - 1)
@@ -1563,7 +1569,7 @@ final class ResultAnalysisViewModel {
     )
   }
 
-  private func findClosestCPTPoint(to voxel: SoilVoxel) -> (title: String, latitude: String, longitude: String)? {
+  private func findClosestCPTPoint(to voxel: SoilVoxel) -> (title: String, point: CPTPointEntry)? {
     guard !project.cptPoints.isEmpty else { return nil }
 
     var bestIndex = 0
@@ -1579,11 +1585,9 @@ final class ResultAnalysisViewModel {
       }
     }
 
-    let point = project.cptPoints[bestIndex]
     return (
       title: String(format: "CPT Point-%02d", bestIndex + 1),
-      latitude: point.formattedLatitude,
-      longitude: point.formattedLongitude
+      point: project.cptPoints[bestIndex]
     )
   }
 }

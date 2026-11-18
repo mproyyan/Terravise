@@ -19,6 +19,9 @@ struct ResultSubsurfaceRealityView: View {
   @Binding var isProfilePopoverPresented: Bool
   @Binding var profilePopoverLocation: CGPoint?
   var popoverTitle: String = "CPT Point-01"
+  var popoverEasting: String = "702634 m E"
+  var popoverNorthing: String = "9309747 m N"
+  var popoverZone: String = "48S"
   var popoverLatitude: String = "-6.215432"
   var popoverLongitude: String = "106.845321"
   var popoverLayers: [SBTProfileLayerItem] = CPTPointProfilePopoverView.defaultLayers
@@ -48,6 +51,9 @@ struct ResultSubsurfaceRealityView: View {
     isProfilePopoverPresented: Binding<Bool> = .constant(false),
     profilePopoverLocation: Binding<CGPoint?> = .constant(nil),
     popoverTitle: String = "CPT Point-01",
+    popoverEasting: String = "702634 m E",
+    popoverNorthing: String = "9309747 m N",
+    popoverZone: String = "48S",
     popoverLatitude: String = "-6.215432",
     popoverLongitude: String = "106.845321",
     popoverLayers: [SBTProfileLayerItem] = CPTPointProfilePopoverView.defaultLayers,
@@ -69,6 +75,9 @@ struct ResultSubsurfaceRealityView: View {
     self._isProfilePopoverPresented = isProfilePopoverPresented
     self._profilePopoverLocation = profilePopoverLocation
     self.popoverTitle = popoverTitle
+    self.popoverEasting = popoverEasting
+    self.popoverNorthing = popoverNorthing
+    self.popoverZone = popoverZone
     self.popoverLatitude = popoverLatitude
     self.popoverLongitude = popoverLongitude
     self.popoverLayers = popoverLayers
@@ -324,8 +333,9 @@ struct ResultSubsurfaceRealityView: View {
 
           CPTPointProfilePopoverView(
             pointTitle: popoverTitle,
-            latitudeText: popoverLatitude,
-            longitudeText: popoverLongitude,
+            eastingText: popoverEasting,
+            northingText: popoverNorthing,
+            zoneText: popoverZone,
             layers: popoverLayers,
             onClose: {
               withAnimation(.easeInOut(duration: 0.2)) {

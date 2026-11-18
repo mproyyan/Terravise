@@ -2,12 +2,14 @@ import SwiftUI
 
 struct BoundaryEditCoordinateSheetView: View {
   private enum Field: Hashable {
+    case coordinate
     case latitude
     case longitude
   }
 
   @Environment(\.dismiss) private var dismiss
   var pointTitle: String
+  @Binding var coordinateText: String
   @Binding var latitudeText: String
   @Binding var longitudeText: String
   @Binding var isDeleteConfirmationPresented: Bool
@@ -26,6 +28,7 @@ struct BoundaryEditCoordinateSheetView: View {
 
   init(
     pointTitle: String = "CPT Point 1",
+    coordinateText: Binding<String> = .constant(""),
     latitudeText: Binding<String> = .constant("-6.216543"),
     longitudeText: Binding<String> = .constant("106.849876"),
     isDeleteConfirmationPresented: Binding<Bool> = .constant(false),
@@ -39,6 +42,7 @@ struct BoundaryEditCoordinateSheetView: View {
     onDeleteConfirm: (() -> Void)? = nil
   ) {
     self.pointTitle = pointTitle
+    _coordinateText = coordinateText
     _latitudeText = latitudeText
     _longitudeText = longitudeText
     _isDeleteConfirmationPresented = isDeleteConfirmationPresented
@@ -54,8 +58,9 @@ struct BoundaryEditCoordinateSheetView: View {
 
   private var isSubmitEnabled: Bool {
     canSubmit ?? (
-      !latitudeText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        !longitudeText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      !coordinateText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+      (!latitudeText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !longitudeText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     )
   }
 
@@ -73,17 +78,22 @@ struct BoundaryEditCoordinateSheetView: View {
           }
 
           VStack(alignment: .leading, spacing: 8) {
-            Text("Latitude")
+            Text("Coordinate")
               .font(.subheadline.weight(.semibold))
               .foregroundStyle(.primary)
 
-            TextField("-6.216543", text: $latitudeText)
+            Label("Format: UTM (e.g. 48S 702634 E, 9309747 N) or lat, lon", systemImage: "info.circle")
+              .font(.caption)
+              .foregroundStyle(contrast == .increased ? .primary : .secondary)
+              .fixedSize(horizontal: false, vertical: true)
+
+            TextField("e.g., 48S 702634 E, 9309747 N", text: $coordinateText)
               .font(.body)
               .foregroundStyle(.primary)
               .keyboardType(.numbersAndPunctuation)
               .autocorrectionDisabled()
               .textInputAutocapitalization(.never)
-              .focused($focusedField, equals: .latitude)
+              .focused($focusedField, equals: .coordinate)
               .padding(.horizontal, 16)
               .padding(.vertical, 8)
               .frame(minHeight: max(fieldMinHeight, 44))
@@ -100,44 +110,10 @@ struct BoundaryEditCoordinateSheetView: View {
               )
               .contentShape(Capsule(style: .continuous))
               .onTapGesture {
-                focusedField = .latitude
+                focusedField = .coordinate
               }
-              .accessibilityLabel("Latitude")
-              .accessibilityHint("Enter latitude between minus 90 and 90 degrees")
-          }
-
-          VStack(alignment: .leading, spacing: 8) {
-            Text("Longitude")
-              .font(.subheadline.weight(.semibold))
-              .foregroundStyle(.primary)
-
-            TextField("106.849876", text: $longitudeText)
-              .font(.body)
-              .foregroundStyle(.primary)
-              .keyboardType(.numbersAndPunctuation)
-              .autocorrectionDisabled()
-              .textInputAutocapitalization(.never)
-              .focused($focusedField, equals: .longitude)
-              .padding(.horizontal, 16)
-              .padding(.vertical, 8)
-              .frame(minHeight: max(fieldMinHeight, 44))
-              .background(
-                Capsule(style: .continuous)
-                  .fill(Color(.secondarySystemGroupedBackground))
-              )
-              .overlay(
-                Capsule(style: .continuous)
-                  .stroke(
-                    Color.primary.opacity(contrast == .increased ? 0.45 : 0.14),
-                    lineWidth: contrast == .increased ? 1.5 : 1
-                  )
-              )
-              .contentShape(Capsule(style: .continuous))
-              .onTapGesture {
-                focusedField = .longitude
-              }
-              .accessibilityLabel("Longitude")
-              .accessibilityHint("Enter longitude between minus 180 and 180 degrees")
+              .accessibilityLabel("Coordinate")
+              .accessibilityHint("Enter UTM coordinates or latitude and longitude")
           }
 
           Spacer(minLength: 4)
@@ -189,6 +165,8 @@ struct BoundaryEditCoordinateSheetView: View {
             focusedField = nil
             if let onSubmitTap {
               onSubmitTap()
+            } else if !coordinateText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+              dismiss()
             } else if BoundaryCreationViewModel.parseCoordinatePair(
               latitudeText: latitudeText,
               longitudeText: longitudeText
@@ -250,13 +228,14 @@ struct BoundaryEditCoordinateSheetView: View {
           isInvalidCoordinateAlertPresented = false
         }
       } message: {
-        Text("Please enter valid latitude (-90 to 90) and longitude (-180 to 180) values.")
+        Text("Please enter a valid UTM coordinate (e.g. 48S 702634 E, 9309747 N) or latitude and longitude values.")
       }
     }
   }
 }
 
 #Preview("Edit Coordinate Sheet") {
+  @Previewable @State var coordinateText = "48S 702634 E, 9309747 N"
   @Previewable @State var latitudeText = "-6.216543"
   @Previewable @State var longitudeText = "106.849876"
   @Previewable @State var isDeletePresented = false
@@ -273,6 +252,7 @@ struct BoundaryEditCoordinateSheetView: View {
         .sheet(isPresented: .constant(true)) {
           BoundaryEditCoordinateSheetView(
             pointTitle: "CPT Point 4",
+            coordinateText: $coordinateText,
             latitudeText: $latitudeText,
             longitudeText: $longitudeText,
             isDeleteConfirmationPresented: $isDeletePresented,
