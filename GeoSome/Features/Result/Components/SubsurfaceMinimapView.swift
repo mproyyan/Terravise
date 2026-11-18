@@ -146,6 +146,7 @@ struct SubsurfaceMinimapView: View {
   @State private var syncedSnapshot: MinimapCameraStateSnapshot
   @State private var lastSyncTime: CFTimeInterval = 0
   @State private var trailingSyncTask: Task<Void, Never>?
+  @State private var isSatelliteStyle: Bool = false
 
   private let converter: SubsurfaceCoordinateConverter
   private let minimapHeight: CGFloat = 188.0
@@ -202,7 +203,7 @@ struct SubsurfaceMinimapView: View {
     VStack(alignment: .leading, spacing: 8) {
       // Header Row
       HStack(spacing: 8) {
-        Label("Site Minimap", systemImage: "map.fill")
+        Text("Site Minimap")
           .font(.subheadline.weight(.bold))
           .foregroundStyle(Color.primary)
           .accessibilityAddTraits(.isHeader)
@@ -236,23 +237,27 @@ struct SubsurfaceMinimapView: View {
         .accessibilityLabel("Compass Heading \(formattedHeadingText)")
         .accessibilityHint("Double-tap to align heading to North")
 
-        // Fit Whole Site Button
+        // Map Style Toggle Button (Standard <-> Satellite)
         Button {
-          cameraController.reset(for: volume)
-          syncMapCameraImmediately()
-          AccessibilityCaptionCenter.shared.announce("Minimap reset camera to fit whole site.")
+          withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
+            isSatelliteStyle.toggle()
+          }
+          AccessibilityCaptionCenter.shared.announce(
+            "Minimap style changed to \(isSatelliteStyle ? "Satellite" : "Standard")."
+          )
         } label: {
-          Image(systemName: "arrow.up.left.and.arrow.down.right")
+          Image(systemName: isSatelliteStyle ? "globe.americas.fill" : "map")
             .font(.caption.weight(.semibold))
-            .foregroundStyle(Color.primary)
+            .foregroundStyle(isSatelliteStyle ? Color.accentColor : Color.primary)
             .frame(width: 26, height: 26)
             .background(
               RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .fill(Color(.tertiarySystemFill))
+                .fill(isSatelliteStyle ? Color.accentColor.opacity(0.15) : Color(.tertiarySystemFill))
             )
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Fit Whole Site")
+        .accessibilityLabel("Map Style: \(isSatelliteStyle ? "Satellite" : "Standard")")
+        .accessibilityHint("Double-tap to switch between Standard and Satellite map styles")
       }
 
       // Interactive Zoom & Rotate Minimap Container
@@ -262,7 +267,7 @@ struct SubsurfaceMinimapView: View {
           if boundaryCoordinates.count == 2 {
             MapPolyline(coordinates: boundaryCoordinates)
               .stroke(
-                .blue,
+                isSatelliteStyle ? Color.cyan : Color.blue,
                 style: StrokeStyle(
                   lineWidth: contrast == .increased ? 3.5 : 2.5,
                   lineCap: .round,
@@ -272,8 +277,14 @@ struct SubsurfaceMinimapView: View {
               )
           } else if boundaryCoordinates.count >= 3 {
             MapPolygon(coordinates: boundaryCoordinates)
-              .foregroundStyle(.blue.opacity(contrast == .increased ? 0.34 : 0.22))
-              .stroke(.blue, lineWidth: contrast == .increased ? 3.0 : 2.2)
+              .foregroundStyle(
+                (isSatelliteStyle ? Color.cyan : Color.blue)
+                  .opacity(contrast == .increased ? 0.35 : (isSatelliteStyle ? 0.28 : 0.22))
+              )
+              .stroke(
+                isSatelliteStyle ? Color.cyan : Color.blue,
+                lineWidth: contrast == .increased ? 3.0 : 2.2
+              )
           }
 
           // 2. Actual CPT Borehole Locations (Orange/Amber markers matching 3D Actual CPT pipes)
@@ -317,7 +328,11 @@ struct SubsurfaceMinimapView: View {
             .annotationTitles(.hidden)
           }
         }
-        .mapStyle(.standard(elevation: .flat, pointsOfInterest: .excludingAll))
+        .mapStyle(
+          isSatelliteStyle
+            ? .imagery(elevation: .flat)
+            : .standard(elevation: .flat, pointsOfInterest: .excludingAll)
+        )
         .mapControlVisibility(.hidden)
         .allowsHitTesting(false)
 
