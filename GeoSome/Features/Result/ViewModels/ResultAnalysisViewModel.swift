@@ -154,8 +154,16 @@ final class ResultAnalysisViewModel {
   // Real-time Cross-Section Slicing Controls (in meters)
   var slicingXMeters: Double
   var slicingYMeters: Double
-  var isSlicingCardExpanded: Bool = false
+  var isSlicingCardExpanded: Bool = true
   var isHardSoilVisible: Bool = true
+
+  /// Shared boundary coordinates from `project.boundaryCoordinates` (with fallback for empty preview projects)
+  /// so the 3D volume and `SubsurfaceMinimapView` read the exact same polygon without duplicating state.
+  var activeBoundaryCoordinates: [CLLocationCoordinate2D] {
+    project.boundaryPoints.isEmpty
+      ? CPTRecommendationViewModel.defaultSamplePoints.map(\.coordinate)
+      : project.boundaryCoordinates
+  }
 
   // Left Sheet State & Subsurface Conditions Content
   var isLeftSheetPresented: Bool = false
@@ -178,9 +186,10 @@ final class ResultAnalysisViewModel {
     return concern.affectedVoxels
   }
 
-  // Interactive Voxel Selection & Camera Orbit State
+  // Interactive Voxel Selection & Camera Rig State
   var selectedVoxel: SoilVoxel?
   var selectedPipePosition3D: SIMD3<Float>?
+  var cameraController = SubsurfaceCameraController()
   var cameraYaw: Float = ResultAnalysisViewModel.defaultCameraYaw
   var cameraPitch: Float = ResultAnalysisViewModel.defaultCameraPitch
   var cameraZoom: Float = ResultAnalysisViewModel.defaultCameraZoom
@@ -268,6 +277,11 @@ final class ResultAnalysisViewModel {
     self.bearingRuleEvaluation = nil
     self.slicingXMeters = Double(builtVolume.widthXM)
     self.slicingYMeters = Double(builtVolume.lengthZM)
+    self.cameraController.configure(for: builtVolume, resetState: true)
+    self.cameraController.onCameraMoved = { [weak self] in
+      guard let self, self.isProfilePopoverPresented else { return }
+      self.isProfilePopoverPresented = false
+    }
 
     if let rec = resolvedProject.latestRecommendation {
       let uncertainty = max(1, 100 - rec.confidenceLevel)
@@ -305,6 +319,24 @@ final class ResultAnalysisViewModel {
     return min(max(Int((ratio * Double(volume.nz - 1)).rounded()), 1), volume.nz - 1)
   }
 
+  /// Returns the unique set of geotechnical soil classifications that actually exist in the current 3D volume,
+  /// ordered according to standard Robertson SBT progression.
+  var existingSoilTypes: [SoilLayerType] {
+    var present = Set<SoilLayerType>()
+    for voxel in volume.voxels.values {
+      present.insert(voxel.soilClassification)
+    }
+    if present.isEmpty {
+      return SoilLayerType.allCases
+    }
+    return SoilLayerType.allCases.filter { present.contains($0) }
+  }
+
+  /// Dynamic legend items corresponding strictly to the soil layers present in the site investigation area.
+  var activeLegendItems: [LegendMapItem] {
+    existingSoilTypes.map { LegendMapItem(soilType: $0) }
+  }
+
   func resolveProject(with id: Project.ID?, from projectViewModel: ProjectViewModel?) {
     guard let id, let projectViewModel else { return }
     if let found = projectViewModel.projects.first(where: { $0.id == id }) {
@@ -338,6 +370,8 @@ final class ResultAnalysisViewModel {
     isBearingPopoverPresented = false
     comparedBearingPoints.removeAll()
     isCompareDataSheetActive = false
+    selectedPipePosition3D = nil
+    cameraController.configure(for: builtVolume, resetState: true)
 
     if let rec = newProject.latestRecommendation {
       let uncertainty = max(1, 100 - rec.confidenceLevel)
@@ -416,6 +450,7 @@ final class ResultAnalysisViewModel {
     soilBehaviorIndexIc = 1.80
     minLayerThickness = 2.0
     reevaluateBearingRule()
+    cameraController.reset(for: volume)
     cameraYaw = Self.defaultCameraYaw
     cameraPitch = Self.defaultCameraPitch
     cameraZoom = Self.defaultCameraZoom
@@ -587,8 +622,19 @@ final class ResultAnalysisViewModel {
   }
 
   func handleTopSurfaceTap(at screenPoint: CGPoint, local3DPoint: SIMD3<Float>?, voxel: SoilVoxel?) {
+    if let hitPt = local3DPoint {
+      guard volume.isMetricPointInsideActiveArea(
+        xM: hitPt.x,
+        zM: hitPt.z,
+        maxSliceX: maxSliceXIndex,
+        maxSliceZ: maxSliceZIndex
+      ) else {
+        isProfilePopoverPresented = false
+        return
+      }
+    }
+
     profilePopoverLocation = screenPoint
-    selectedPipePosition3D = local3DPoint
 
     // Collapse the left sheet to its peek detent instead of dismissing it completely.
     // This leaves the 3D model and popover unobstructed, while keeping the sheet visible
@@ -596,9 +642,27 @@ final class ResultAnalysisViewModel {
     selectedSheetDetent = Self.collapsedSheetDetent
     isLeftSheetPresented = true
 
-    // Set CPT point details and dynamic SchemaGAN SBT stratigraphy profile
-    if let voxel {
+    // Query continuous bilinearly interpolated field at the exact tapped metric (x, z) coordinate
+    if let hitPt = local3DPoint {
+      selectedPopoverLayers = buildBilinearPopoverLayers(metricX: hitPt.x, metricZ: hitPt.z)
+      let exactGeo = volume.geographicCoordinate(forMetricX: hitPt.x, zM: hitPt.z)
+      selectedCPTPointLatitude = String(format: "%.6f", exactGeo.latitude)
+      selectedCPTPointLongitude = String(format: "%.6f", exactGeo.longitude)
+
+      if let pinHit = findPinNearMetricPoint(metricX: hitPt.x, metricZ: hitPt.z) {
+        // Tapped an Actual CPT borehole pin: keep the orange Actual CPT visible without overlapping a Virtual CPT pipe
+        selectedCPTPointTitle = pinHit.title
+        selectedPipePosition3D = nil
+        selectedVoxel = nil
+      } else {
+        // Tapped a custom location: place the Cyan/Blue Virtual CPT pipe at this exact metric coordinate
+        selectedCPTPointTitle = String(format: "Virtual CPT (%.1fm, %.1fm)", hitPt.x, hitPt.z)
+        selectedPipePosition3D = SIMD3<Float>(hitPt.x, 0.0, hitPt.z)
+        selectedVoxel = voxel
+      }
+    } else if let voxel {
       selectedVoxel = voxel
+      selectedPipePosition3D = nil
       selectedPopoverLayers = buildPopoverLayers(forColumnX: voxel.coord.x, z: voxel.coord.z)
       if let closest = findClosestCPTPoint(to: voxel) {
         selectedCPTPointTitle = closest.title
@@ -610,15 +674,59 @@ final class ResultAnalysisViewModel {
         selectedCPTPointLongitude = String(format: "%.6f", voxel.longitude)
       }
     } else {
-      selectedPopoverLayers = CPTPointProfilePopoverView.defaultLayers
-      selectedCPTPointTitle = "CPT Point-01"
-      selectedCPTPointLatitude = "-6.215432"
-      selectedCPTPointLongitude = "106.845321"
+      isProfilePopoverPresented = false
+      return
     }
 
     // Present the native popover immediately
     isProfilePopoverPresented = true
     AccessibilityCaptionCenter.shared.announce("Showing \(selectedCPTPointTitle) SBT profile popover.")
+  }
+
+  /// Creates/places a Virtual CPT in the 3D scene at the current minimap center position (`cameraController.target`)
+  /// and presents the SBT stratigraphy popover immediately, only if the minimap center lies inside the active boundary area.
+  func createVirtualCPTAtMinimapCenter() {
+    let centerPt = SIMD3<Float>(cameraController.target.x, 0.0, cameraController.target.z)
+    guard volume.isMetricPointInsideActiveArea(
+      xM: centerPt.x,
+      zM: centerPt.z,
+      maxSliceX: maxSliceXIndex,
+      maxSliceZ: maxSliceZIndex
+    ) else {
+      isProfilePopoverPresented = false
+      AccessibilityCaptionCenter.shared.announce(
+        "Minimap center is outside the active boundary area."
+      )
+      return
+    }
+
+    selectedPipePosition3D = centerPt
+
+    // Collapse the left sheet to its peek detent so the 3D model and popover are unobstructed
+    selectedSheetDetent = Self.collapsedSheetDetent
+    isLeftSheetPresented = true
+
+    let (fx, fz) = volume.continuousGridCoordinates(forMetricX: centerPt.x, zM: centerPt.z)
+    let xGrid = min(max(Int(fx.rounded()), 0), volume.nx - 1)
+    let zGrid = min(max(Int(fz.rounded()), 0), volume.nz - 1)
+    selectedVoxel = volume.voxels[GridCoord(x: xGrid, y: volume.ny - 1, z: zGrid)]
+
+    selectedPopoverLayers = buildBilinearPopoverLayers(metricX: centerPt.x, metricZ: centerPt.z)
+    let exactGeo = volume.geographicCoordinate(forMetricX: centerPt.x, zM: centerPt.z)
+    selectedCPTPointLatitude = String(format: "%.6f", exactGeo.latitude)
+    selectedCPTPointLongitude = String(format: "%.6f", exactGeo.longitude)
+    selectedCPTPointTitle = String(format: "Virtual CPT (%.1fm, %.1fm)", centerPt.x, centerPt.z)
+
+    // Since `cameraController.target` is at the center of the 3D camera's look axis,
+    // its screen projection is the center of the 3D viewport.
+    let vw = max(cameraController.viewportSize.width, 320.0)
+    let vh = max(cameraController.viewportSize.height, 320.0)
+    profilePopoverLocation = CGPoint(x: vw * 0.5, y: vh * 0.46)
+    isProfilePopoverPresented = true
+
+    AccessibilityCaptionCenter.shared.announce(
+      "Created \(selectedCPTPointTitle) at minimap center and showing SBT profile popover."
+    )
   }
 
   func handleBearingCPTPointTap(at screenPoint: CGPoint, pointIndex: Int) {
@@ -657,6 +765,107 @@ final class ResultAnalysisViewModel {
 
     isProfilePopoverPresented = true
     AccessibilityCaptionCenter.shared.announce("Showing \(selectedCPTPointTitle) SBT profile popover.")
+  }
+
+  /// Builds the SBT stratigraphy popover layers from the continuous bilinearly interpolated `Ic` field
+  /// at the exact tapped metric coordinate `(metricX, metricZ)` rather than snapping to a voxel.
+  private func buildBilinearPopoverLayers(metricX: Float, metricZ: Float) -> [SBTProfileLayerItem] {
+    let interpolatedSlices = volume.sampleInterpolatedStratigraphy(
+      metricX: metricX,
+      metricZ: metricZ,
+      verticalSubdivisions: 40
+    )
+    guard !interpolatedSlices.isEmpty else {
+      return CPTPointProfilePopoverView.defaultLayers
+    }
+
+    struct RawSegment {
+      var topDepthM: Double
+      var bottomDepthM: Double
+      var soilType: SoilLayerType
+    }
+
+    var segments: [RawSegment] = []
+    for slice in interpolatedSlices {
+      if let last = segments.last, last.soilType == slice.soilType {
+        segments[segments.count - 1].bottomDepthM = slice.bottomDepthM
+      } else {
+        segments.append(
+          RawSegment(
+            topDepthM: slice.topDepthM,
+            bottomDepthM: slice.bottomDepthM,
+            soilType: slice.soilType
+          )
+        )
+      }
+    }
+
+    while segments.count > 6 {
+      var minIdx = 0
+      var minThickness = Double.greatestFiniteMagnitude
+      for (i, seg) in segments.enumerated() {
+        let thick = seg.bottomDepthM - seg.topDepthM
+        if thick < minThickness {
+          minThickness = thick
+          minIdx = i
+        }
+      }
+      if minIdx > 0 {
+        segments[minIdx - 1].bottomDepthM = segments[minIdx].bottomDepthM
+        segments.remove(at: minIdx)
+      } else if segments.count > 1 {
+        segments[1].topDepthM = segments[0].topDepthM
+        segments.remove(at: 0)
+      } else {
+        break
+      }
+    }
+
+    let totalDepth = max(segments.last?.bottomDepthM ?? Double(volume.depthYM), 1.0)
+    let targetTotalHeight: CGFloat = 220.0
+
+    return segments.map { seg in
+      let ratio = CGFloat((seg.bottomDepthM - seg.topDepthM) / totalDepth)
+      let barHeight = min(max((ratio * targetTotalHeight).rounded(), 30), 64)
+      let isLightLayer: Bool = switch seg.soilType {
+      case .sandMixtures, .cleanSands, .stiffFineGrained:
+        true
+      default:
+        false
+      }
+      return SBTProfileLayerItem(
+        topDepthM: (seg.topDepthM * 10).rounded() / 10,
+        bottomDepthM: (seg.bottomDepthM * 10).rounded() / 10,
+        name: seg.soilType.displayName,
+        color: Color(seg.soilType.uiColor),
+        textColor: isLightLayer ? Color.black.opacity(0.9) : Color.white,
+        barHeight: barHeight
+      )
+    }
+  }
+
+  /// Checks if the tapped metric coordinate `(metricX, metricZ)` is within the tap radius of an uploaded/reference CPT borehole pin.
+  private func findPinNearMetricPoint(metricX: Float, metricZ: Float) -> (index: Int, title: String)? {
+    let pinPositions = volume.cptMetricSurfacePositions
+    guard !pinPositions.isEmpty else { return nil }
+    let hitRadiusM = max(min(volume.cellStepXM, volume.cellStepZM) * 1.25, 1.0)
+    let hitRadiusSq = hitRadiusM * hitRadiusM
+
+    var bestIdx: Int?
+    var bestDistSq: Float = hitRadiusSq
+
+    for (idx, pos) in pinPositions.enumerated() {
+      let dx = pos.x - metricX
+      let dz = pos.z - metricZ
+      let distSq = dx * dx + dz * dz
+      if distSq <= bestDistSq {
+        bestDistSq = distSq
+        bestIdx = idx
+      }
+    }
+
+    guard let matched = bestIdx else { return nil }
+    return (matched, String(format: "CPT Point-%02d", matched + 1))
   }
 
   private func buildPopoverLayers(forColumnX x: Int, z: Int) -> [SBTProfileLayerItem] {

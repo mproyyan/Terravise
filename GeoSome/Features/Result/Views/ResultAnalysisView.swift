@@ -63,6 +63,7 @@ struct ResultAnalysisView: View {
             isHardSoilVisible: viewModel.isHardSoilVisible,
             selectedConcernID: viewModel.selectedConcernID,
             isolatedVoxels: viewModel.activeConcernVoxels,
+            cameraController: viewModel.cameraController,
             cameraYaw: $viewModel.cameraYaw,
             cameraPitch: $viewModel.cameraPitch,
             cameraZoom: $viewModel.cameraZoom,
@@ -150,12 +151,25 @@ struct ResultAnalysisView: View {
       }
       // Bottom-Trailing: Slicing Card (3D Layer) or Criteria Card (Bearing Layer)
       .overlay(alignment: .bottomTrailing) {
+        let maxFloatingCardHeight = max(proxy.size.height - proxy.safeAreaInsets.top - 52, 280)
+
         switch viewModel.selectedTab {
         case .threeDLayer:
           ResultLayerSlicingCardView(
             cardWidth: oneThirdSheetWidth,
+            maxCardHeight: maxFloatingCardHeight,
             isExpanded: $viewModel.isSlicingCardExpanded,
             isHardSoilVisible: $viewModel.isHardSoilVisible,
+            volume: viewModel.volume,
+            boundaryCoordinates: viewModel.activeBoundaryCoordinates,
+            cptPoints: viewModel.project.cptPoints,
+            cameraController: viewModel.cameraController,
+            virtualCPTPosition3D: viewModel.selectedPipePosition3D,
+            onTapCreateVirtualCPT: {
+              withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
+                viewModel.createVirtualCPTAtMinimapCenter()
+              }
+            },
             concerns: viewModel.geotechnicalConcerns,
             isGeotechnicalConcernsEmpty: viewModel.isGeotechnicalConcernsEmpty,
             selectedConcernID: viewModel.selectedConcernID,
@@ -176,6 +190,7 @@ struct ResultAnalysisView: View {
               }
             }
           )
+          .padding(.top, 16)
           .padding(.trailing, 20)
           .padding(.bottom, 20)
           .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -215,6 +230,7 @@ struct ResultAnalysisView: View {
                   viewModel.selectConcern(concern)
                 }
               },
+              legendItems: viewModel.activeLegendItems,
               predictionUncertaintyPercent: viewModel.predictionUncertaintyPercent,
               cptPointsCount: viewModel.displayedCPTPointsCount
             )
