@@ -5,6 +5,8 @@ struct ProjectCardView: View {
   let project: Project
   let formattedLastEdited: String
   private let action: (() -> Void)?
+  private let onRename: (() -> Void)?
+  private let onDelete: (() -> Void)?
 
   @Environment(\.colorSchemeContrast) private var contrast
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -15,11 +17,15 @@ struct ProjectCardView: View {
   init(
     project: Project,
     formattedLastEdited: String? = nil,
-    action: (() -> Void)? = nil
+    action: (() -> Void)? = nil,
+    onRename: (() -> Void)? = nil,
+    onDelete: (() -> Void)? = nil
   ) {
     self.project = project
     self.formattedLastEdited = formattedLastEdited ?? ProjectViewModel.formatLastEdited(project.lastEdited)
     self.action = action
+    self.onRename = onRename
+    self.onDelete = onDelete
   }
 
   private var pointCountSummary: String {
@@ -35,7 +41,7 @@ struct ProjectCardView: View {
         thumbnailView
         detailsView
       }
-      .frame(width: cardWidth)
+      .frame(minWidth: cardWidth, maxWidth: .infinity)
       .frame(minHeight: 144, alignment: .top)
       .background(Color(.secondarySystemGroupedBackground))
       .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -49,11 +55,31 @@ struct ProjectCardView: View {
       .shadow(color: Color.black.opacity(0.06), radius: 4, x: 0, y: 2)
     }
     .buttonStyle(.plain)
+    .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 14, style: .continuous))
+    .contextMenu {
+      Button {
+        onRename?()
+      } label: {
+        Label("Rename", systemImage: "pencil")
+      }
+
+      Button(role: .destructive) {
+        onDelete?()
+      } label: {
+        Label("Delete", systemImage: "trash")
+      }
+    }
     .accessibilityElement(children: .combine)
     .accessibilityLabel(project.name)
     .accessibilityValue("\(pointCountSummary), \(formattedLastEdited)")
-    .accessibilityHint("Opens this project")
+    .accessibilityHint("Opens this project. Long-press for rename and delete options.")
     .accessibilityInputLabels([project.name, "Open \(project.name)"])
+    .accessibilityAction(named: "Rename Project") {
+      onRename?()
+    }
+    .accessibilityAction(named: "Delete Project") {
+      onDelete?()
+    }
   }
 
   private var thumbnailView: some View {

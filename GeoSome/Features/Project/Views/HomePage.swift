@@ -106,6 +106,18 @@ struct HomePage: View {
                 try? await Task.sleep(for: .milliseconds(220))
                 router.navigate(to: .projectDetail(id: project.id))
               }
+            },
+            onRenameProject: { project, newName in
+              withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
+                viewModel.renameProject(id: project.id, newName: newName)
+              }
+              captionCenter.announce("Renamed project to \(newName).")
+            },
+            onDeleteProject: { project in
+              withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) {
+                viewModel.deleteProject(id: project.id)
+              }
+              captionCenter.announce("Deleted project \(project.name).")
             }
           )
           .presentationPlacement(.center)
