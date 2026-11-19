@@ -28,6 +28,9 @@ final class BoundaryCreationViewModel {
   var isEditDiscardConfirmationPresented: Bool
   var isEditInvalidCoordinateAlertPresented: Bool
   var coordinateInputText: String
+  var addZoneText: String = "48S"
+  var addEastingText: String = ""
+  var addNorthingText: String = ""
   var isTooltipVisible: Bool
 
   private struct EditorSnapshot: Equatable {
@@ -41,6 +44,10 @@ final class BoundaryCreationViewModel {
   private var redoStack: [EditorSnapshot] = []
   private var isEditingNameSession = false
   private var hasRecordedNameEditInSession = false
+
+  var isEditingExistingProject: Bool {
+    editingProject != nil
+  }
 
   var canUndo: Bool {
     !undoStack.isEmpty
@@ -91,11 +98,16 @@ final class BoundaryCreationViewModel {
   }
 
   var hasUnsavedCoordinateInput: Bool {
+    !addEastingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+    !addNorthingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
     !coordinateInputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 
   var canSubmitCoordinate: Bool {
-    hasUnsavedCoordinateInput
+    (!addZoneText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+     !addEastingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+     !addNorthingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) ||
+    !coordinateInputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 
   var hasUnsavedEditCoordinateChanges: Bool {
@@ -134,6 +146,9 @@ final class BoundaryCreationViewModel {
     isEditDiscardConfirmationPresented: Bool = false,
     isEditInvalidCoordinateAlertPresented: Bool = false,
     coordinateInputText: String = "",
+    addZoneText: String = "48S",
+    addEastingText: String = "",
+    addNorthingText: String = "",
     isTooltipVisible: Bool = false,
     points: [BoundaryPoint] = []
   ) {
@@ -153,6 +168,9 @@ final class BoundaryCreationViewModel {
     self.isEditDiscardConfirmationPresented = isEditDiscardConfirmationPresented
     self.isEditInvalidCoordinateAlertPresented = isEditInvalidCoordinateAlertPresented
     self.coordinateInputText = coordinateInputText
+    self.addZoneText = addZoneText
+    self.addEastingText = addEastingText
+    self.addNorthingText = addNorthingText
     self.isTooltipVisible = isTooltipVisible
     self.points = points
   }
@@ -212,6 +230,14 @@ final class BoundaryCreationViewModel {
   }
 
   func addCoordinate() {
+    if let first = points.first {
+      let utm = first.utmCoordinate
+      addZoneText = "\(utm.zone)\(utm.isSouthernHemisphere ? "S" : "N")"
+    } else {
+      addZoneText = "48S"
+    }
+    addEastingText = ""
+    addNorthingText = ""
     isAddCoordinateSheetPresented = true
   }
 
@@ -343,11 +369,37 @@ final class BoundaryCreationViewModel {
   func dismissAddCoordinateSheet() {
     isDiscardConfirmationPresented = false
     isInvalidCoordinateAlertPresented = false
+    addEastingText = ""
+    addNorthingText = ""
     coordinateInputText = ""
     isAddCoordinateSheetPresented = false
   }
 
   func submitCoordinate() {
+    if !addEastingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+       !addNorthingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      guard let parsedCoord = UTMCoordinateConverter.parseUTMComponents(
+        zoneText: addZoneText,
+        eastingText: addEastingText,
+        northingText: addNorthingText,
+        referenceCoordinate: points.first?.coordinate
+      ) else {
+        isInvalidCoordinateAlertPresented = true
+        return
+      }
+
+      let newPoint = BoundaryPoint(coordinate: parsedCoord)
+      recordUndoSnapshot()
+      points.append(newPoint)
+      syncSheetDetentForPointCount()
+      focusOnCoordinates(points.map(\.coordinate))
+      dismissAddCoordinateSheet()
+      AccessibilityCaptionCenter.shared.announce(
+        "Added coordinate. Total \(boundaryPointsSummaryText)."
+      )
+      return
+    }
+
     guard let parsedPoints = Self.parseCoordinates(coordinateInputText) else {
       isInvalidCoordinateAlertPresented = true
       return

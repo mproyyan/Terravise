@@ -12,14 +12,23 @@ enum CPTCSVParser {
     cptType: CPTType,
     equipment: CPTEquipmentParameters = CPTEquipmentParameters()
   ) -> CPTCSVParseResult {
-    guard url.pathExtension.lowercased() == "csv" else {
+    let ext = url.pathExtension.lowercased()
+    guard ext == "csv" || ext == "xlsx" else {
       return CPTCSVParseResult(rows: [], matchedRequiredColumns: [],
-                               error: "Format .\(url.pathExtension.lowercased()) belum didukung. Ekspor data sebagai CSV.")
+                               error: "Format .\(ext) belum didukung. Ekspor data sebagai CSV atau Excel (.xlsx).")
     }
+
+    if ext == "xlsx" {
+      if let data = try? Data(contentsOf: url),
+         let csvText = CPTXLSXCodec.extractCSVText(from: data) {
+        return parse(text: csvText, cptType: cptType, equipment: equipment)
+      }
+    }
+
     guard let rawText = (try? String(contentsOf: url, encoding: .utf8))
       ?? (try? String(contentsOf: url, encoding: .ascii))
     else {
-      return CPTCSVParseResult(rows: [], matchedRequiredColumns: [], error: "File CSV tidak dapat dibaca sebagai teks.")
+      return CPTCSVParseResult(rows: [], matchedRequiredColumns: [], error: "File tidak dapat dibaca.")
     }
     return parse(text: rawText, cptType: cptType, equipment: equipment)
   }
@@ -54,24 +63,25 @@ enum CPTCSVParser {
     var icIndex: Int?
 
     for (idx, header) in headers.enumerated() {
+      let normalized = header.replacingOccurrences(of: " ", with: "")
       if depthIndex == nil,
-         header == "depth_(m)" || header == "depth_m" || header == "depth" || header == "z"
+         normalized == "depth_(m)" || normalized == "depth_m" || normalized == "depth(m)" || normalized == "depth" || normalized == "z"
       {
         depthIndex = idx
       } else if qcIndex == nil,
-                header == "qc_mpa(mpa)" || header == "qc_mpa" || header == "qc" || header == "tip"
+                normalized == "qc_(mpa)" || normalized == "qc(mpa)" || normalized == "qc_mpa(mpa)" || normalized == "qc_mpa" || normalized == "qc" || normalized == "tip"
       {
         qcIndex = idx
       } else if fsIndex == nil,
-                header == "fs_kpa(kpa)" || header == "fs_kpa" || header == "fs" || header == "sleeve"
+                normalized == "fs_(kpa)" || normalized == "fs(kpa)" || normalized == "fs_kpa(kpa)" || normalized == "fs_kpa" || normalized == "fs" || normalized == "sleeve"
       {
         fsIndex = idx
       } else if u2Index == nil,
-                header == "u2_kpa(kpa)" || header == "u2_kpa" || header == "u2" || header == "pore_pressure_kpa"
+                normalized == "u2_(kpa)" || normalized == "u2(kpa)" || normalized == "u2_kpa(kpa)" || normalized == "u2_kpa" || normalized == "u2" || normalized == "pore_pressure_kpa"
       {
         u2Index = idx
       } else if icIndex == nil,
-                header == "ic" || header == "robertson_ic"
+                normalized == "ic" || normalized == "robertson_ic"
       {
         icIndex = idx
       }
@@ -82,13 +92,13 @@ enum CPTCSVParser {
       matchedColumns.append("depth_(m)")
     }
     if qcIndex != nil {
-      matchedColumns.append("qc_mpa(mPa)")
+      matchedColumns.append("qc_(MPa)")
     }
     if fsIndex != nil {
-      matchedColumns.append("fs_kpa(kPa)")
+      matchedColumns.append("fs_(kPa)")
     }
     if u2Index != nil {
-      matchedColumns.append("u2_kpa(kPa)")
+      matchedColumns.append("u2_(kPa)")
     }
 
     guard let dIdx = depthIndex, let qIdx = qcIndex, let fIdx = fsIndex,

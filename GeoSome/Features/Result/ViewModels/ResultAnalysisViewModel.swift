@@ -88,7 +88,7 @@ final class ResultAnalysisViewModel {
   var bearingIcFilterActive: Bool { bearingIcThresholdText != "N/A" }
   let bearingUncertaintyProductionValidated = false
   var bearingUncertaintyExperimentalInferenceReady = false
-  var bearingDepthErrorBoundText = "Belum tersedia"
+  var bearingDepthErrorBoundText = "Not available"
 
   /// The slider's configured value is independent of the Ic at a tapped candidate.
   /// Candidate screening requires a valid, aligned SchemaGAN reconstruction.
@@ -209,9 +209,9 @@ final class ResultAnalysisViewModel {
   var shallowestBearingDepthText: String = "—"
   var deepestBearingDepthText: String = "—"
   var variationBearingDepthText: String = "—"
-  var relativeUncertaintyText: String = "Belum tersedia"
-  var highUncertaintyAreaPercentText: String = "Belum dapat ditentukan"
-  var highUncertaintyDescription: String = "Ketidakpastian kedalaman Bearing Layer belum tervalidasi untuk proyek ini."
+  var relativeUncertaintyText: String = "Not available"
+  var highUncertaintyAreaPercentText: String = "Pending"
+  var highUncertaintyDescription: String = "Bearing layer depth uncertainty is not yet validated for this project."
 
   // Bearing Layer Criteria & Slicing State
   var isBearingCriteriaCardExpanded: Bool = true
@@ -508,15 +508,21 @@ final class ResultAnalysisViewModel {
     let otherIntervals = columnIntervals.dropFirst().map {
       String(format: "%.1f–%.1f m (%.1f m)", $0.topDepthM, $0.bottomDepthM, $0.thicknessM)
     }.joined(separator: "; ")
-    selectedBearingTitle = String(format: "Kandidat · dasar %.1f m · tebal %.1f m", first.bottomDepthM, first.thicknessM)
+    selectedBearingTitle = String(format: "Candidate · base %.1f m · thick %.1f m", first.bottomDepthM, first.thicknessM)
     if !otherIntervals.isEmpty {
-      selectedBearingTitle += "; lain: " + otherIntervals
+      selectedBearingTitle += "; other: " + otherIntervals
     }
     let intervalText = columnIntervals.map { String(format: "%.1f–%.1f m", $0.topDepthM, $0.bottomDepthM) }.joined(separator: ", ")
     selectedBearingDepthText = String(format: "%.1f m", first.topDepthM)
     selectedBearingTopDepthM = first.topDepthM
-    selectedBearingNorthingText = String(format: "lokal %.1f m", first.projectYM)
-    selectedBearingEastingText = String(format: "lokal %.1f m", first.projectXM)
+    let vol = volume
+    let fz = Double(gridZ) / Double(max(output.grid.ny - 1, 1))
+    let fx = Double(gridX) / Double(max(output.grid.nx - 1, 1))
+    let lat = vol.maxLatitude - fz * (vol.maxLatitude - vol.minLatitude)
+    let lon = vol.minLongitude + fx * (vol.maxLongitude - vol.minLongitude)
+    let utm = UTMCoordinateConverter.coordinateToUTM(CLLocationCoordinate2D(latitude: lat, longitude: lon))
+    selectedBearingNorthingText = "\(Int(utm.northing.rounded())) m N"
+    selectedBearingEastingText = "\(Int(utm.easting.rounded())) m E"
     selectedBearingIcText = "N/A"
     if case .coreML(let qcfs) = qcfsResult {
       if let ic = qcfs.icReconstruction,
@@ -538,7 +544,7 @@ final class ResultAnalysisViewModel {
       }
       let qcText = qValues.map { String(format: "%.2f", $0) }.joined(separator: ", ")
       highUncertaintyDescription = String(format:
-        "%@. X %.1f m, Y %.1f m; interval %@; ketebalan total %.1f m; qc prediksi pada puncak interval %@ MPa; CPT terdekat %.1f m. Uncertainty terkalibrasi belum tersedia.",
+        "%@. X %.1f m, Y %.1f m; interval %@; total thickness %.1f m; predicted qc at top of interval %@ MPa; nearest CPT %.1f m. Calibrated uncertainty not yet available.",
         bearingStatusText, first.projectXM, first.projectYM, intervalText,
         output.totalThicknessMXY[output.grid.column(gridX, gridZ)], qcText,
         first.nearestCPTDistanceM)
@@ -662,7 +668,7 @@ final class ResultAnalysisViewModel {
   func handleTopSurfaceTap(at screenPoint: CGPoint, local3DPoint: SIMD3<Float>?, voxel: SoilVoxel?) {
     guard !project.cptPoints.isEmpty else {
       isProfilePopoverPresented = false
-      AccessibilityCaptionCenter.shared.announce("Belum ada data CPT untuk proyek ini.")
+      AccessibilityCaptionCenter.shared.announce("No CPT data available for this project yet.")
       return
     }
 
@@ -746,7 +752,7 @@ final class ResultAnalysisViewModel {
   func createVirtualCPTAtMinimapCenter() {
     guard !project.cptPoints.isEmpty else {
       isProfilePopoverPresented = false
-      AccessibilityCaptionCenter.shared.announce("Belum ada data CPT untuk proyek ini.")
+      AccessibilityCaptionCenter.shared.announce("No CPT data available for this project yet.")
       return
     }
 
@@ -1150,9 +1156,9 @@ final class ResultAnalysisViewModel {
 
   private func updateBearingSummaryMetrics() {
     bearingUncertaintyExperimentalInferenceReady = false
-    relativeUncertaintyText = "Belum tersedia"
-    highUncertaintyAreaPercentText = "Belum dapat ditentukan"
-    bearingDepthErrorBoundText = "Belum tersedia"
+    relativeUncertaintyText = "Not available"
+    highUncertaintyAreaPercentText = "Pending"
+    bearingDepthErrorBoundText = "Not available"
     let output: BearingRuleOutput?
     switch bearingRuleEvaluation {
     case .candidateDetected(let value), .noCandidateDetected(let value): output = value

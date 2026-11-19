@@ -5,15 +5,16 @@ struct ResultBearingPointPopoverView: View {
   var depthText: String = "4.72 m"
   var northingText: String = "9,312,450 m"
   var eastingText: String = "699,250 m"
+  var indicatorColor: Color = Color.orange
   var isCompared: Bool = false
   var onAddToCompare: (() -> Void)? = nil
 
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
-      // Top: Orange Capsule Indicator + Title & Depth
+      // Top: Capsule Indicator + Title & Depth
       HStack(alignment: .center, spacing: 10) {
         Capsule()
-          .fill(Color.orange)
+          .fill(indicatorColor)
           .frame(width: 7, height: 32)
 
         VStack(alignment: .leading, spacing: 2) {

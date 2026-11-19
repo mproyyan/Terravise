@@ -32,6 +32,15 @@ struct ResultBearingSurfaceRealityView: View {
   @State private var lastBuiltBearingRevision: Int = -1
   @State private var lastAppliedMapOverlayVisible: Bool = false
 
+  var bearingPopoverIndicatorColor: Color {
+    if let selectedCell, let output = bearingOutput {
+      if let top = output.topDepthMXY[output.grid.column(selectedCell.x, selectedCell.y)] {
+        return Self.colorForDepth(top, output: output)
+      }
+    }
+    return Color.orange
+  }
+
   private struct CachedMapSnapshotEntry {
     let texture: TextureResource
     let minX: Float
@@ -151,6 +160,7 @@ struct ResultBearingSurfaceRealityView: View {
             depthText: bearingPopoverDepthText,
             northingText: bearingPopoverNorthingText,
             eastingText: bearingPopoverEastingText,
+            indicatorColor: bearingPopoverIndicatorColor,
             isCompared: isBearingCompared,
             onAddToCompare: onAddToCompare
           )
@@ -1902,6 +1912,18 @@ struct ResultBearingSurfaceRealityView: View {
     }
 
     return tex
+  }
+
+  static func colorForDepth(_ depthM: Double, output: BearingRuleOutput?) -> Color {
+    guard let output,
+          let shallow = output.summary.shallowestTopDepthM,
+          let deep = output.summary.deepestBottomDepthM,
+          deep > shallow else {
+      return Color.orange
+    }
+    let t = Float((depthM - shallow) / (deep - shallow))
+    let (r, g, b) = contourColormap(t: t)
+    return Color(red: Double(r), green: Double(g), blue: Double(b))
   }
 
   /// Maps `t` in `[0, 1]` from Shallowest (Red-Orange -> Yellow -> Green -> Cyan -> Deep Blue).
