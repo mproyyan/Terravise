@@ -221,6 +221,7 @@ struct BoundaryCreationView: View {
       case let .editCoordinate(point):
         BoundaryEditCoordinateSheetView(
           pointTitle: viewModel.title(for: point),
+          coordinateText: $viewModel.editCoordinateText,
           latitudeText: $viewModel.editLatitudeText,
           longitudeText: $viewModel.editLongitudeText,
           isDeleteConfirmationPresented: $viewModel.isDeletePointAlertPresented,

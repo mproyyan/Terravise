@@ -260,7 +260,7 @@ struct BoundaryMapContentLayer: View {
       )
       .accessibilityElement(children: .ignore)
       .accessibilityLabel("CPT Point \(index + 1)")
-      .accessibilityValue("Latitude \(point.formattedLatitude), Longitude \(point.formattedLongitude)")
+      .accessibilityValue(point.formattedCoordinate)
       .accessibilityHint("Double-tap and hold to drag on the map, or use actions to edit or delete")
       .accessibilityAction(named: "Edit Coordinate") {
         onSelectPoint?(point)

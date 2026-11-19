@@ -12,8 +12,9 @@ struct SBTProfileLayerItem: Identifiable, Sendable {
 
 struct CPTPointProfilePopoverView: View {
   var pointTitle: String
-  var latitudeText: String
-  var longitudeText: String
+  var eastingText: String
+  var northingText: String
+  var zoneText: String
   var layers: [SBTProfileLayerItem]
   var onClose: (() -> Void)? = nil
 
@@ -64,14 +65,34 @@ struct CPTPointProfilePopoverView: View {
 
   init(
     pointTitle: String = "CPT Point-01",
+    eastingText: String = "702634 m E",
+    northingText: String = "9309747 m N",
+    zoneText: String = "48S",
+    layers: [SBTProfileLayerItem] = defaultLayers,
+    onClose: (() -> Void)? = nil
+  ) {
+    self.pointTitle = pointTitle
+    self.eastingText = eastingText
+    self.northingText = northingText
+    self.zoneText = zoneText
+    self.layers = layers
+    self.onClose = onClose
+  }
+
+  init(
+    pointTitle: String = "CPT Point-01",
     latitudeText: String = "-6.215432",
     longitudeText: String = "106.845321",
     layers: [SBTProfileLayerItem] = defaultLayers,
     onClose: (() -> Void)? = nil
   ) {
     self.pointTitle = pointTitle
-    self.latitudeText = latitudeText
-    self.longitudeText = longitudeText
+    let lat = Double(latitudeText) ?? -6.215432
+    let lon = Double(longitudeText) ?? 106.845321
+    let utm = UTMCoordinateConverter.coordinateToUTM(CLLocationCoordinate2D(latitude: lat, longitude: lon))
+    self.eastingText = "\(Int(utm.easting.rounded())) m E"
+    self.northingText = "\(Int(utm.northing.rounded())) m N"
+    self.zoneText = utm.zoneIdentifier
     self.layers = layers
     self.onClose = onClose
   }
@@ -98,10 +119,13 @@ struct CPTPointProfilePopoverView: View {
         }
       }
 
-      // Latitude & Longitude Info Cards
+      // Easting & Northing Coordinate Cards
       HStack(spacing: 12) {
-        coordinateCard(title: "Latitude", value: latitudeText)
-        coordinateCard(title: "Longitude", value: longitudeText)
+        coordinateCard(title: "Easting", value: eastingText)
+        coordinateCard(
+          title: zoneText.isEmpty ? "Northing" : "Northing (\(zoneText))",
+          value: northingText
+        )
       }
 
       // Section Header: CPT-derived SBT profile

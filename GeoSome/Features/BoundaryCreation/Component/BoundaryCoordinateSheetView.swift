@@ -319,7 +319,7 @@ struct BoundaryCoordinateSheetView: View {
         .id(point.id)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("CPT Point \(index + 1)")
-        .accessibilityValue("Latitude \(point.formattedLatitude), Longitude \(point.formattedLongitude)")
+        .accessibilityValue(point.formattedCoordinate)
         .accessibilityHint("Opens coordinate editor for this point")
         .accessibilityInputLabels(["Point \(index + 1)", "CPT Point \(index + 1)", "Edit Point \(index + 1)"])
         .accessibilityAction(named: "Delete Point") {

@@ -245,6 +245,8 @@ struct SubsurfaceVoxelVolume: Sendable {
   ]
   /// Normalized `[0, 1] x [0, 1]` UV coordinates of CPT points inside the boundary polygon.
   var cptNormalizedUVs: [SIMD2<Float>] = []
+  /// True if at least one measured CPT sounding borehole is present in the volume.
+  var hasMeasuredCPTData: Bool = false
 
   @inline(__always)
   func flatIndex(x: Int, y: Int, z: Int) -> Int {
@@ -410,7 +412,26 @@ struct SubsurfaceVoxelVolume: Sendable {
     // Fallback to nearest active column if right on an irregular polygon boundary edge
     let nearestX = min(max(Int(fx.rounded()), 0), nx - 1)
     let nearestZ = min(max(Int(fz.rounded()), 0), nz - 1)
-    return voxels[GridCoord(x: nearestX, y: clampedY, z: nearestZ)]?.robertsonIc
+    if let direct = voxels[GridCoord(x: nearestX, y: clampedY, z: nearestZ)] {
+      return direct.robertsonIc
+    }
+
+    // Expanding radius search for the closest active voxel at this depth layer
+    for r in 1...8 {
+      for dx in -r...r {
+        for dz in -r...r {
+          if abs(dx) != r && abs(dz) != r { continue }
+          let qx = nearestX + dx
+          let qz = nearestZ + dz
+          guard qx >= 0, qx < nx, qz >= 0, qz < nz else { continue }
+          if let v = voxels[GridCoord(x: qx, y: clampedY, z: qz)] {
+            return v.robertsonIc
+          }
+        }
+      }
+    }
+
+    return nil
   }
 
   /// Samples a continuous bilinearly + vertically interpolated Robertson `Ic` profile at `(metricX, metricZ)`.
