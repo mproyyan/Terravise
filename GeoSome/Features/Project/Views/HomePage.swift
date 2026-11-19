@@ -100,6 +100,12 @@ struct HomePage: View {
               viewModel.dismissProjectSheet()
               captionCenter.announce("Opened project \(project.name).")
               router.navigate(to: .projectDetail(id: project.id))
+            },
+            onRenameProject: { projectID, newName in
+              viewModel.renameProject(id: projectID, newName: newName)
+            },
+            onDeleteProject: { projectID in
+              viewModel.deleteProject(id: projectID)
             }
           )
           .presentationPlacement(.center)
