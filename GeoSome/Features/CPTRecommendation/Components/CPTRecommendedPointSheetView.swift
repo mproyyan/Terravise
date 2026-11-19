@@ -12,6 +12,7 @@ struct CPTRecommendedPointSheetView: View {
 
   @Environment(\.colorSchemeContrast) private var contrast
   @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
+  @State private var isConfidenceTooltipPresented = false
 
   init(
     recommendation: CPTRecommendationResult = CPTRecommendationResult(),
@@ -266,20 +267,59 @@ struct CPTRecommendedPointSheetView: View {
           .buttonStyle(.plain)
           .accessibilityLabel("RMSE Information")
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Current Ground Certainty Information")
-        .popover(isPresented: $isConfidenceTooltipPresented) {
-          VStack(alignment: .leading, spacing: 0) {
-            Text("Shows how well the ground is understood here. A lower percentage indicates an untested blind spot, making this location a priority to test.")
+
+        Text("RMSE")
+          .font(.caption.weight(.medium))
+          .foregroundStyle(Color.secondary)
+      }
+      .padding(14)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .background(
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
+          .fill(Color(.secondarySystemGroupedBackground))
+      )
+      .overlay(
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
+          .stroke(
+            Color.primary.opacity(contrast == .increased ? 0.35 : 0.08),
+            lineWidth: contrast == .increased ? 1.5 : 1
+          )
+      )
+
+      // Confidence Level Metric Card
+      VStack(alignment: .leading, spacing: 6) {
+        HStack {
+          Text("\(recommendation.confidenceLevel)%")
+            .font(.title2.weight(.bold))
+            .foregroundStyle(Color.primary)
+
+          Spacer()
+
+          Button(action: {
+            isConfidenceTooltipPresented.toggle()
+            onConfidenceInfoTap?()
+          }) {
+            Image(systemName: "info.circle")
               .font(.subheadline)
               .foregroundStyle(Color.secondary)
-              .lineSpacing(3)
-              .fixedSize(horizontal: false, vertical: true)
+              .frame(minWidth: 28, minHeight: 28)
+              .contentShape(Rectangle())
           }
-          .padding(.horizontal, 16)
-          .padding(.vertical, 14)
-          .frame(maxWidth: 280)
-          .presentationCompactAdaptation(.popover)
+          .buttonStyle(.plain)
+          .accessibilityLabel("Current Ground Certainty Information")
+          .popover(isPresented: $isConfidenceTooltipPresented) {
+            VStack(alignment: .leading, spacing: 0) {
+              Text("Shows how well the ground is understood here. A lower percentage indicates an untested blind spot, making this location a priority to test.")
+                .font(.subheadline)
+                .foregroundStyle(Color.secondary)
+                .lineSpacing(3)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .frame(maxWidth: 280)
+            .presentationCompactAdaptation(.popover)
+          }
         }
 
         Text("Confidence Level")
