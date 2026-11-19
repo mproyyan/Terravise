@@ -220,8 +220,8 @@ final class CPTRecommendationViewModel {
   func presentInitialSheet() {
     isUploadSheetPresented = false
     isCPTListPresented = false
-    isSheetPresented = true
     selectedSheetDetent = hasUploadedCPTData ? targetRecommendationSheetDetent : Self.defaultSheetDetent
+    isSheetPresented = true
   }
 
   func presentEmptyStateSheet() {
@@ -262,41 +262,36 @@ final class CPTRecommendationViewModel {
       let center = resolvedBoundaryRegion.center
       setUploadCoordinates(from: center)
     }
+    selectedSheetDetent = Self.uploadSheetDetent
     isUploadSheetPresented = true
     isCPTListPresented = false
     isSheetPresented = true
-    selectedSheetDetent = Self.uploadSheetDetent
   }
 
   func dismissUploadSheet() {
     activeRecommendationAcceptance = nil
-    isUploadSheetPresented = false
     if isInitialSetupPresented && !hasUploadedCPTData {
       selectedSheetDetent = Self.cptDataListSheetDetent
     } else {
       selectedSheetDetent = hasUploadedCPTData ? targetRecommendationSheetDetent : Self.defaultSheetDetent
     }
+    isUploadSheetPresented = false
   }
 
   func presentInitialSetupSheet() {
+    selectedSheetDetent = Self.cptDataListSheetDetent
     isUploadSheetPresented = false
     isCPTListPresented = false
     isInitialSetupPresented = true
     isSheetPresented = true
-    selectedSheetDetent = Self.cptDataListSheetDetent
   }
 
   func dismissInitialSetupSheet() {
+    selectedSheetDetent = hasUploadedCPTData ? targetRecommendationSheetDetent : Self.defaultSheetDetent
     isInitialSetupPresented = false
     isUploadSheetPresented = false
     isCPTListPresented = false
-    if !hasUploadedCPTData {
-      isSheetPresented = true
-      selectedSheetDetent = Self.defaultSheetDetent
-    } else {
-      isSheetPresented = true
-      selectedSheetDetent = targetRecommendationSheetDetent
-    }
+    isSheetPresented = true
   }
 
   func deleteInitialCPTPoint(id: CPTPointEntry.ID) {
@@ -317,10 +312,10 @@ final class CPTRecommendationViewModel {
     recommendation = result
     persistCPTStateToProject()
 
+    selectedSheetDetent = (result.isSufficient || !result.hasRecommendation) ? Self.sufficientSheetDetent : Self.recommendationSheetDetent
     isInitialSetupPresented = false
     isUploadSheetPresented = false
     isCPTListPresented = false
-    selectedSheetDetent = (result.isSufficient || !result.hasRecommendation) ? Self.sufficientSheetDetent : Self.recommendationSheetDetent
 
     if result.isSufficient || !result.hasRecommendation {
       AccessibilityCaptionCenter.shared.announce(
@@ -391,8 +386,8 @@ final class CPTRecommendationViewModel {
       uploadCoordinatesText = ""
       uploadEastingText = ""
       uploadNorthingText = ""
-      isUploadSheetPresented = false
       selectedSheetDetent = Self.cptDataListSheetDetent
+      isUploadSheetPresented = false
 
       AccessibilityCaptionCenter.shared.announce(
         "CPT Point \(cptPoints.count) added to initial setup list."
@@ -422,9 +417,9 @@ final class CPTRecommendationViewModel {
     uploadEastingText = ""
     uploadNorthingText = ""
 
+    selectedSheetDetent = (result.isSufficient || !result.hasRecommendation) ? Self.sufficientSheetDetent : Self.recommendationSheetDetent
     isUploadSheetPresented = false
     isCPTListPresented = false
-    selectedSheetDetent = (result.isSufficient || !result.hasRecommendation) ? Self.sufficientSheetDetent : Self.recommendationSheetDetent
 
     if result.isSufficient || !result.hasRecommendation {
       AccessibilityCaptionCenter.shared.announce(
@@ -438,14 +433,14 @@ final class CPTRecommendationViewModel {
   }
 
   func openCPTDataList() {
+    selectedSheetDetent = Self.cptDataListSheetDetent
     isUploadSheetPresented = false
     isCPTListPresented = true
-    selectedSheetDetent = Self.cptDataListSheetDetent
   }
 
   func dismissCPTDataList() {
-    isCPTListPresented = false
     selectedSheetDetent = hasUploadedCPTData ? targetRecommendationSheetDetent : Self.defaultSheetDetent
+    isCPTListPresented = false
   }
 
   func deleteCPTPoint(id: UUID) {
@@ -498,6 +493,7 @@ final class CPTRecommendationViewModel {
         assessmentProject: sourceProject
       )
     }
+    selectedSheetDetent = hasUploadedCPTData ? targetRecommendationSheetDetent : Self.defaultSheetDetent
   }
 
   private func persistCPTStateToProject() {

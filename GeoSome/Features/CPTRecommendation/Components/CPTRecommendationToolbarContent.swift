@@ -74,7 +74,7 @@ struct CPTRecommendationToolbarContent: ToolbarContent {
           }
         }) {
           HStack(spacing: 5) {
-            Text("View Analysis 3D")
+            Text("View Analysis")
               .font(.subheadline.weight(.semibold))
           }
           .foregroundStyle(isAnalysis3DEnabled ? Color.white : Color.secondary)
