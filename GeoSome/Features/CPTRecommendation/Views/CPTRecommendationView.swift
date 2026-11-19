@@ -171,6 +171,7 @@ struct CPTRecommendationView: View {
         CPTInitialSetupSheetView(
           selectedCPTType: $viewModel.selectedCPTType,
           points: viewModel.cptPoints,
+          equipmentParameters: $viewModel.uploadEquipmentParameters,
           onCloseTap: {
             viewModel.dismissInitialSetupSheet()
           },
@@ -278,6 +279,7 @@ struct CPTRecommendationView: View {
     .toolbar {
       CPTRecommendationToolbarContent(
         projectName: viewModel.project.name,
+        isAnalysis3DEnabled: viewModel.hasUploadedCPTData && !viewModel.cptPoints.isEmpty,
         onEditAreaTap: {
           viewModel.editArea()
           viewModel.dismissSheet()

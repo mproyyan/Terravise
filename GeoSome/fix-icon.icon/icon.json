@@ -1,16 +1,26 @@
 {
-  "fill" : {
-    "automatic-gradient" : "srgb:0.12157,0.23529,0.25490,1.00000"
-  },
+  "fill-specializations" : [
+    {
+      "value" : {
+        "automatic-gradient" : "srgb:0.97647,0.85098,0.72549,1.00000"
+      }
+    },
+    {
+      "appearance" : "dark",
+      "value" : {
+        "automatic-gradient" : "display-p3:0.95557,0.85547,0.74072,1.00000"
+      }
+    }
+  ],
   "groups" : [
     {
       "layers" : [
         {
           "glass" : false,
-          "image-name" : "Asset 2.svg",
-          "name" : "Asset 2",
+          "image-name" : "Outline.png",
+          "name" : "Outline",
           "position" : {
-            "scale" : 2.33,
+            "scale" : 0.47,
             "translation-in-points" : [
               0,
               0

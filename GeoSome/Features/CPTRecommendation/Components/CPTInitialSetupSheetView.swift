@@ -6,6 +6,7 @@ import UIKit
 struct CPTInitialSetupSheetView: View {
   @Binding var selectedCPTType: CPTType
   var points: [CPTPointEntry]
+  var equipmentParameters: Binding<CPTEquipmentParameters>?
   var onCloseTap: (() -> Void)?
   var onConfirmTap: (() -> Void)?
   var onAddCPTTap: (() -> Void)?
@@ -24,6 +25,7 @@ struct CPTInitialSetupSheetView: View {
   init(
     selectedCPTType: Binding<CPTType>,
     points: [CPTPointEntry] = [],
+    equipmentParameters: Binding<CPTEquipmentParameters>? = nil,
     onCloseTap: (() -> Void)? = nil,
     onConfirmTap: (() -> Void)? = nil,
     onAddCPTTap: (() -> Void)? = nil,
@@ -31,6 +33,7 @@ struct CPTInitialSetupSheetView: View {
   ) {
     _selectedCPTType = selectedCPTType
     self.points = points
+    self.equipmentParameters = equipmentParameters
     self.onCloseTap = onCloseTap
     self.onConfirmTap = onConfirmTap
     self.onAddCPTTap = onAddCPTTap
@@ -43,6 +46,20 @@ struct CPTInitialSetupSheetView: View {
 
   private var csvTemplateString: String {
     selectedCPTType.requiredColumns.joined(separator: ",") + "\n"
+  }
+
+  private var currentEquipmentParameters: CPTEquipmentParameters {
+    CPTEquipmentParameters(
+      netAreaRatio: CPTCSVParser.parseDouble(netAreaRatioText) ?? 0.80,
+      pistonDiameterCm: CPTCSVParser.parseDouble(pistonDiameterText) ?? 3.57,
+      coneDiameterCm: CPTCSVParser.parseDouble(coneDiameterText) ?? 3.57,
+      frictionSleeveDiameterCm: CPTCSVParser.parseDouble(frictionSleeveDiameterText) ?? 3.57,
+      frictionSleeveLengthCm: CPTCSVParser.parseDouble(frictionSleeveLengthText) ?? 13.3
+    )
+  }
+
+  private func syncEquipmentParameters() {
+    equipmentParameters?.wrappedValue = currentEquipmentParameters
   }
 
   var body: some View {
@@ -74,6 +91,7 @@ struct CPTInitialSetupSheetView: View {
         ToolbarItem(placement: .confirmationAction) {
           Button(role: .confirm) {
             if isConfirmEnabled {
+              syncEquipmentParameters()
               onConfirmTap?()
             }
           }
@@ -309,6 +327,7 @@ struct CPTInitialSetupSheetView: View {
         NavigationLink {
           CPTDataListSheetView(
             points: points,
+            isPushed: true,
             onDeletePoint: onDeletePoint
           )
         } label: {
@@ -450,6 +469,7 @@ struct CPTInitialSetupSheetView: View {
 
   private var addCPTButton: some View {
     Button(action: {
+      syncEquipmentParameters()
       onAddCPTTap?()
     }) {
       HStack(spacing: 8) {
