@@ -75,8 +75,12 @@ struct CPTUploadDataSheetView: View {
     uploadedFile != nil
   }
 
-  private var csvTemplateString: String {
-    selectedCPTType.requiredColumns.joined(separator: ",") + "\n"
+  private var templateFileURL: URL {
+    let fileName = "cpt_template_\(selectedCPTType.nameIdentifier).xlsx"
+    let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
+    let xlsxData = CPTXLSXCodec.generateTemplate(for: selectedCPTType)
+    try? xlsxData.write(to: tempURL)
+    return tempURL
   }
 
   private var currentEquipmentParameters: CPTEquipmentParameters {
@@ -98,6 +102,7 @@ struct CPTUploadDataSheetView: View {
         VStack(alignment: .leading, spacing: 20) {
           if showCPTTypeSelection {
             cptTypeSection
+            requiredColumnsSection
           }
           coordinatesSection
           cptFileSection
@@ -254,6 +259,56 @@ struct CPTUploadDataSheetView: View {
       } else if selectedCPTType == .cptmBicone {
         cptmBiconeEquipmentCard
       }
+    }
+  }
+
+  private var requiredColumnsSection: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text("Required Columns")
+        .font(.headline.weight(.bold))
+        .foregroundStyle(Color.primary)
+        .accessibilityAddTraits(.isHeader)
+
+      VStack(alignment: .leading, spacing: 12) {
+        Text("Make sure you have these columns in your file:\n**\(selectedCPTType.requiredColumns.joined(separator: ", "))**")
+          .font(.subheadline)
+          .foregroundStyle(Color.primary)
+          .fixedSize(horizontal: false, vertical: true)
+
+        Text("or follow this template:")
+          .font(.subheadline)
+          .foregroundStyle(Color.secondary)
+
+        ShareLink(
+          item: templateFileURL
+        ) {
+          HStack(spacing: 6) {
+            Image(systemName: "square.and.arrow.down")
+              .font(.subheadline.weight(.semibold))
+
+            Text("Download Template")
+              .font(.subheadline.weight(.semibold))
+          }
+          .foregroundStyle(Color.blue)
+          .padding(.horizontal, 16)
+          .padding(.vertical, 10)
+          .background(Color.blue.opacity(0.12), in: Capsule())
+        }
+        .buttonStyle(.plain)
+      }
+      .padding(16)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .background(
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
+          .fill(Color(.secondarySystemGroupedBackground))
+      )
+      .overlay(
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
+          .stroke(
+            Color.primary.opacity(contrast == .increased ? 0.35 : 0.08),
+            lineWidth: contrast == .increased ? 1.5 : 1
+          )
+      )
     }
   }
 
@@ -750,5 +805,22 @@ struct CPTUploadDataSheetView: View {
     eastingText: $easting,
     northingText: $northing,
     uploadedFile: $file
+  )
+}
+
+#Preview("Subsequent Upload") {
+  @Previewable @State var type: CPTType = .electrical
+  @Previewable @State var zone = "48S"
+  @Previewable @State var easting = "702634"
+  @Previewable @State var northing = "9309747"
+  @Previewable @State var file: CPTUploadedFile? = nil
+
+  CPTUploadDataSheetView(
+    selectedCPTType: $type,
+    zoneText: $zone,
+    eastingText: $easting,
+    northingText: $northing,
+    uploadedFile: $file,
+    showCPTTypeSelection: true
   )
 }
