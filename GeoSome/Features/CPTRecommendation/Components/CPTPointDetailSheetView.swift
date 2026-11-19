@@ -38,18 +38,16 @@ struct CPTPointDetailSheetView: View {
     .scrollBounceBehavior(.basedOnSize)
     .navigationTitle(pointTitle)
     .navigationBarTitleDisplayMode(.inline)
-    .navigationBarBackButtonHidden(true)
+    .navigationBarBackButtonHidden(onCloseTap != nil)
     .toolbar {
-      ToolbarItem(placement: .cancellationAction) {
-        Button(role: .close) {
-          if let onCloseTap {
+      if let onCloseTap {
+        ToolbarItem(placement: .cancellationAction) {
+          Button(role: .close) {
             onCloseTap()
-          } else {
-            dismiss()
           }
+          .accessibilityLabel("Close")
+          .accessibilityHint("Returns to CPT data list")
         }
-        .accessibilityLabel("Close")
-        .accessibilityHint("Returns to CPT data list")
       }
     }
     .alert("Delete Point?", isPresented: $isDeleteConfirmationPresented) {

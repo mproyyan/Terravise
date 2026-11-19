@@ -22,13 +22,6 @@ struct CPTUploadDataSheetView: View {
   @State private var lastLoadedCSVText: String?
   @State private var importError: String?
 
-  // CPTu & CPTm Bicone Equipment Parameter Inputs
-  @State private var netAreaRatioText: String = "0,8"
-  @State private var pistonDiameterText: String = "3,57"
-  @State private var coneDiameterText: String = "3,57"
-  @State private var frictionSleeveDiameterText: String = "3,57"
-  @State private var frictionSleeveLengthText: String = "13,3"
-
   init(
     selectedCPTType: Binding<CPTType>,
     zoneText: Binding<String>,
@@ -77,23 +70,18 @@ struct CPTUploadDataSheetView: View {
   }
 
   private var currentEquipmentParameters: CPTEquipmentParameters {
-    CPTEquipmentParameters(
-      netAreaRatio: CPTCSVParser.parseDouble(netAreaRatioText) ?? 0.80,
-      pistonDiameterCm: CPTCSVParser.parseDouble(pistonDiameterText) ?? 3.57,
-      coneDiameterCm: CPTCSVParser.parseDouble(coneDiameterText) ?? 3.57,
-      frictionSleeveDiameterCm: CPTCSVParser.parseDouble(frictionSleeveDiameterText) ?? 3.57,
-      frictionSleeveLengthCm: CPTCSVParser.parseDouble(frictionSleeveLengthText) ?? 13.3
-    )
+    equipmentParameters?.wrappedValue ?? CPTEquipmentParameters()
   }
 
   var body: some View {
     NavigationStack {
       ScrollView(.vertical, showsIndicators: false) {
         VStack(alignment: .leading, spacing: 20) {
-          cptTypeSection
           coordinatesSection
-          requiredColumnsSection
           cptFileSection
+          if isFileUploaded {
+            requiredColumnsCard
+          }
           if let validationError {
             Text(validationError).font(.caption).foregroundStyle(.red)
           } else if !isSubmitEnabled && importError == nil {
@@ -166,178 +154,6 @@ struct CPTUploadDataSheetView: View {
   }
 
   // MARK: - Sections
-
-  private var cptTypeSection: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      Text("Type Data CPT")
-        .font(.headline.weight(.bold))
-        .foregroundStyle(Color.primary)
-        .accessibilityAddTraits(.isHeader)
-
-      HStack {
-        Text("CPT Type")
-          .font(.body)
-          .foregroundStyle(Color.primary)
-
-        Spacer()
-
-        Menu {
-          ForEach(CPTType.allCases) { type in
-            Button(action: {
-              selectedCPTType = type
-              revalidateCSVIfNeeded(for: type)
-            }) {
-              HStack {
-                Text(type.displayName)
-                if selectedCPTType == type {
-                  Image(systemName: "checkmark")
-                }
-              }
-            }
-          }
-        } label: {
-          HStack(spacing: 4) {
-            Text(selectedCPTType.displayName)
-              .font(.body)
-              .foregroundStyle(Color.secondary)
-
-            Image(systemName: "chevron.up.chevron.down")
-              .font(.caption.weight(.semibold))
-              .foregroundStyle(Color.secondary)
-          }
-          .padding(.vertical, 8)
-          .padding(.leading, 8)
-        }
-      }
-      .padding(.horizontal, 16)
-      .frame(height: 52)
-      .background(
-        RoundedRectangle(cornerRadius: 16, style: .continuous)
-          .fill(Color(.secondarySystemGroupedBackground))
-      )
-      .overlay(
-        RoundedRectangle(cornerRadius: 16, style: .continuous)
-          .stroke(
-            Color.primary.opacity(contrast == .increased ? 0.35 : 0.08),
-            lineWidth: contrast == .increased ? 1.5 : 1
-          )
-      )
-
-      if selectedCPTType == .cptu {
-        cptuEquipmentCard
-      } else if selectedCPTType == .cptmBicone {
-        cptmBiconeEquipmentCard
-      }
-    }
-    .onChange(of: netAreaRatioText) { _, _ in
-      revalidateCSVIfNeeded(for: selectedCPTType)
-    }
-    .onChange(of: pistonDiameterText) { _, _ in
-      revalidateCSVIfNeeded(for: selectedCPTType)
-    }
-    .onChange(of: coneDiameterText) { _, _ in
-      revalidateCSVIfNeeded(for: selectedCPTType)
-    }
-    .onChange(of: frictionSleeveDiameterText) { _, _ in
-      revalidateCSVIfNeeded(for: selectedCPTType)
-    }
-    .onChange(of: frictionSleeveLengthText) { _, _ in
-      revalidateCSVIfNeeded(for: selectedCPTType)
-    }
-  }
-
-  private var cptuEquipmentCard: some View {
-    equipmentParameterRow(
-      title: "Net Area Ratio (a)",
-      placeholder: "0,8",
-      text: $netAreaRatioText
-    )
-    .background(
-      RoundedRectangle(cornerRadius: 16, style: .continuous)
-        .fill(Color(.secondarySystemGroupedBackground))
-    )
-    .overlay(
-      RoundedRectangle(cornerRadius: 16, style: .continuous)
-        .stroke(
-          Color.primary.opacity(contrast == .increased ? 0.35 : 0.08),
-          lineWidth: contrast == .increased ? 1.5 : 1
-        )
-    )
-  }
-
-  private var cptmBiconeEquipmentCard: some View {
-    VStack(spacing: 0) {
-      equipmentParameterRow(
-        title: "Piston Diameter (Dpi)",
-        placeholder: "3,57",
-        text: $pistonDiameterText
-      )
-
-      Divider()
-        .padding(.horizontal, 16)
-
-      equipmentParameterRow(
-        title: "Cone Diameter (Dc)",
-        placeholder: "3,57",
-        text: $coneDiameterText
-      )
-
-      Divider()
-        .padding(.horizontal, 16)
-
-      equipmentParameterRow(
-        title: "Friction Sleeve Diameter (Ds)",
-        placeholder: "3,57",
-        text: $frictionSleeveDiameterText
-      )
-
-      Divider()
-        .padding(.horizontal, 16)
-
-      equipmentParameterRow(
-        title: "Friction Sleeve Length (Ls)",
-        placeholder: "13,3",
-        text: $frictionSleeveLengthText
-      )
-    }
-    .background(
-      RoundedRectangle(cornerRadius: 16, style: .continuous)
-        .fill(Color(.secondarySystemGroupedBackground))
-    )
-    .overlay(
-      RoundedRectangle(cornerRadius: 16, style: .continuous)
-        .stroke(
-          Color.primary.opacity(contrast == .increased ? 0.35 : 0.08),
-          lineWidth: contrast == .increased ? 1.5 : 1
-        )
-    )
-  }
-
-  private func equipmentParameterRow(
-    title: String,
-    placeholder: String,
-    text: Binding<String>
-  ) -> some View {
-    HStack(spacing: 12) {
-      Text(title)
-        .font(.body)
-        .foregroundStyle(Color.primary)
-        .lineLimit(1)
-
-      Spacer(minLength: 8)
-
-      TextField(placeholder, text: text)
-        .font(.body)
-        .foregroundStyle(Color.secondary)
-        .multilineTextAlignment(.trailing)
-        .keyboardType(.decimalPad)
-        .autocorrectionDisabled()
-        .textInputAutocapitalization(.never)
-        .frame(maxWidth: 110)
-    }
-    .padding(.horizontal, 16)
-    .frame(height: 52)
-  }
 
   private var coordinatesSection: some View {
     VStack(alignment: .leading, spacing: 8) {
@@ -422,95 +238,78 @@ struct CPTUploadDataSheetView: View {
     .frame(height: 52)
   }
 
-  private var requiredColumnsSection: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      Text("Required Columns")
-        .font(.headline.weight(.bold))
-        .foregroundStyle(Color.primary)
-        .accessibilityAddTraits(.isHeader)
+  private var requiredColumnsCard: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      // Header Status Text
+      HStack(spacing: 8) {
+        Image(systemName: allRequiredColumnsMatched ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+          .font(.subheadline.weight(.semibold))
+          .foregroundStyle(allRequiredColumnsMatched ? Color.green : Color.orange)
 
-      VStack(alignment: .leading, spacing: 14) {
-        Text("Include all of the following columns in your file:")
-          .font(.subheadline)
+        Text(allRequiredColumnsMatched ? "All required columns are complete" : "Some required columns are missing")
+          .font(.subheadline.weight(.semibold))
           .foregroundStyle(Color.primary)
 
-        ShareLink(
-          item: csvTemplateString,
-          subject: Text("CPT Template"),
-          message: Text("CSV Template for \(selectedCPTType.displayName)")
-        ) {
-          HStack(spacing: 6) {
-            Image(systemName: "square.and.arrow.down")
-              .font(.subheadline.weight(.semibold))
-
-            Text("Download CSV Template")
-              .font(.subheadline.weight(.medium))
-          }
-          .foregroundStyle(Color.blue)
-          .padding(.horizontal, 14)
-          .padding(.vertical, 8)
-          .background(Color.blue.opacity(0.12), in: Capsule())
-        }
-        .buttonStyle(.plain)
-
-        // Required columns table
-        VStack(spacing: 0) {
-          ForEach(Array(selectedCPTType.requiredColumns.enumerated()), id: \.offset) { index, column in
-            let isMatched = uploadedFile?.isColumnMatched(column) == true
-            HStack {
-              Text(column)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(Color.primary)
-
-              Spacer()
-
-              if isMatched {
-                HStack(spacing: 4) {
-                  Image(systemName: "checkmark.circle.fill")
-                    .font(.caption.weight(.bold))
-
-                  Text("Match")
-                    .font(.subheadline.weight(.medium))
-                }
-                .foregroundStyle(Color.green)
-              } else {
-                HStack(spacing: 4) {
-                  Image(systemName: "minus.circle.fill")
-                    .font(.caption.weight(.bold))
-
-                  Text("Missing")
-                    .font(.subheadline.weight(.medium))
-                }
-                .foregroundStyle(isFileUploaded ? Color.orange : Color.secondary)
-              }
-            }
-            .padding(.horizontal, 14)
-            .frame(height: 44)
-
-            if index < selectedCPTType.requiredColumns.count - 1 {
-              Divider()
-                .padding(.horizontal, 14)
-            }
-          }
-        }
-        .background(
-          RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .fill(Color(.tertiarySystemGroupedBackground).opacity(0.55))
-        )
+        Spacer()
       }
-      .padding(16)
+
+      // Column List
+      VStack(spacing: 0) {
+        ForEach(Array(selectedCPTType.requiredColumns.enumerated()), id: \.offset) { index, column in
+          let isMatched = uploadedFile?.isColumnMatched(column) == true
+          HStack {
+            Text(column)
+              .font(.subheadline.weight(.medium))
+              .foregroundStyle(Color.primary)
+
+            Spacer()
+
+            if isMatched {
+              HStack(spacing: 4) {
+                Image(systemName: "checkmark.circle.fill")
+                  .font(.caption.weight(.bold))
+
+                Text("Match")
+                  .font(.subheadline.weight(.medium))
+              }
+              .foregroundStyle(Color.green)
+            } else {
+              HStack(spacing: 4) {
+                Image(systemName: "minus.circle.fill")
+                  .font(.caption.weight(.bold))
+
+                Text("Missing")
+                  .font(.subheadline.weight(.medium))
+              }
+              .foregroundStyle(Color.orange)
+            }
+          }
+          .padding(.horizontal, 14)
+          .frame(height: 44)
+
+          if index < selectedCPTType.requiredColumns.count - 1 {
+            Divider()
+              .padding(.horizontal, 14)
+          }
+        }
+      }
       .background(
-        RoundedRectangle(cornerRadius: 16, style: .continuous)
-          .fill(Color(.secondarySystemGroupedBackground))
-      )
-      .overlay(
-        RoundedRectangle(cornerRadius: 16, style: .continuous)
-          .stroke(
-            Color.primary.opacity(contrast == .increased ? 0.35 : 0.08),
-            lineWidth: contrast == .increased ? 1.5 : 1
-          )
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+          .fill(Color(.tertiarySystemGroupedBackground).opacity(0.55))
       )
     }
+    .padding(16)
+    .background(
+      RoundedRectangle(cornerRadius: 16, style: .continuous)
+        .fill(Color(.secondarySystemGroupedBackground))
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: 16, style: .continuous)
+        .stroke(
+          Color.primary.opacity(contrast == .increased ? 0.35 : 0.08),
+          lineWidth: contrast == .increased ? 1.5 : 1
+        )
+    )
   }
 
   private var cptFileSection: some View {
