@@ -40,12 +40,21 @@ struct CPTRecommendationView: View {
         if viewModel.isCPTListPresented {
           return .cptDataList
         }
+        if !viewModel.hasUploadedCPTData && viewModel.isInitialSetupPresented {
+          return .initialSetup
+        }
         return viewModel.hasUploadedCPTData ? .recommendedPoint : .emptyState
       },
       set: { newValue in
         switch newValue {
         case .emptyState:
           viewModel.isUploadSheetPresented = false
+          viewModel.isInitialSetupPresented = false
+          viewModel.isCPTListPresented = false
+          viewModel.isSheetPresented = true
+        case .initialSetup:
+          viewModel.isUploadSheetPresented = false
+          viewModel.isInitialSetupPresented = true
           viewModel.isCPTListPresented = false
           viewModel.isSheetPresented = true
         case .uploadData:
@@ -54,6 +63,7 @@ struct CPTRecommendationView: View {
           viewModel.isSheetPresented = true
         case .recommendedPoint:
           viewModel.isUploadSheetPresented = false
+          viewModel.isInitialSetupPresented = false
           viewModel.isCPTListPresented = false
           viewModel.isSheetPresented = true
         case .cptDataList:
@@ -61,16 +71,19 @@ struct CPTRecommendationView: View {
           viewModel.isCPTListPresented = true
           viewModel.isSheetPresented = true
         case nil:
-          if viewModel.isUploadSheetPresented || viewModel.isCPTListPresented {
+          if viewModel.isUploadSheetPresented {
             viewModel.isUploadSheetPresented = false
+            if viewModel.isInitialSetupPresented && !viewModel.hasUploadedCPTData {
+              viewModel.selectedSheetDetent = CPTRecommendationViewModel.cptDataListSheetDetent
+            } else {
+              viewModel.isSheetPresented = false
+            }
+          } else if viewModel.isCPTListPresented {
             viewModel.isCPTListPresented = false
             viewModel.isSheetPresented = false
-            Task { @MainActor in
-              try? await Task.sleep(for: .milliseconds(100))
-              if isCurrentDestination {
-                viewModel.presentInitialSheet()
-              }
-            }
+          } else if viewModel.isInitialSetupPresented {
+            viewModel.isInitialSetupPresented = false
+            viewModel.isSheetPresented = false
           } else {
             viewModel.isSheetPresented = false
           }
@@ -133,7 +146,7 @@ struct CPTRecommendationView: View {
       case .emptyState:
         CPTEmptyStateSheetView(
           onUploadTap: {
-            viewModel.uploadCPTData()
+            viewModel.presentInitialSetupSheet()
           }
         )
         .presentationPlacement(.leading)
@@ -154,6 +167,35 @@ struct CPTRecommendationView: View {
         .presentationContentInteraction(.scrolls)
         .interactiveDismissDisabled()
 
+      case .initialSetup:
+        CPTInitialSetupSheetView(
+          selectedCPTType: $viewModel.selectedCPTType,
+          points: viewModel.cptPoints,
+          onCloseTap: {
+            viewModel.dismissInitialSetupSheet()
+          },
+          onConfirmTap: {
+            viewModel.finalizeInitialCPTSetup()
+          },
+          onAddCPTTap: {
+            viewModel.presentUploadSheet()
+          },
+          onDeletePoint: { id in
+            viewModel.deleteInitialCPTPoint(id: id)
+          }
+        )
+        .presentationPlacement(.leading)
+        .presentationDetents(
+          [
+            CPTRecommendationViewModel.cptDataListSheetDetent,
+            .large
+          ],
+          selection: $viewModel.selectedSheetDetent
+        )
+        .presentationDragIndicator(.visible)
+        .presentationBackgroundInteraction(.enabled)
+        .presentationContentInteraction(.scrolls)
+
       case .recommendedPoint:
         CPTRecommendedPointSheetView(
           recommendation: viewModel.recommendation,
@@ -170,6 +212,7 @@ struct CPTRecommendationView: View {
           [
             CPTRecommendationViewModel.collapsedSheetDetent,
             CPTRecommendationViewModel.populatedSheetDetent,
+            CPTRecommendationViewModel.sufficientSheetDetent,
             CPTRecommendationViewModel.recommendationSheetDetent,
             .large
           ],
@@ -183,10 +226,13 @@ struct CPTRecommendationView: View {
       case .uploadData:
         CPTUploadDataSheetView(
           selectedCPTType: $viewModel.selectedCPTType,
-          coordinatesText: $viewModel.uploadCoordinatesText,
+          zoneText: $viewModel.uploadZoneText,
+          eastingText: $viewModel.uploadEastingText,
+          northingText: $viewModel.uploadNorthingText,
           uploadedFile: $viewModel.uploadedCPTFile,
           parsedRows: $viewModel.uploadParsedRows,
           validationError: $viewModel.uploadValidationError,
+          equipmentParameters: $viewModel.uploadEquipmentParameters,
           onCloseTap: {
             viewModel.dismissUploadSheet()
           },

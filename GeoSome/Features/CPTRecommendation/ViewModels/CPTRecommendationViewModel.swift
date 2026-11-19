@@ -7,6 +7,7 @@ import SwiftUI
 
 enum ActiveCPTSheet: Identifiable, Equatable {
   case emptyState
+  case initialSetup
   case uploadData
   case recommendedPoint
   case cptDataList
@@ -15,6 +16,8 @@ enum ActiveCPTSheet: Identifiable, Equatable {
     switch self {
     case .emptyState:
       "emptyState"
+    case .initialSetup:
+      "initialSetup"
     case .uploadData:
       "uploadData"
     case .recommendedPoint:
@@ -44,13 +47,14 @@ final class CPTRecommendationViewModel {
   static let uploadSheetDetent: PresentationDetent = .height(640)
 
   var targetRecommendationSheetDetent: PresentationDetent {
-    recommendation.isSufficient ? Self.sufficientSheetDetent : Self.recommendationSheetDetent
+    (recommendation.isSufficient || !recommendation.hasRecommendation) ? Self.sufficientSheetDetent : Self.recommendationSheetDetent
   }
 
   var project: Project
   var cameraPosition: MapCameraPosition
   var isSatelliteStyle: Bool
   var isSheetPresented: Bool
+  var isInitialSetupPresented: Bool = false
   var isUploadSheetPresented: Bool
   var isCPTListPresented: Bool
   var selectedSheetDetent: PresentationDetent
@@ -63,6 +67,15 @@ final class CPTRecommendationViewModel {
 
   // Upload Sheet State
   var selectedCPTType: CPTType = .electrical
+  var uploadZoneText: String = "48S" {
+    didSet { if oldValue != uploadZoneText { activeRecommendationAcceptance = nil } }
+  }
+  var uploadEastingText: String = "" {
+    didSet { if oldValue != uploadEastingText { activeRecommendationAcceptance = nil } }
+  }
+  var uploadNorthingText: String = "" {
+    didSet { if oldValue != uploadNorthingText { activeRecommendationAcceptance = nil } }
+  }
   var uploadCoordinatesText: String = "" {
     didSet { if oldValue != uploadCoordinatesText { activeRecommendationAcceptance = nil } }
   }
@@ -70,6 +83,7 @@ final class CPTRecommendationViewModel {
   var uploadValidationError: String?
   var uploadedCPTFile: CPTUploadedFile?
   var uploadParsedRows: [CPTRowData] = []
+  var uploadEquipmentParameters: CPTEquipmentParameters = CPTEquipmentParameters()
 
   init(
     project: Project? = nil,
@@ -99,6 +113,9 @@ final class CPTRecommendationViewModel {
     if isCPTListPresented {
       return .cptDataList
     }
+    if !hasUploadedCPTData && isInitialSetupPresented {
+      return .initialSetup
+    }
     return hasUploadedCPTData ? .recommendedPoint : .emptyState
   }
 
@@ -123,9 +140,36 @@ final class CPTRecommendationViewModel {
 
   var pendingUploadCoordinate: CLLocationCoordinate2D? {
     guard isUploadSheetPresented else { return nil }
-    guard let coordinate = Self.parseCoordinate(from: uploadCoordinatesText, referenceCoordinate: coordinates.first) else { return nil }
+    guard let coordinate = parseCurrentUploadCoordinates() else { return nil }
     guard isCoordinateInsideBoundary(coordinate) else { return nil }
     return coordinate
+  }
+
+  func setUploadCoordinates(from coordinate: CLLocationCoordinate2D) {
+    let utm = UTMCoordinateConverter.coordinateToUTM(coordinate)
+    uploadZoneText = utm.zoneIdentifier
+    uploadEastingText = String(format: "%.1f", utm.easting)
+    uploadNorthingText = String(format: "%.1f", utm.northing)
+    uploadCoordinatesText = utm.formattedString
+  }
+
+  func parseCurrentUploadCoordinates() -> CLLocationCoordinate2D? {
+    let zoneClean = uploadZoneText.trimmingCharacters(in: .whitespacesAndNewlines)
+    let eastingClean = uploadEastingText.trimmingCharacters(in: .whitespacesAndNewlines)
+    let northingClean = uploadNorthingText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+    if !zoneClean.isEmpty, !eastingClean.isEmpty, !northingClean.isEmpty {
+      if let coord = UTMCoordinateConverter.parseUTMComponents(
+        zoneText: zoneClean,
+        eastingText: eastingClean,
+        northingText: northingClean,
+        referenceCoordinate: coordinates.first
+      ) {
+        return coord
+      }
+    }
+
+    return Self.parseCoordinate(from: uploadCoordinatesText, referenceCoordinate: coordinates.first)
   }
 
   func isCoordinateInsideBoundary(_ coordinate: CLLocationCoordinate2D) -> Bool {
@@ -165,7 +209,7 @@ final class CPTRecommendationViewModel {
     }
 
     UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-    uploadCoordinatesText = UTMCoordinateConverter.formatAsUTM(coordinate)
+    setUploadCoordinates(from: coordinate)
     uploadValidationError = nil
     AccessibilityCaptionCenter.shared.announce(
       "Coordinate updated to \(uploadCoordinatesText).",
@@ -196,7 +240,7 @@ final class CPTRecommendationViewModel {
     uploadParsedRows = []
     uploadValidationError = nil
     if hasUploadedCPTData, !recommendation.isSufficient, recommendation.hasRecommendation {
-      uploadCoordinatesText = recommendation.formattedCoordinate
+      setUploadCoordinates(from: recommendation.coordinate)
       if project.cptDistancePolicy == .sufficiencyV32SiteDiagonal,
          recommendation.recommendationSource == "DQN V4.6-A Core ML",
          let state = CPTSufficiencyHistory.stateID(projectID: project.id, gridPolicy: project.gridPolicy,
@@ -214,9 +258,9 @@ final class CPTRecommendationViewModel {
           activeRecommendationAcceptance = evidence.id
         }
       }
-    } else if uploadCoordinatesText.isEmpty {
+    } else if uploadEastingText.isEmpty || uploadNorthingText.isEmpty {
       let center = resolvedBoundaryRegion.center
-      uploadCoordinatesText = UTMCoordinateConverter.formatAsUTM(center)
+      setUploadCoordinates(from: center)
     }
     isUploadSheetPresented = true
     isCPTListPresented = false
@@ -227,7 +271,66 @@ final class CPTRecommendationViewModel {
   func dismissUploadSheet() {
     activeRecommendationAcceptance = nil
     isUploadSheetPresented = false
-    selectedSheetDetent = hasUploadedCPTData ? targetRecommendationSheetDetent : Self.defaultSheetDetent
+    if isInitialSetupPresented && !hasUploadedCPTData {
+      selectedSheetDetent = Self.cptDataListSheetDetent
+    } else {
+      selectedSheetDetent = hasUploadedCPTData ? targetRecommendationSheetDetent : Self.defaultSheetDetent
+    }
+  }
+
+  func presentInitialSetupSheet() {
+    isUploadSheetPresented = false
+    isCPTListPresented = false
+    isInitialSetupPresented = true
+    isSheetPresented = true
+    selectedSheetDetent = Self.cptDataListSheetDetent
+  }
+
+  func dismissInitialSetupSheet() {
+    isInitialSetupPresented = false
+    isUploadSheetPresented = false
+    isCPTListPresented = false
+    if !hasUploadedCPTData {
+      isSheetPresented = true
+      selectedSheetDetent = Self.defaultSheetDetent
+    } else {
+      isSheetPresented = true
+      selectedSheetDetent = targetRecommendationSheetDetent
+    }
+  }
+
+  func deleteInitialCPTPoint(id: CPTPointEntry.ID) {
+    cptPoints.removeAll { $0.id == id }
+    AccessibilityCaptionCenter.shared.announce("CPT Point deleted.")
+  }
+
+  func finalizeInitialCPTSetup() {
+    guard !cptPoints.isEmpty else { return }
+
+    let result = CPTPipelineCoordinator.recomputeFromScratch(
+      boundaryCoordinates: coordinates,
+      cptPoints: cptPoints,
+      gridPolicy: project.gridPolicy
+    )
+
+    hasUploadedCPTData = true
+    recommendation = result
+    persistCPTStateToProject()
+
+    isInitialSetupPresented = false
+    isUploadSheetPresented = false
+    isCPTListPresented = false
+    selectedSheetDetent = (result.isSufficient || !result.hasRecommendation) ? Self.sufficientSheetDetent : Self.recommendationSheetDetent
+
+    if result.isSufficient || !result.hasRecommendation {
+      AccessibilityCaptionCenter.shared.announce(
+        "Initial CPT data processed. Site fully covered — no further CPT points needed."
+      )
+    } else {
+      AccessibilityCaptionCenter.shared.announce(
+        "Initial CPT data processed. Next recommended point: \(result.spotName) at \(result.formattedCoordinate)."
+      )
+    }
   }
 
   func submitCPTUpload() {
@@ -237,8 +340,8 @@ final class CPTRecommendationViewModel {
       uploadValidationError = "Pilih file CSV CPT yang valid dengan kolom dan data yang lengkap."
       return
     }
-    guard let parsedCoordinate = Self.parseCoordinate(from: uploadCoordinatesText, referenceCoordinate: coordinates.first) else {
-      uploadValidationError = "Koordinat tidak valid. Masukkan format UTM (misal: 48S 702634 E, 9309747 N) atau Latitude, Longitude."
+    guard let parsedCoordinate = parseCurrentUploadCoordinates() else {
+      uploadValidationError = "Koordinat tidak valid. Periksa Zone (1-60 N/S), Easting (100.000-900.000 m), dan Northing."
       return
     }
     let acceptedEvidence = project.cptRecommendationEvidence.first { $0.id == activeRecommendationAcceptance && $0.acceptedCPTID == nil }
@@ -253,7 +356,8 @@ final class CPTRecommendationViewModel {
       type: selectedCPTType,
       coordinate: coordinate,
       file: file,
-      rows: rows
+      rows: rows,
+      equipmentParameters: uploadEquipmentParameters
     )
     let stateBefore = CPTSufficiencyHistory.stateID(projectID: project.id, gridPolicy: project.gridPolicy, distancePolicy: project.cptDistancePolicy,
       boundary: project.boundaryPoints, points: cptPoints)
@@ -280,6 +384,22 @@ final class CPTRecommendationViewModel {
     }
     activeRecommendationAcceptance = nil
 
+    if !hasUploadedCPTData {
+      // In initial setup: point added to cptPoints list, do not run ML yet
+      uploadedCPTFile = nil
+      uploadParsedRows = []
+      uploadCoordinatesText = ""
+      uploadEastingText = ""
+      uploadNorthingText = ""
+      isUploadSheetPresented = false
+      selectedSheetDetent = Self.cptDataListSheetDetent
+
+      AccessibilityCaptionCenter.shared.announce(
+        "CPT Point \(cptPoints.count) added to initial setup list."
+      )
+      return
+    }
+
     let previousConsecutive = project.consecutiveSufficientCount
     var assessmentProject = project
     assessmentProject.cptPoints = cptPoints
@@ -299,21 +419,21 @@ final class CPTRecommendationViewModel {
     uploadedCPTFile = nil
     uploadParsedRows = []
     uploadCoordinatesText = ""
+    uploadEastingText = ""
+    uploadNorthingText = ""
 
     isUploadSheetPresented = false
     isCPTListPresented = false
-    selectedSheetDetent = result.isSufficient ? Self.sufficientSheetDetent : Self.recommendationSheetDetent
+    selectedSheetDetent = (result.isSufficient || !result.hasRecommendation) ? Self.sufficientSheetDetent : Self.recommendationSheetDetent
 
-    if result.isSufficient {
+    if result.isSufficient || !result.hasRecommendation {
       AccessibilityCaptionCenter.shared.announce(
-        "CPT data uploaded. Sufficiency criteria reached — no more CPT points needed."
+        "CPT data uploaded. Site fully covered — no further CPT points needed."
       )
     } else if result.hasRecommendation {
       AccessibilityCaptionCenter.shared.announce(
         "CPT data uploaded successfully. Next recommended point: \(result.spotName) at \(result.formattedCoordinate)."
       )
-    } else {
-      AccessibilityCaptionCenter.shared.announce("Rekomendasi DQN belum tersedia.")
     }
   }
 
