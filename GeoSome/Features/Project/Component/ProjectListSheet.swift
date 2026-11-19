@@ -12,6 +12,17 @@ struct ProjectListSheet: View {
 
   @State private var projectToDelete: Project?
   @State private var isDeleteAlertPresented: Bool = false
+  @ScaledMetric(relativeTo: .body) private var cardColumnWidth: CGFloat = 156
+
+  private var gridColumns: [GridItem] {
+    [
+      GridItem(
+        .adaptive(minimum: cardColumnWidth, maximum: 260),
+        spacing: 14,
+        alignment: .top
+      )
+    ]
+  }
 
   init(
     projects: [Project],
@@ -43,32 +54,30 @@ struct ProjectListSheet: View {
           .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else {
         ScrollView(.vertical, showsIndicators: false) {
-          ScrollView(.horizontal, showsIndicators: false) {
-            LazyHStack(alignment: .top, spacing: 14) {
-              ForEach(projects) { project in
-                ProjectCardView(
-                  project: project,
-                  action: {
-                    onSelectProject?(project)
-                  },
-                  onRename: {
-                    projectToRename = project
-                    renameDraftName = project.name
-                    isRenameAlertPresented = true
-                  },
-                  onDelete: {
-                    projectToDelete = project
-                    isDeleteAlertPresented = true
-                  }
-                )
-                .id(project.id)
-              }
+          LazyVGrid(columns: gridColumns, alignment: .leading, spacing: 14) {
+            ForEach(projects) { project in
+              ProjectCardView(
+                project: project,
+                action: {
+                  onSelectProject?(project)
+                },
+                onRename: {
+                  projectToRename = project
+                  renameDraftName = project.name
+                  isRenameAlertPresented = true
+                },
+                onDelete: {
+                  projectToDelete = project
+                  isDeleteAlertPresented = true
+                }
+              )
+              .id(project.id)
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 4)
           }
-          .frame(minHeight: 156, alignment: .topLeading)
-          .padding(.top, 4)
+          .padding(.horizontal, 20)
+          .padding(.top, 8)
+          .padding(.bottom, 24)
+          .frame(maxWidth: .infinity, alignment: .topLeading)
           .accessibilityRotor("Projects") {
             ForEach(projects) { project in
               AccessibilityRotorEntry(project.name, id: project.id)

@@ -41,7 +41,7 @@ struct ProjectCardView: View {
         thumbnailView
         detailsView
       }
-      .frame(width: cardWidth)
+      .frame(minWidth: cardWidth, maxWidth: .infinity)
       .frame(minHeight: 144, alignment: .top)
       .background(Color(.secondarySystemGroupedBackground))
       .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
