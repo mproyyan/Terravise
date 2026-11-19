@@ -32,34 +32,43 @@ struct CPTRecommendedPointSheetView: View {
     self.onCPTDataListTap = onCPTDataListTap
   }
 
+  private var isRecommendationActive: Bool {
+    recommendation.hasRecommendation && !recommendation.isSufficient
+  }
+
+  private var sheetTitle: String {
+    if recommendation.isSufficient {
+      return "Sufficiency Reached"
+    } else if recommendation.hasRecommendation {
+      return "Recommended Point"
+    } else {
+      return "Site Fully Covered"
+    }
+  }
+
   var body: some View {
     ScrollView(.vertical, showsIndicators: false) {
       VStack(alignment: .leading, spacing: 18) {
         // Sheet Title
-        Text(recommendation.isSufficient ? "Sufficiency Reached" : (recommendation.hasRecommendation ? "Recommended Point" : "Rekomendasi belum tersedia"))
+        Text(sheetTitle)
           .font(.title2.weight(.bold))
           .foregroundStyle(Color.primary)
           .accessibilityAddTraits(.isHeader)
 
-        // Top Card: Recommendation Coordinate & Run CPT Warning (or Sufficiency Banner)
-        if recommendation.isSufficient || recommendation.hasRecommendation {
-          topRecommendationCard
-        } else {
-          Text("Tidak ada kandidat DQN yang tersedia untuk kriteria jarak dan area saat ini, atau model tidak dapat dijalankan.")
-            .foregroundStyle(.secondary)
-        }
-        
-        // Primary Action: Upload Data CPT
-        uploadButton
+        // Top Card: Recommendation Coordinate & Run CPT Warning (or Sufficiency / Coverage Banner)
+        topRecommendationCard
+
+        // Current Ground Certainty Metric Card
+        if isRecommendationActive { metricsSection }
+
+        // Action Buttons: View Analysis 3D and/or Upload Data CPT
+        actionButtonsSection
 
         // "Why this point?" Section
-        if recommendation.hasRecommendation && !recommendation.isSufficient { whyThisPointSection }
-
-        // Metrics: RMSE and Confidence Level
-        metricsSection
+        if isRecommendationActive { whyThisPointSection }
 
         // Reasons & Supporting Data Card
-        if recommendation.hasRecommendation && !recommendation.isSufficient { reasonsCard }
+        if isRecommendationActive { reasonsCard }
 
         // Bottom Navigation Card: CPT Data entered
         cptDataListCard
@@ -130,6 +139,34 @@ struct CPTRecommendedPointSheetView: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Stopping criterion reached. 3D subsurface reconstruction has met the sufficiency threshold.")
+      } else if !recommendation.hasRecommendation {
+        // Row 1: Green Checkmark Icon + Complete Status
+        HStack(spacing: 12) {
+          ZStack {
+            Circle()
+              .fill(Color.green)
+              .frame(width: 34, height: 34)
+
+            Image(systemName: "checkmark")
+              .font(.system(size: 14, weight: .bold))
+              .foregroundStyle(.white)
+          }
+          .accessibilityHidden(true)
+
+          VStack(alignment: .leading, spacing: 2) {
+            Text("CPT Investigation Status")
+              .font(.caption.weight(.medium))
+              .foregroundStyle(Color.secondary)
+
+            Text("Complete — Boundary Area Covered")
+              .font(.subheadline.weight(.bold))
+              .foregroundStyle(Color.primary)
+          }
+
+          Spacer()
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("CPT Investigation Status: Complete, boundary area covered")
       } else {
         // Row 1: Green X/Cross Icon + Coordinate
         HStack(spacing: 12) {
@@ -200,7 +237,7 @@ struct CPTRecommendedPointSheetView: View {
     )
   }
 
-  private var uploadButton: some View {
+  private var actionButtonsSection: some View {
     Button(action: {
       onUploadTap?()
     }) {
@@ -208,7 +245,7 @@ struct CPTRecommendedPointSheetView: View {
         Image(systemName: "square.and.arrow.up")
           .font(.body.weight(.semibold))
 
-        Text("Upload Data CPT")
+        Text(isRecommendationActive ? "Upload Data CPT" : "Upload Additional CPT")
           .font(.body.weight(.semibold))
       }
       .foregroundStyle(Color.white)
@@ -217,7 +254,7 @@ struct CPTRecommendedPointSheetView: View {
       .background(Color.blue, in: Capsule())
     }
     .buttonStyle(.plain)
-    .accessibilityLabel("Upload Data CPT")
+    .accessibilityLabel(isRecommendationActive ? "Upload Data CPT" : "Upload Additional CPT")
     .accessibilityHint("Opens sheet to upload additional CPT data")
   }
 
@@ -236,101 +273,59 @@ struct CPTRecommendedPointSheetView: View {
   }
 
   private var metricsSection: some View {
-    HStack(spacing: 12) {
-      // RMSE Metric Card
-      VStack(alignment: .leading, spacing: 6) {
-        HStack {
-          Text(String(format: "%.4f", recommendation.rmse))
-            .font(.title2.weight(.bold))
-            .foregroundStyle(Color.primary)
-
-          Spacer()
-
-          Button(action: {
-            onRMSEInfoTap?()
-          }) {
-            Image(systemName: "info.circle")
-              .font(.subheadline)
-              .foregroundStyle(Color.secondary)
-              .frame(minWidth: 28, minHeight: 28)
-              .contentShape(Rectangle())
-          }
-          .buttonStyle(.plain)
-          .accessibilityLabel("RMSE Information")
-        }
-
-        Text("RMSE")
+    // Single Ground Certainty Metric Card
+    VStack(alignment: .leading, spacing: 6) {
+      HStack {
+        Text("Current Ground Certainty")
           .font(.caption.weight(.medium))
           .foregroundStyle(Color.secondary)
-      }
-      .padding(14)
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .background(
-        RoundedRectangle(cornerRadius: 16, style: .continuous)
-          .fill(Color(.secondarySystemGroupedBackground))
-      )
-      .overlay(
-        RoundedRectangle(cornerRadius: 16, style: .continuous)
-          .stroke(
-            Color.primary.opacity(contrast == .increased ? 0.35 : 0.08),
-            lineWidth: contrast == .increased ? 1.5 : 1
-          )
-      )
 
-      // Confidence Level Metric Card
-      VStack(alignment: .leading, spacing: 6) {
-        HStack {
-          Text("\(recommendation.confidenceLevel)%")
-            .font(.title2.weight(.bold))
-            .foregroundStyle(Color.primary)
+        Spacer()
 
-          Spacer()
-
-          Button(action: {
-            isConfidenceTooltipPresented.toggle()
-            onConfidenceInfoTap?()
-          }) {
-            Image(systemName: "info.circle")
+        Button(action: {
+          isConfidenceTooltipPresented.toggle()
+          onConfidenceInfoTap?()
+        }) {
+          Image(systemName: "info.circle")
+            .font(.subheadline)
+            .foregroundStyle(Color.secondary)
+            .frame(minWidth: 28, minHeight: 28)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Current Ground Certainty Information")
+        .popover(isPresented: $isConfidenceTooltipPresented) {
+          VStack(alignment: .leading, spacing: 0) {
+            Text("Shows how well the ground is understood here. A lower percentage indicates an untested blind spot, making this location a priority to test.")
               .font(.subheadline)
               .foregroundStyle(Color.secondary)
-              .frame(minWidth: 28, minHeight: 28)
-              .contentShape(Rectangle())
+              .lineSpacing(3)
+              .fixedSize(horizontal: false, vertical: true)
           }
-          .buttonStyle(.plain)
-          .accessibilityLabel("Current Ground Certainty Information")
-          .popover(isPresented: $isConfidenceTooltipPresented) {
-            VStack(alignment: .leading, spacing: 0) {
-              Text("Shows how well the ground is understood here. A lower percentage indicates an untested blind spot, making this location a priority to test.")
-                .font(.subheadline)
-                .foregroundStyle(Color.secondary)
-                .lineSpacing(3)
-                .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-            .frame(maxWidth: 280)
-            .presentationCompactAdaptation(.popover)
-          }
+          .padding(.horizontal, 16)
+          .padding(.vertical, 14)
+          .frame(maxWidth: 280)
+          .presentationCompactAdaptation(.popover)
         }
-
-        Text("Confidence Level")
-          .font(.caption.weight(.medium))
-          .foregroundStyle(Color.secondary)
       }
-      .padding(14)
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .background(
-        RoundedRectangle(cornerRadius: 16, style: .continuous)
-          .fill(Color(.secondarySystemGroupedBackground))
-      )
-      .overlay(
-        RoundedRectangle(cornerRadius: 16, style: .continuous)
-          .stroke(
-            Color.primary.opacity(contrast == .increased ? 0.35 : 0.08),
-            lineWidth: contrast == .increased ? 1.5 : 1
-          )
-      )
+
+      Text("\(recommendation.confidenceLevel)%")
+        .font(.title2.weight(.bold))
+        .foregroundStyle(Color.primary)
     }
+    .padding(14)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(
+      RoundedRectangle(cornerRadius: 16, style: .continuous)
+        .fill(Color(.secondarySystemGroupedBackground))
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: 16, style: .continuous)
+        .stroke(
+          Color.primary.opacity(contrast == .increased ? 0.35 : 0.08),
+          lineWidth: contrast == .increased ? 1.5 : 1
+        )
+    )
   }
 
   private var reasonsCard: some View {
