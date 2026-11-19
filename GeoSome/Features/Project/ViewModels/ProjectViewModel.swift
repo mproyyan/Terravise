@@ -84,8 +84,26 @@ final class ProjectViewModel {
     storage?.saveProjects(projects)
   }
 
+  func renameProject(id: UUID, newName: String) {
+    let trimmedName = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmedName.isEmpty,
+          let index = projects.firstIndex(where: { $0.id == id })
+    else {
+      return
+    }
+    projects[index].name = trimmedName
+    projects[index].lastEdited = Date()
+    if selectedProject?.id == id {
+      selectedProject = projects[index]
+    }
+    storage?.saveProjects(projects)
+  }
+
   func deleteProject(id: UUID) {
     projects.removeAll { $0.id == id }
+    if selectedProject?.id == id {
+      selectedProject = nil
+    }
     storage?.saveProjects(projects)
   }
 
