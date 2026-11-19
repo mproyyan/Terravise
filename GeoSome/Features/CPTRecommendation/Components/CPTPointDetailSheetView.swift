@@ -73,13 +73,13 @@ struct CPTPointDetailSheetView: View {
         .accessibilityAddTraits(.isHeader)
 
       HStack(spacing: 12) {
-        // Easting Box
+        // Latitude Box
         VStack(alignment: .leading, spacing: 4) {
-          Text("Easting")
+          Text("Latitude")
             .font(.caption)
             .foregroundStyle(Color.secondary)
 
-          Text(point.formattedEasting)
+          Text(point.formattedLatitude)
             .font(.subheadline.weight(.bold))
             .foregroundStyle(Color.primary)
         }
@@ -91,13 +91,13 @@ struct CPTPointDetailSheetView: View {
             .fill(Color(.tertiarySystemGroupedBackground).opacity(0.65))
         )
 
-        // Northing Box
+        // Longitude Box
         VStack(alignment: .leading, spacing: 4) {
-          Text("Northing (\(point.formattedZone))")
+          Text("Longitude")
             .font(.caption)
             .foregroundStyle(Color.secondary)
 
-          Text(point.formattedNorthing)
+          Text(point.formattedLongitude)
             .font(.subheadline.weight(.bold))
             .foregroundStyle(Color.primary)
         }

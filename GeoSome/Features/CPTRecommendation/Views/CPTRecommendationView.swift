@@ -141,7 +141,9 @@ struct CPTRecommendationView: View {
           [
             CPTRecommendationViewModel.collapsedSheetDetent,
             CPTRecommendationViewModel.defaultSheetDetent,
-            CPTRecommendationViewModel.populatedSheetDetent,
+            viewModel.recommendation.isSufficient
+              ? CPTRecommendationViewModel.sufficientSheetDetent
+              : CPTRecommendationViewModel.populatedSheetDetent,
             .medium,
             .large
           ],
@@ -170,9 +172,7 @@ struct CPTRecommendationView: View {
         .presentationDetents(
           [
             CPTRecommendationViewModel.collapsedSheetDetent,
-            viewModel.recommendation.isSufficient
-              ? CPTRecommendationViewModel.sufficientSheetDetent
-              : CPTRecommendationViewModel.populatedSheetDetent,
+            CPTRecommendationViewModel.populatedSheetDetent,
             CPTRecommendationViewModel.recommendationSheetDetent,
             .large
           ],

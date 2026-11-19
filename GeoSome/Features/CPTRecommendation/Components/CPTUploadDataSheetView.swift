@@ -333,7 +333,7 @@ struct CPTUploadDataSheetView: View {
         .accessibilityAddTraits(.isHeader)
 
       HStack {
-        TextField("e.g. 48S 702634 E, 9309747 N", text: $coordinatesText)
+        TextField("e.g -6.215432, 106.845321", text: $coordinatesText)
           .font(.body)
           .foregroundStyle(Color.primary)
           .autocorrectionDisabled()

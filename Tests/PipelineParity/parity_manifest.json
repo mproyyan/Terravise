@@ -1,0 +1,346 @@
+{
+  "format_version": 1,
+  "harness": "TerravisePipelineParity",
+  "harness_version": 1,
+  "created_utc": "2026-11-19T01:24:09.646045+00:00",
+  "overall_status": "PASS",
+  "scope": {
+    "fixture_sha256": "e443feeff248c15c710da93c3c6de9553b835c257216a886fed364fe12320f53",
+    "shape_xyz": [
+      24,
+      24,
+      12
+    ],
+    "spacing_m": [
+      5.0,
+      5.0,
+      1.0
+    ],
+    "cpt_count": 3,
+    "scope": "only this exact synthetic fixture; not general grid or profile parity"
+  },
+  "fingerprints_before": {
+    "swift_schemgan": "21336242cca0fc74d4f24baa8dfd6a16e23c33d56f5c26e6f14a2693fe25e842",
+    "swift_uncertainty_and_features": "d7164e941d6a2d1c8d8cf00b20dcc6682606f1859dd3e56ab970627fce51ae40",
+    "swift_grid_mapping": "dc3dabc626fb587ba3f2bfe983209b549e28a8308710e6c9113f9d0b6f3975a5",
+    "swift_cpt_input": "b622de304fbaab898e351703413ddb26a5a39d285097956fb5580d718280b631",
+    "python_adapter": "e95f15687b964fe5e9c8cb45c05893baaf5c2dfed0e17cfd3006af2ad0ad1dbc",
+    "python_evaluator": "d75fb0cf8016add38614b6f1b65fcf0fb36d9fbfedfe41dabee5a1d8d3a79ff5",
+    "schema_checkpoint": "f130358b9044821912f53d9085c12084aeed8b506e8096704d75b6f3d7b4ed85",
+    "schema_normalization": "1c7e72414d0140dde5f193be0066861194d2ff3b34c4a077b78897ff41417a93",
+    "uncertainty_python": "ddf6de6716022c2ed637b710d09bb548518e202f581c0b5c6ef8911e13b20d5b",
+    "uncertainty_metadata": "947fe1e536f6d1229427cb9bc2c6f006a92ac15f234086344ad28cada02db1e2",
+    "uncertainty_swift": "5108e9f44a0127cd10fb94c545944198ee7011f3c7fc983eefeb968c926348b0",
+    "classifier_swift": "6f8577ece83357bb33e387058498d955d738d4636569ccff72a41fe10e97852f",
+    "classifier_python": "44a988bfdc711d41965a059bf3685c3ba67b8d0d980d8dca79410349f17018bf",
+    "fixture": "e443feeff248c15c710da93c3c6de9553b835c257216a886fed364fe12320f53",
+    "manifest_harness": "877cf24e6c539fb5183f60b11ea70ef060367d36f716b57ffdec52a51ef12369",
+    "v32_feature_fixture": "c513611c331c61858e0eff53167c01c31b5f486d92f87676f3801a1a405a7f23",
+    "v32_classifier_fixture": "6994bd1019c42dec075c945f103570a029571d046182f53cab6017ff8380ae24",
+    "SchemaGANParity/main.swift": "1cfc3198aca1a41e07b18fc8d893cb31c6088aac9ef3ca37a4fe8031589ef847",
+    "SchemaGANParity/compare.py": "b29ba37d4d1056f36daa9faf1174dc4b8979e5a877a0eaaab40c5ff50dfb00b0",
+    "SchemaGANParity/run.sh": "c2027125be056a966c48f0eef663a99b1ce61a172019cb5d27d0b3b8e7693b73",
+    "UncertaintyV3Parity/main.swift": "e52f2c01d1b08a1325366ef37ba931d9a49b7c55b706fa0d5fc09d8b29234467",
+    "UncertaintyV3Parity/compare.py": "fbd71b7aef5c6776112ce184b91b412d7a30340a46ec1847bcf6bd009e3b78fa",
+    "UncertaintyV3Parity/run.sh": "29d0e8b780d0d472ae5d211fd856fde74790aeadafcc36ef7e146c16a60504f5",
+    "PipelineParity/main.swift": "f18243e52c71c5f150bedd690a51b3f64c4a06022229a6ef6d8a4b81f5b1298d",
+    "PipelineParity/compare.py": "b1b0883a51e358ab67d1efc68d6c5166838224e6050fa4c4cd416e7c6ac0585d",
+    "PipelineParity/run.sh": "e1b5612afc3a76b6aa9f9e0f1fb3cb477b6a52dfde29948dc27a6e099e9a7218",
+    "V32/classifier_inputs.json": "6994bd1019c42dec075c945f103570a029571d046182f53cab6017ff8380ae24",
+    "V32/run.sh": "3e02ca28884419e62af38f2869124cd64f101c74f83496ba8221dc4e9649badb",
+    "V32/main.swift": "ca016193da632791865f88e2c401ffa107aa42e8ed5eda5a9c4ab5a20b582926",
+    "V32/compare.py": "c4b443cf3a015468f38d663676fb75157b70a8514e0a9674298c3603f85cdeb6",
+    "schema_package/Manifest.json": "bce3fb4f711765eafc820167827b62522a2ec3a7432aca904f70d27545503081",
+    "schema_package/Data/com.apple.CoreML/model.mlmodel": "49095bbf42928b4b1fa3393520bf076d61ac783ffcb6d46f0972a439d8bdf6a7",
+    "schema_package/Data/com.apple.CoreML/weights/weight.bin": "9496c3b9311f69be109b30f1cca755438f619070f4d0ee14e50f3533fa0cca0a",
+    "compiled_model/metadata.json": "f365ce58e848708ea447ca7ead93b2af2beaa5ded3d12c94d4d28ee4824d60d2",
+    "compiled_model/model.mil": "d03c3512ca294df3163d6803f6bf7999a90cf777fb21004ac912d2f8a71adfbe",
+    "compiled_model/coremldata.bin": "a78e566374b7611e023dcf6bbb2228c6cc3e85a23b5d3fad7c814f4b2c73cd9f",
+    "compiled_model/weights/weight.bin": "9496c3b9311f69be109b30f1cca755438f619070f4d0ee14e50f3533fa0cca0a",
+    "compiled_model/analytics/coremldata.bin": "d9f1ec323837210d938fa2d2ad7cf4c85996ac6434ec27df3b4d1fd7abb49452"
+  },
+  "fingerprints_after": {
+    "swift_schemgan": "21336242cca0fc74d4f24baa8dfd6a16e23c33d56f5c26e6f14a2693fe25e842",
+    "swift_uncertainty_and_features": "d7164e941d6a2d1c8d8cf00b20dcc6682606f1859dd3e56ab970627fce51ae40",
+    "swift_grid_mapping": "dc3dabc626fb587ba3f2bfe983209b549e28a8308710e6c9113f9d0b6f3975a5",
+    "swift_cpt_input": "b622de304fbaab898e351703413ddb26a5a39d285097956fb5580d718280b631",
+    "python_adapter": "e95f15687b964fe5e9c8cb45c05893baaf5c2dfed0e17cfd3006af2ad0ad1dbc",
+    "python_evaluator": "d75fb0cf8016add38614b6f1b65fcf0fb36d9fbfedfe41dabee5a1d8d3a79ff5",
+    "schema_checkpoint": "f130358b9044821912f53d9085c12084aeed8b506e8096704d75b6f3d7b4ed85",
+    "schema_normalization": "1c7e72414d0140dde5f193be0066861194d2ff3b34c4a077b78897ff41417a93",
+    "uncertainty_python": "ddf6de6716022c2ed637b710d09bb548518e202f581c0b5c6ef8911e13b20d5b",
+    "uncertainty_metadata": "947fe1e536f6d1229427cb9bc2c6f006a92ac15f234086344ad28cada02db1e2",
+    "uncertainty_swift": "5108e9f44a0127cd10fb94c545944198ee7011f3c7fc983eefeb968c926348b0",
+    "classifier_swift": "6f8577ece83357bb33e387058498d955d738d4636569ccff72a41fe10e97852f",
+    "classifier_python": "44a988bfdc711d41965a059bf3685c3ba67b8d0d980d8dca79410349f17018bf",
+    "fixture": "e443feeff248c15c710da93c3c6de9553b835c257216a886fed364fe12320f53",
+    "manifest_harness": "877cf24e6c539fb5183f60b11ea70ef060367d36f716b57ffdec52a51ef12369",
+    "v32_feature_fixture": "c513611c331c61858e0eff53167c01c31b5f486d92f87676f3801a1a405a7f23",
+    "v32_classifier_fixture": "6994bd1019c42dec075c945f103570a029571d046182f53cab6017ff8380ae24",
+    "SchemaGANParity/main.swift": "1cfc3198aca1a41e07b18fc8d893cb31c6088aac9ef3ca37a4fe8031589ef847",
+    "SchemaGANParity/compare.py": "b29ba37d4d1056f36daa9faf1174dc4b8979e5a877a0eaaab40c5ff50dfb00b0",
+    "SchemaGANParity/run.sh": "c2027125be056a966c48f0eef663a99b1ce61a172019cb5d27d0b3b8e7693b73",
+    "UncertaintyV3Parity/main.swift": "e52f2c01d1b08a1325366ef37ba931d9a49b7c55b706fa0d5fc09d8b29234467",
+    "UncertaintyV3Parity/compare.py": "fbd71b7aef5c6776112ce184b91b412d7a30340a46ec1847bcf6bd009e3b78fa",
+    "UncertaintyV3Parity/run.sh": "29d0e8b780d0d472ae5d211fd856fde74790aeadafcc36ef7e146c16a60504f5",
+    "PipelineParity/main.swift": "f18243e52c71c5f150bedd690a51b3f64c4a06022229a6ef6d8a4b81f5b1298d",
+    "PipelineParity/compare.py": "b1b0883a51e358ab67d1efc68d6c5166838224e6050fa4c4cd416e7c6ac0585d",
+    "PipelineParity/run.sh": "e1b5612afc3a76b6aa9f9e0f1fb3cb477b6a52dfde29948dc27a6e099e9a7218",
+    "V32/classifier_inputs.json": "6994bd1019c42dec075c945f103570a029571d046182f53cab6017ff8380ae24",
+    "V32/run.sh": "3e02ca28884419e62af38f2869124cd64f101c74f83496ba8221dc4e9649badb",
+    "V32/main.swift": "ca016193da632791865f88e2c401ffa107aa42e8ed5eda5a9c4ab5a20b582926",
+    "V32/compare.py": "c4b443cf3a015468f38d663676fb75157b70a8514e0a9674298c3603f85cdeb6",
+    "schema_package/Manifest.json": "bce3fb4f711765eafc820167827b62522a2ec3a7432aca904f70d27545503081",
+    "schema_package/Data/com.apple.CoreML/model.mlmodel": "49095bbf42928b4b1fa3393520bf076d61ac783ffcb6d46f0972a439d8bdf6a7",
+    "schema_package/Data/com.apple.CoreML/weights/weight.bin": "9496c3b9311f69be109b30f1cca755438f619070f4d0ee14e50f3533fa0cca0a",
+    "compiled_model/metadata.json": "f365ce58e848708ea447ca7ead93b2af2beaa5ded3d12c94d4d28ee4824d60d2",
+    "compiled_model/model.mil": "d03c3512ca294df3163d6803f6bf7999a90cf777fb21004ac912d2f8a71adfbe",
+    "compiled_model/coremldata.bin": "a78e566374b7611e023dcf6bbb2228c6cc3e85a23b5d3fad7c814f4b2c73cd9f",
+    "compiled_model/weights/weight.bin": "9496c3b9311f69be109b30f1cca755438f619070f4d0ee14e50f3533fa0cca0a",
+    "compiled_model/analytics/coremldata.bin": "d9f1ec323837210d938fa2d2ad7cf4c85996ac6434ec27df3b4d1fd7abb49452"
+  },
+  "files_unchanged_during_test": true,
+  "stages": {
+    "SchemaGANParity": {
+      "status": "PASS",
+      "exit_code": 0,
+      "measurements": [
+        {
+          "stage": "channel 0",
+          "max_absolute_error": 1.19209289551e-07,
+          "detail": "channel 0: max=1.19209289551e-07 zyx=(0, 23, 0) python=-1.57404124737 swift=-1.57404136658"
+        },
+        {
+          "stage": "channel 1",
+          "max_absolute_error": 0.0,
+          "detail": "channel 1: max=0 zyx=(0, 0, 0) python=0 swift=0"
+        },
+        {
+          "stage": "channel 2",
+          "max_absolute_error": 1.19209289551e-07,
+          "detail": "channel 2: max=1.19209289551e-07 zyx=(0, 0, 3) python=-1.72516679764 swift=-1.72516691685"
+        },
+        {
+          "stage": "channel 3",
+          "max_absolute_error": 0.0,
+          "detail": "channel 3: max=0 zyx=(0, 0, 0) python=0.384147673845 swift=0.384147673845"
+        },
+        {
+          "stage": "channel 4",
+          "max_absolute_error": 0.0,
+          "detail": "channel 4: max=0 zyx=(0, 0, 0) python=1.79175949097 swift=1.79175949097"
+        },
+        {
+          "stage": "channel 5",
+          "max_absolute_error": 0.0,
+          "detail": "channel 5: max=0 zyx=(0, 0, 0) python=1.79175949097 swift=1.79175949097"
+        },
+        {
+          "stage": "channel 6",
+          "max_absolute_error": 0.0,
+          "detail": "channel 6: max=0 zyx=(0, 0, 0) python=0.693147182465 swift=0.693147182465"
+        },
+        {
+          "stage": "output",
+          "max_absolute_error": 2.61217338204e-07,
+          "detail": "output: max=2.61217338204e-07 xyz=(14, 9, 0) python=1.58156180382 swift=1.58156206504"
+        }
+      ],
+      "tolerances": {
+        "schema_input": 1e-06,
+        "schema_output": 2e-05,
+        "uncertainty_features": 1e-06,
+        "raw_and_final": 1e-09,
+        "correction": 1e-15,
+        "coverage": 1e-12
+      },
+      "output": "model checkpoint sha256: f130358b9044821912f53d9085c12084aeed8b506e8096704d75b6f3d7b4ed85\ninput shape: (1, 7, 12, 24, 24) dtype: float32 layout: BCZYX; output XYZ: (24, 24, 12)\nchannel 0: max=1.19209289551e-07 zyx=(0, 23, 0) python=-1.57404124737 swift=-1.57404136658\nchannel 1: max=0 zyx=(0, 0, 0) python=0 swift=0\nchannel 2: max=1.19209289551e-07 zyx=(0, 0, 3) python=-1.72516679764 swift=-1.72516691685\nchannel 3: max=0 zyx=(0, 0, 0) python=0.384147673845 swift=0.384147673845\nchannel 4: max=0 zyx=(0, 0, 0) python=1.79175949097 swift=1.79175949097\nchannel 5: max=0 zyx=(0, 0, 0) python=1.79175949097 swift=1.79175949097\nchannel 6: max=0 zyx=(0, 0, 0) python=0.693147182465 swift=0.693147182465\noutput: max=2.61217338204e-07 xyz=(14, 9, 0) python=1.58156180382 swift=1.58156206504\nINPUT PASS OUTPUT PASS\n",
+      "stderr": ""
+    },
+    "UncertaintyV3Parity": {
+      "status": "PASS",
+      "exit_code": 0,
+      "measurements": [
+        {
+          "stage": "feature distance_to_cpt_m",
+          "max_absolute_error": 0.0,
+          "detail": "feature distance_to_cpt_m: max=0 xyz=(0, 0, 0) python=46.0977222865 swift=46.0977222865 tolerance=1e-06"
+        },
+        {
+          "stage": "feature depth_m",
+          "max_absolute_error": 0.0,
+          "detail": "feature depth_m: max=0 xyz=(0, 0, 0) python=0 swift=0 tolerance=1e-06"
+        },
+        {
+          "stage": "feature predicted_ic",
+          "max_absolute_error": 0.0,
+          "detail": "feature predicted_ic: max=0 xyz=(0, 0, 0) python=1.52164077759 swift=1.52164077759 tolerance=1e-06"
+        },
+        {
+          "stage": "feature lateral_gradient",
+          "max_absolute_error": 9.52281227831e-10,
+          "detail": "feature lateral_gradient: max=9.52281227831e-10 xyz=(3, 13, 0) python=0.00994248036295 swift=0.00994248131523 tolerance=1e-06"
+        },
+        {
+          "stage": "feature vertical_gradient",
+          "max_absolute_error": 0.0,
+          "detail": "feature vertical_gradient: max=0 xyz=(0, 0, 0) python=0.146296262741 swift=0.146296262741 tolerance=1e-06"
+        },
+        {
+          "stage": "feature nearby_cpt_fraction_25m",
+          "max_absolute_error": 9.93410748107e-09,
+          "detail": "feature nearby_cpt_fraction_25m: max=9.93410748107e-09 xyz=(0, 18, 0) python=0.333333343267 swift=0.333333333333 tolerance=1e-06"
+        },
+        {
+          "stage": "feature n_cpt",
+          "max_absolute_error": 0.0,
+          "detail": "feature n_cpt: max=0 xyz=(0, 0, 0) python=3 swift=3 tolerance=1e-06"
+        },
+        {
+          "stage": "feature dx_m",
+          "max_absolute_error": 0.0,
+          "detail": "feature dx_m: max=0 xyz=(0, 0, 0) python=5 swift=5 tolerance=1e-06"
+        },
+        {
+          "stage": "feature dy_m",
+          "max_absolute_error": 0.0,
+          "detail": "feature dy_m: max=0 xyz=(0, 0, 0) python=5 swift=5 tolerance=1e-06"
+        },
+        {
+          "stage": "feature dz_m",
+          "max_absolute_error": 0.0,
+          "detail": "feature dz_m: max=0 xyz=(0, 0, 0) python=1 swift=1 tolerance=1e-06"
+        },
+        {
+          "stage": "raw",
+          "max_absolute_error": 0.0,
+          "detail": "raw: max=0 xyz=(0, 0, 0) python=0.2121403072 swift=0.2121403072 tolerance=1e-09"
+        },
+        {
+          "stage": "final",
+          "max_absolute_error": 0.0,
+          "detail": "final: max=0 xyz=(0, 0, 0) python=0.215155969485 swift=0.215155969485 tolerance=1e-09"
+        }
+      ],
+      "tolerances": {
+        "schema_input": 1e-06,
+        "schema_output": 2e-05,
+        "uncertainty_features": 1e-06,
+        "raw_and_final": 1e-09,
+        "correction": 1e-15,
+        "coverage": 1e-12
+      },
+      "output": "feature distance_to_cpt_m: max=0 xyz=(0, 0, 0) python=46.0977222865 swift=46.0977222865 tolerance=1e-06\nfeature depth_m: max=0 xyz=(0, 0, 0) python=0 swift=0 tolerance=1e-06\nfeature predicted_ic: max=0 xyz=(0, 0, 0) python=1.52164077759 swift=1.52164077759 tolerance=1e-06\nfeature lateral_gradient: max=9.52281227831e-10 xyz=(3, 13, 0) python=0.00994248036295 swift=0.00994248131523 tolerance=1e-06\nfeature vertical_gradient: max=0 xyz=(0, 0, 0) python=0.146296262741 swift=0.146296262741 tolerance=1e-06\nfeature nearby_cpt_fraction_25m: max=9.93410748107e-09 xyz=(0, 18, 0) python=0.333333343267 swift=0.333333333333 tolerance=1e-06\nfeature n_cpt: max=0 xyz=(0, 0, 0) python=3 swift=3 tolerance=1e-06\nfeature dx_m: max=0 xyz=(0, 0, 0) python=5 swift=5 tolerance=1e-06\nfeature dy_m: max=0 xyz=(0, 0, 0) python=5 swift=5 tolerance=1e-06\nfeature dz_m: max=0 xyz=(0, 0, 0) python=1 swift=1 tolerance=1e-06\nraw: max=0 xyz=(0, 0, 0) python=0.2121403072 swift=0.2121403072 tolerance=1e-09\nfinal: max=0 xyz=(0, 0, 0) python=0.215155969485 swift=0.215155969485 tolerance=1e-09\ncorrection python= 0.0030156622852133743 swift= 0.0030156622852133743 error= 0.0\ncoverage python= 0.46698662012798137 swift= 0.46698662012798137 error= 0.0 hidden_voxels= 6876\n",
+      "stderr": "/Users/daffaburanenugraha/Developer/cpt_super_learn/cpt/lib/python3.11/site-packages/sklearn/base.py:486: UserWarning: X has feature names, but HistGradientBoostingRegressor was fitted without feature names\n  warnings.warn(\n"
+    },
+    "PipelineParity": {
+      "status": "PASS",
+      "exit_code": 0,
+      "measurements": [
+        {
+          "stage": "independent SchemaGAN output max= 2.612173382043892e-07 xyz= (14, 9, 0)",
+          "max_absolute_error": 2.612173382043892e-07,
+          "detail": "independent SchemaGAN output max= 2.612173382043892e-07 xyz= (14, 9, 0)"
+        },
+        {
+          "stage": "feature distance_to_cpt_m",
+          "max_absolute_error": 0.0,
+          "detail": "feature distance_to_cpt_m: max=0 xyz=(0, 0, 0) python=46.0977222865 swift=46.0977222865 tolerance=1e-06"
+        },
+        {
+          "stage": "feature depth_m",
+          "max_absolute_error": 0.0,
+          "detail": "feature depth_m: max=0 xyz=(0, 0, 0) python=0 swift=0 tolerance=1e-06"
+        },
+        {
+          "stage": "feature predicted_ic",
+          "max_absolute_error": 2.61217338204e-07,
+          "detail": "feature predicted_ic: max=2.61217338204e-07 xyz=(14, 9, 0) python=1.58156180382 swift=1.58156206504 tolerance=1e-06"
+        },
+        {
+          "stage": "feature lateral_gradient",
+          "max_absolute_error": 5.68466300903e-08,
+          "detail": "feature lateral_gradient: max=5.68466300903e-08 xyz=(23, 3, 7) python=0.00284687732346 swift=0.00284682047683 tolerance=1e-06"
+        },
+        {
+          "stage": "feature vertical_gradient",
+          "max_absolute_error": 3.76014017922e-07,
+          "detail": "feature vertical_gradient: max=3.76014017922e-07 xyz=(20, 7, 0) python=0.102423071861 swift=0.102422695847 tolerance=1e-06"
+        },
+        {
+          "stage": "feature nearby_cpt_fraction_25m",
+          "max_absolute_error": 9.93410748107e-09,
+          "detail": "feature nearby_cpt_fraction_25m: max=9.93410748107e-09 xyz=(0, 18, 0) python=0.333333343267 swift=0.333333333333 tolerance=1e-06"
+        },
+        {
+          "stage": "feature n_cpt",
+          "max_absolute_error": 0.0,
+          "detail": "feature n_cpt: max=0 xyz=(0, 0, 0) python=3 swift=3 tolerance=1e-06"
+        },
+        {
+          "stage": "feature dx_m",
+          "max_absolute_error": 0.0,
+          "detail": "feature dx_m: max=0 xyz=(0, 0, 0) python=5 swift=5 tolerance=1e-06"
+        },
+        {
+          "stage": "feature dy_m",
+          "max_absolute_error": 0.0,
+          "detail": "feature dy_m: max=0 xyz=(0, 0, 0) python=5 swift=5 tolerance=1e-06"
+        },
+        {
+          "stage": "feature dz_m",
+          "max_absolute_error": 0.0,
+          "detail": "feature dz_m: max=0 xyz=(0, 0, 0) python=1 swift=1 tolerance=1e-06"
+        },
+        {
+          "stage": "raw",
+          "max_absolute_error": 0.0,
+          "detail": "raw: max=0 xyz=(0, 0, 0) python=0.2121403072 swift=0.2121403072 tolerance=1e-09"
+        },
+        {
+          "stage": "final",
+          "max_absolute_error": 0.0,
+          "detail": "final: max=0 xyz=(0, 0, 0) python=0.215155969485 swift=0.215155969485 tolerance=1e-09"
+        },
+        {
+          "stage": "V32_FEATURE max_error=0 tolerance=1e-10",
+          "max_absolute_error": 0.0,
+          "detail": "V32_FEATURE max_error=0 tolerance=1e-10"
+        },
+        {
+          "stage": "V32_CLASSIFIER max_error=5.5511151231257827e-17 tolerance=1e-9 index=5 fixtures=100",
+          "max_absolute_error": 5.551115123125783e-17,
+          "detail": "V32_CLASSIFIER max_error=5.5511151231257827e-17 tolerance=1e-9 index=5 fixtures=100"
+        }
+      ],
+      "tolerances": {
+        "schema_input": 1e-06,
+        "schema_output": 2e-05,
+        "uncertainty_features": 1e-06,
+        "raw_and_final": 1e-09,
+        "correction": 1e-15,
+        "coverage": 1e-12
+      },
+      "output": "independent SchemaGAN output max= 2.612173382043892e-07 xyz= (14, 9, 0)\nfeature distance_to_cpt_m: max=0 xyz=(0, 0, 0) python=46.0977222865 swift=46.0977222865 tolerance=1e-06\nfeature depth_m: max=0 xyz=(0, 0, 0) python=0 swift=0 tolerance=1e-06\nfeature predicted_ic: max=2.61217338204e-07 xyz=(14, 9, 0) python=1.58156180382 swift=1.58156206504 tolerance=1e-06\nfeature lateral_gradient: max=5.68466300903e-08 xyz=(23, 3, 7) python=0.00284687732346 swift=0.00284682047683 tolerance=1e-06\nfeature vertical_gradient: max=3.76014017922e-07 xyz=(20, 7, 0) python=0.102423071861 swift=0.102422695847 tolerance=1e-06\nfeature nearby_cpt_fraction_25m: max=9.93410748107e-09 xyz=(0, 18, 0) python=0.333333343267 swift=0.333333333333 tolerance=1e-06\nfeature n_cpt: max=0 xyz=(0, 0, 0) python=3 swift=3 tolerance=1e-06\nfeature dx_m: max=0 xyz=(0, 0, 0) python=5 swift=5 tolerance=1e-06\nfeature dy_m: max=0 xyz=(0, 0, 0) python=5 swift=5 tolerance=1e-06\nfeature dz_m: max=0 xyz=(0, 0, 0) python=1 swift=1 tolerance=1e-06\nraw: max=0 xyz=(0, 0, 0) python=0.2121403072 swift=0.2121403072 tolerance=1e-09\nfinal: max=0 xyz=(0, 0, 0) python=0.215155969485 swift=0.215155969485 tolerance=1e-09\ncorrection python= 0.0030156622852133743 swift= 0.0030156622852133743 error= 0.0\ncoverage python= 0.46698662012798137 swift= 0.46698662012798137 error= 0.0 hidden_voxels= 6876\npredicted_coverage: python=0.40881326352530539 swift=0.40881326352530539 error=0\nmax_distance_fraction: python=0.52534982493889437 swift=0.52534982493889437 error=0\nn_cpt: python=3 swift=3 error=0\nsite_width_m: python=115 swift=115 error=0\nsite_height_m: python=115 swift=115 error=0\nsite_diagonal_m: python=162.63455967290594 swift=162.63455967290594 error=0\nsite_area_m2: python=13225 swift=13225 error=0\nmean_cpt_spacing_m: python=66.395280956806957 swift=66.395280956806957 error=0\nmax_nearest_distance_m: python=85.440037453175307 swift=85.440037453175307 error=0\naspect_ratio: python=1 swift=1 error=0\nV32_FEATURE max_error=0 tolerance=1e-10\nV32_CLASSIFIER max_error=5.5511151231257827e-17 tolerance=1e-9 index=5 fixtures=100\n",
+      "stderr": "/Users/daffaburanenugraha/Developer/cpt_super_learn/cpt/lib/python3.11/site-packages/sklearn/base.py:486: UserWarning: X has feature names, but HistGradientBoostingRegressor was fitted without feature names\n  warnings.warn(\n/Users/daffaburanenugraha/Developer/cpt_super_learn/cpt/lib/python3.11/site-packages/sklearn/base.py:493: UserWarning: X does not have valid feature names, but HistGradientBoostingClassifier was fitted with feature names\n  warnings.warn(\n"
+    },
+    "V32Features": {
+      "status": "PASS",
+      "max_absolute_error": 0.0,
+      "tolerance": 1e-10,
+      "fixture_sha256": "c513611c331c61858e0eff53167c01c31b5f486d92f87676f3801a1a405a7f23",
+      "coverage": "one 24x24x12 feature fixture",
+      "source_sha256": "d7164e941d6a2d1c8d8cf00b20dcc6682606f1859dd3e56ab970627fce51ae40",
+      "model_sha256": "5108e9f44a0127cd10fb94c545944198ee7011f3c7fc983eefeb968c926348b0"
+    },
+    "V32Classifier": {
+      "status": "PASS",
+      "max_absolute_error": 5.551115123125783e-17,
+      "tolerance": 1e-09,
+      "fixture_sha256": "6994bd1019c42dec075c945f103570a029571d046182f53cab6017ff8380ae24",
+      "coverage": "100 feature vectors",
+      "source_sha256": "d7164e941d6a2d1c8d8cf00b20dcc6682606f1859dd3e56ab970627fce51ae40",
+      "model_sha256": "6f8577ece83357bb33e387058498d955d738d4636569ccff72a41fe10e97852f"
+    }
+  }
+}

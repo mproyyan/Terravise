@@ -12,7 +12,6 @@ struct CPTRecommendedPointSheetView: View {
 
   @Environment(\.colorSchemeContrast) private var contrast
   @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
-  @State private var isConfidenceTooltipPresented = false
 
   init(
     recommendation: CPTRecommendationResult = CPTRecommendationResult(),
@@ -34,48 +33,44 @@ struct CPTRecommendedPointSheetView: View {
 
   var body: some View {
     ScrollView(.vertical, showsIndicators: false) {
-      VStack(alignment: .leading, spacing: 16) {
+      VStack(alignment: .leading, spacing: 18) {
         // Sheet Title
-        Text(sheetTitle)
+        Text(recommendation.isSufficient ? "Sufficiency Reached" : (recommendation.hasRecommendation ? "Recommended Point" : "Rekomendasi belum tersedia"))
           .font(.title2.weight(.bold))
           .foregroundStyle(Color.primary)
           .accessibilityAddTraits(.isHeader)
 
-        if recommendation.isSufficient {
-          // Sufficient State matching target design
-          sufficientCoverageCard
-
-          uploadButton
-
-          cptDataListCard
+        // Top Card: Recommendation Coordinate & Run CPT Warning (or Sufficiency Banner)
+        if recommendation.isSufficient || recommendation.hasRecommendation {
+          topRecommendationCard
         } else {
-          // Top Card: Recommendation Coordinate & Run CPT Warning
-          if recommendation.hasRecommendation {
-            topRecommendationCard
-          } else {
-            Text("Tidak ada kandidat DQN yang tersedia untuk kriteria jarak dan area saat ini, atau model tidak dapat dijalankan.")
-              .foregroundStyle(.secondary)
-          }
-
-          // Spot Confidence Metric Card
-          metricsSection
-
-          // Primary Action: Upload CPT Data
-          uploadButton
-
-          // "Why this point?" Section
-          if recommendation.hasRecommendation {
-            whyThisPointSection
-          }
-
-          // Reasons & Supporting Data Card
-          if recommendation.hasRecommendation {
-            reasonsCard
-          }
-
-          // Bottom Navigation Card: CPT Data entered
-          cptDataListCard
+          Text("Tidak ada kandidat DQN yang tersedia untuk kriteria jarak dan area saat ini, atau model tidak dapat dijalankan.")
+            .foregroundStyle(.secondary)
         }
+
+        VStack(alignment: .leading, spacing: 2) {
+          Text("Sumber rekonstruksi: \(recommendation.reconstructionSource)")
+          Text("Sumber rekomendasi: \(recommendation.recommendationSource)")
+          Text("Sumber assessment: \(recommendation.assessmentSource)")
+          Text("QC-FS: \(recommendation.qcfsInferenceSource)")
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+
+        // Primary Action: Upload Data CPT
+        uploadButton
+
+        // "Why this point?" Section
+        if recommendation.hasRecommendation && !recommendation.isSufficient { whyThisPointSection }
+
+        // Metrics: RMSE and Confidence Level
+        metricsSection
+
+        // Reasons & Supporting Data Card
+        if recommendation.hasRecommendation && !recommendation.isSufficient { reasonsCard }
+
+        // Bottom Navigation Card: CPT Data entered
+        cptDataListCard
       }
       .padding(.horizontal, 20)
       .padding(.top, 16)
@@ -83,52 +78,6 @@ struct CPTRecommendedPointSheetView: View {
     }
     .scrollBounceBehavior(.basedOnSize)
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-  }
-
-  private var sheetTitle: String {
-    if recommendation.isSufficient || recommendation.hasRecommendation {
-      return "Recommended Point"
-    } else {
-      return "Rekomendasi belum tersedia"
-    }
-  }
-
-  private var sufficientCoverageCard: some View {
-    HStack(alignment: .top, spacing: 12) {
-      Image(systemName: "checkmark.circle.fill")
-        .font(.system(size: 24, weight: .bold))
-        .foregroundStyle(Color.green)
-        .padding(.top, 1)
-        .accessibilityHidden(true)
-
-      VStack(alignment: .leading, spacing: 4) {
-        Text("CPT coverage is sufficient")
-          .font(.headline.weight(.bold))
-          .foregroundStyle(Color.primary)
-
-        Text("Current CPT data meets the assessment requirements.")
-          .font(.subheadline)
-          .foregroundStyle(Color.secondary)
-          .fixedSize(horizontal: false, vertical: true)
-      }
-
-      Spacer(minLength: 0)
-    }
-    .padding(16)
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .background(
-      RoundedRectangle(cornerRadius: 18, style: .continuous)
-        .fill(Color(.secondarySystemGroupedBackground))
-    )
-    .overlay(
-      RoundedRectangle(cornerRadius: 18, style: .continuous)
-        .stroke(
-          Color.primary.opacity(contrast == .increased ? 0.35 : 0.08),
-          lineWidth: contrast == .increased ? 1.5 : 1
-        )
-    )
-    .accessibilityElement(children: .combine)
-    .accessibilityLabel("CPT coverage is sufficient. Current CPT data meets the assessment requirements.")
   }
 
   // MARK: - Subviews
@@ -175,11 +124,11 @@ struct CPTRecommendedPointSheetView: View {
             .accessibilityHidden(true)
 
           VStack(alignment: .leading, spacing: 4) {
-            Text("Stopping criterion reached (\(recommendation.consecutiveSufficientCount)/3)")
+            Text("Stopping criterion reached (\(recommendation.consecutiveSufficientCount)/2)")
               .font(.subheadline.weight(.bold))
               .foregroundStyle(Color.primary)
 
-            Text("3D subsurface reconstruction has met the ≥98% sufficiency threshold across 3 consecutive CPT evaluations.")
+            Text("The model probability reached 0.95 across two consecutive CPT states. Field investigation decisions remain with the engineer.")
               .font(.caption)
               .foregroundStyle(Color.secondary)
               .fixedSize(horizontal: false, vertical: true)
@@ -267,19 +216,16 @@ struct CPTRecommendedPointSheetView: View {
         Image(systemName: "square.and.arrow.up")
           .font(.body.weight(.semibold))
 
-        Text("Upload CPT Data")
+        Text("Upload Data CPT")
           .font(.body.weight(.semibold))
       }
       .foregroundStyle(Color.white)
       .frame(maxWidth: .infinity)
-      .frame(height: 52)
-      .background(
-        RoundedRectangle(cornerRadius: 18, style: .continuous)
-          .fill(Color.blue)
-      )
+      .frame(height: 50)
+      .background(Color.blue, in: Capsule())
     }
     .buttonStyle(.plain)
-    .accessibilityLabel("Upload CPT Data")
+    .accessibilityLabel("Upload Data CPT")
     .accessibilityHint("Opens sheet to upload additional CPT data")
   }
 
@@ -298,24 +244,27 @@ struct CPTRecommendedPointSheetView: View {
   }
 
   private var metricsSection: some View {
-    // Single Spot Confidence Metric Card
-    VStack(alignment: .leading, spacing: 6) {
-      HStack {
-        Text("Current Ground Certainty")
-          .font(.caption.weight(.medium))
-          .foregroundStyle(Color.secondary)
+    HStack(spacing: 12) {
+      // RMSE Metric Card
+      VStack(alignment: .leading, spacing: 6) {
+        HStack {
+          Text(String(format: "%.4f", recommendation.rmse))
+            .font(.title2.weight(.bold))
+            .foregroundStyle(Color.primary)
 
-        Spacer()
+          Spacer()
 
-        Button(action: {
-          isConfidenceTooltipPresented.toggle()
-          onConfidenceInfoTap?()
-        }) {
-          Image(systemName: "info.circle")
-            .font(.subheadline)
-            .foregroundStyle(Color.secondary)
-            .frame(minWidth: 28, minHeight: 28)
-            .contentShape(Rectangle())
+          Button(action: {
+            onRMSEInfoTap?()
+          }) {
+            Image(systemName: "info.circle")
+              .font(.subheadline)
+              .foregroundStyle(Color.secondary)
+              .frame(minWidth: 28, minHeight: 28)
+              .contentShape(Rectangle())
+          }
+          .buttonStyle(.plain)
+          .accessibilityLabel("RMSE Information")
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Current Ground Certainty Information")
@@ -332,127 +281,99 @@ struct CPTRecommendedPointSheetView: View {
           .frame(maxWidth: 280)
           .presentationCompactAdaptation(.popover)
         }
+
+        Text("Confidence Level")
+          .font(.caption.weight(.medium))
+          .foregroundStyle(Color.secondary)
       }
-      Text("\(recommendation.confidenceLevel)%")
-        .font(.title2.weight(.bold))
-        .foregroundStyle(Color.primary)
+      .padding(14)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .background(
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
+          .fill(Color(.secondarySystemGroupedBackground))
+      )
+      .overlay(
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
+          .stroke(
+            Color.primary.opacity(contrast == .increased ? 0.35 : 0.08),
+            lineWidth: contrast == .increased ? 1.5 : 1
+          )
+      )
     }
-    .padding(14)
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .background(
-      RoundedRectangle(cornerRadius: 16, style: .continuous)
-        .fill(Color(.secondarySystemGroupedBackground))
-    )
-    .overlay(
-      RoundedRectangle(cornerRadius: 16, style: .continuous)
-        .stroke(
-          Color.primary.opacity(contrast == .increased ? 0.35 : 0.08),
-          lineWidth: contrast == .increased ? 1.5 : 1
-        )
-    )
   }
 
   private var reasonsCard: some View {
-    let spotName = CPTRecommendationResult.normalizeSpotName(recommendation.spotName)
-    let distText = String(format: "%.1f", recommendation.nearestCPTDistance)
-    let deltaIcText = String(format: "%.2f", recommendation.lateralIcDifference)
     let nearbyCountText = recommendation.nearbyCountWithin4m == 0
       ? "none within 4 m"
       : "\(recommendation.nearbyCountWithin4m) within 4 m"
 
     return VStack(alignment: .leading, spacing: 14) {
-      // Reason 1: Spatial Coverage (3-Tier)
+      // Reason 1
       VStack(alignment: .leading, spacing: 4) {
-        if recommendation.nearestCPTDistance >= 15.0 && recommendation.nearbyCountWithin4m == 0 {
-          Text("Closes a major coverage gap")
-            .font(.subheadline.weight(.bold))
-            .foregroundStyle(Color.primary)
+        Text("Fills a data gap")
+          .font(.subheadline.weight(.bold))
+          .foregroundStyle(Color.primary)
 
-          Text("**\(spotName)** lies **\(distText) m** from the nearest sounding in an untested sector of the site (\(nearbyCountText)). Sampling here prevents long-distance extrapolation across this zone.")
-            .font(.caption)
-            .foregroundStyle(Color.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-        } else if recommendation.nearbyCountWithin4m == 0 && recommendation.nearestCPTDistance >= 4.0 {
-          Text("Fills a local data gap")
-            .font(.subheadline.weight(.bold))
-            .foregroundStyle(Color.primary)
-
-          Text("**\(spotName)** is **\(distText) m** from the closest CPT with \(nearbyCountText), adding direct control where current interpolation relies on surrounding points.")
-            .font(.caption)
-            .foregroundStyle(Color.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-        } else {
-          Text("Refines a high-variability zone")
-            .font(.subheadline.weight(.bold))
-            .foregroundStyle(Color.primary)
-
-          Text("Although **\(spotName)** is **\(distText) m** from an existing CPT (\(nearbyCountText)), the model prioritizes tighter spacing here to pin down local soil changes.")
-            .font(.caption)
-            .foregroundStyle(Color.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-        }
+        Text("\(recommendation.spotName) is \(String(format: "%.1f", recommendation.nearestCPTDistance)) m from the nearest CPT, with \(nearbyCountText). There is less nearby data to describe the ground in this area.")
+          .font(.caption)
+          .foregroundStyle(Color.secondary)
+          .fixedSize(horizontal: false, vertical: true)
       }
 
       Divider()
 
-      // Reason 2: Vertical Stratigraphy
+      // Reason 2
       VStack(alignment: .leading, spacing: 4) {
-        if recommendation.shallowSoilType.caseInsensitiveCompare(recommendation.deepSoilType) != .orderedSame {
-          Text("Pinpoints a vertical layer transition")
-            .font(.subheadline.weight(.bold))
-            .foregroundStyle(Color.primary)
+        Text("Soil layers may change with depth")
+          .font(.subheadline.weight(.bold))
+          .foregroundStyle(Color.primary)
 
-          Text("The reconstruction indicates **\(recommendation.shallowSoilType)** in the upper profile transitioning to **\(recommendation.deepSoilType)** at depth. A sounding at **\(spotName)** verifies the exact depth of this interface.")
-            .font(.caption)
-            .foregroundStyle(Color.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-        } else {
-          Text("Confirms deep layer continuity")
-            .font(.subheadline.weight(.bold))
-            .foregroundStyle(Color.primary)
-
-          Text("The model predicts a consistent **\(recommendation.shallowSoilType)** profile from surface to depth. Testing **\(spotName)** confirms vertical consistency and exact layer thickness.")
-            .font(.caption)
-            .foregroundStyle(Color.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-        }
+        Text("The model predicts **\(recommendation.shallowSoilType)** near the surface and **\(recommendation.deepSoilType)** deeper down. A CPT can check where that change occurs.")
+          .font(.caption)
+          .foregroundStyle(Color.secondary)
+          .fixedSize(horizontal: false, vertical: true)
       }
 
       Divider()
 
-      // Reason 3: Lateral Transition (3-Tier)
+      // Reason 3
       VStack(alignment: .leading, spacing: 4) {
-        if recommendation.lateralIcDifference >= 0.20 {
-          Text("Maps a sharp lateral soil boundary")
-            .font(.subheadline.weight(.bold))
-            .foregroundStyle(Color.primary)
+        Text("Soil may differ from nearby areas")
+          .font(.subheadline.weight(.bold))
+          .foregroundStyle(Color.primary)
 
-          Text("The predicted profile at **\(spotName)** shifts significantly (ΔIc \(deltaIcText)) compared to adjacent cells within 4 m, suggesting a lateral boundary or pinching lens.")
-            .font(.caption)
-            .foregroundStyle(Color.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-        } else if recommendation.lateralIcDifference >= 0.05 {
-          Text("Tracks a gradual lateral transition")
-            .font(.subheadline.weight(.bold))
-            .foregroundStyle(Color.primary)
-
-          Text("Soil behavior at **\(spotName)** differs moderately (ΔIc \(deltaIcText)) from the surrounding 4 m average, helping trace how strata dip or grade across the site.")
-            .font(.caption)
-            .foregroundStyle(Color.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-        } else {
-          Text("Anchors uncertainty in a broad zone")
-            .font(.subheadline.weight(.bold))
-            .foregroundStyle(Color.primary)
-
-          Text("Nearby cells show a similar predicted profile (ΔIc \(deltaIcText)), but **\(spotName)** sits where local uncertainty is elevated—anchoring the reconstruction for this sector.")
-            .font(.caption)
-            .foregroundStyle(Color.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-        }
+        Text("The predicted soil profile at **\(recommendation.spotName)** differs (ΔIc \(String(format: "%.2f", recommendation.lateralIcDifference))) from the average nearby profile within 4 m. \(recommendation.spotName) may be close to a boundary between soil zones.")
+          .font(.caption)
+          .foregroundStyle(Color.secondary)
+          .fixedSize(horizontal: false, vertical: true)
       }
 
+      Divider()
 
+      // Action row: See Supporting Data
+      Button(action: {
+        onSeeSupportingDataTap?()
+      }) {
+        HStack(spacing: 8) {
+          Image(systemName: "info.circle")
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(Color.blue)
+
+          Text("See Supporting Data")
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(Color.blue)
+
+          Spacer()
+
+          Image(systemName: "chevron.right")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(Color.secondary)
+        }
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .accessibilityLabel("See Supporting Data")
+      .accessibilityHint("Opens supporting data analysis for recommended point")
     }
     .padding(16)
     .background(
@@ -474,29 +395,28 @@ struct CPTRecommendedPointSheetView: View {
     }) {
       HStack {
         Text("CPT Data • \(cptPointsCount) entered")
-          .font(.headline.weight(.bold))
+          .font(.subheadline.weight(.bold))
           .foregroundStyle(Color.primary)
 
         Spacer()
 
         Image(systemName: "chevron.right")
-          .font(.subheadline.weight(.semibold))
+          .font(.caption.weight(.semibold))
           .foregroundStyle(Color.secondary)
       }
       .padding(.horizontal, 16)
-      .frame(height: 54)
+      .frame(height: 52)
       .background(
-        RoundedRectangle(cornerRadius: 18, style: .continuous)
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
           .fill(Color(.secondarySystemGroupedBackground))
       )
       .overlay(
-        RoundedRectangle(cornerRadius: 18, style: .continuous)
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
           .stroke(
             Color.primary.opacity(contrast == .increased ? 0.35 : 0.08),
             lineWidth: contrast == .increased ? 1.5 : 1
           )
       )
-      .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
     .accessibilityLabel("CPT Data, \(cptPointsCount) entered")
@@ -504,19 +424,7 @@ struct CPTRecommendedPointSheetView: View {
   }
 }
 
-#Preview("Sufficient Coverage") {
-  CPTRecommendedPointSheetView(
-    recommendation: CPTRecommendationResult(
-      consecutiveSufficientCount: 3,
-      isSufficient: true
-    ),
-    cptPointsCount: 1
-  )
-  .padding()
-  .background(Color(.systemGroupedBackground))
-}
-
-#Preview("Recommendation") {
+#Preview {
   CPTRecommendedPointSheetView(
     recommendation: CPTRecommendationResult(),
     cptPointsCount: 1

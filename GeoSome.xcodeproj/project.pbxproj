@@ -151,6 +151,7 @@
 				A60BFC173091A38700D1BA6E /* Sources */,
 				A60BFC183091A38700D1BA6E /* Frameworks */,
 				A60BFC193091A38700D1BA6E /* Resources */,
+				A1C077110000000000000001 /* ShellScript */,
 			);
 			buildRules = (
 			);
@@ -206,6 +207,35 @@
 			);
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		A1C077110000000000000001 /* ShellScript */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			inputPaths = (
+				"$(SRCROOT)/Scripts/build_parity_attestation.py",
+				"$(SRCROOT)/Tests/PipelineParity/parity_manifest.json",
+				"$(SRCROOT)/Tests/PipelineParity/attested_fixture.json",
+				"$(SRCROOT)/GeoSome/Features/CPTRecommendation/Services/SchemaGANService.swift",
+				"$(SRCROOT)/GeoSome/Features/CPTRecommendation/Services/UncertaintySufficiencyService.swift",
+				"$(SRCROOT)/GeoSome/Features/CPTRecommendation/Models/CPTGridConfig.swift",
+				"$(SRCROOT)/GeoSome/Features/CPTRecommendation/Models/CPTData.swift",
+				"$(SRCROOT)/GeoSome/Features/CPTRecommendation/Resources/UncertaintyV3.json",
+				"$(SRCROOT)/GeoSome/Features/CPTRecommendation/Resources/SufficiencyV3_2.json",
+				"$(SRCROOT)/GeoSome/Features/CPTRecommendation/Resources/SufficiencyV32FeatureParity.json",
+				"$(SRCROOT)/GeoSome/Features/CPTRecommendation/Resources/SchemaGAN_V4_2_Flexible.mlpackage/Manifest.json",
+				"$(SRCROOT)/GeoSome/Features/CPTRecommendation/Resources/SchemaGAN_V4_2_Flexible.mlpackage/Data/com.apple.CoreML/model.mlmodel",
+				"$(SRCROOT)/GeoSome/Features/CPTRecommendation/Resources/SchemaGAN_V4_2_Flexible.mlpackage/Data/com.apple.CoreML/weights/weight.bin",
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/CPTParityAttestation.json",
+			);
+			shellPath = /bin/sh;
+			shellScript = (
+				"python3 \"${SRCROOT}/Scripts/build_parity_attestation.py\"",
+			);
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		A60BFC173091A38700D1BA6E /* Sources */ = {
@@ -345,7 +375,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 46PB5JVBMV;
+				DEVELOPMENT_TEAM = WB3D823668;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = GeoSome/Info.plist;
@@ -381,7 +411,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 46PB5JVBMV;
+				DEVELOPMENT_TEAM = WB3D823668;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = GeoSome/Info.plist;
