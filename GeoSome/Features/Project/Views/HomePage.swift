@@ -59,7 +59,10 @@ struct HomePage: View {
 
             StartProjectButton(action: {
               viewModel.dismissProjectSheet()
-              router.navigate(to: .boundaryCreation)
+              Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(220))
+                router.navigate(to: .boundaryCreation)
+              }
             })
             .accessibilityFocused($isStartButtonFocused)
             .padding(.top, 4)
@@ -99,7 +102,10 @@ struct HomePage: View {
               viewModel.selectProject(project)
               viewModel.dismissProjectSheet()
               captionCenter.announce("Opened project \(project.name).")
-              router.navigate(to: .projectDetail(id: project.id))
+              Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(220))
+                router.navigate(to: .projectDetail(id: project.id))
+              }
             },
             onRenameProject: { project, newName in
               withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
