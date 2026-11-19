@@ -24,11 +24,11 @@ enum CPTType: String, CaseIterable, Identifiable, Codable, Sendable {
   var requiredColumns: [String] {
     switch self {
     case .electrical:
-      ["depth_(m)", "qc_mpa(mPa)", "fs_kpa(kPa)"]
+      ["depth_(m)", "qc_(MPa)", "fs_(kPa)"]
     case .cptmBicone:
       ["depth_(cm)", "Cw_(kg/cm2)", "Tw_(kg/cm2)"]
     case .cptu:
-      ["depth_(m)", "qc_mpa(mPa)", "fs_kpa(kPa)", "u2_kpa(kPa)"]
+      ["depth_(m)", "qc_(MPa)", "fs_(kPa)", "u2_(kPa)"]
     }
   }
 }
@@ -82,7 +82,7 @@ struct CPTUploadedFile: Identifiable, Hashable, Codable, Sendable {
     name: String,
     byteSize: Int64 = 24 * 1024,
     rowCount: Int = 52,
-    matchedColumns: [String] = ["depth_(m)", "qc_mpa(mPa)", "fs_kpa(kPa)", "u2_kpa(kPa)"],
+    matchedColumns: [String] = ["depth_(m)", "qc_(MPa)", "fs_(kPa)", "u2_(kPa)"],
     isDemo: Bool = false
   ) {
     self.id = id
