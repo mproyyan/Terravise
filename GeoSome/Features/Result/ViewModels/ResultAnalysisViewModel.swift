@@ -3,6 +3,7 @@ import Foundation
 import Observation
 import SwiftUI
 
+/*
 nonisolated struct GeotechnicalConcernItem: Identifiable, Equatable, Sendable {
   let id: String
   let title: String
@@ -10,6 +11,7 @@ nonisolated struct GeotechnicalConcernItem: Identifiable, Equatable, Sendable {
   let locationAndDepthLines: [String]
   var affectedVoxels: Set<GridCoord> = []
 }
+*/
 
 @MainActor
 @Observable
@@ -26,6 +28,7 @@ final class ResultAnalysisViewModel {
   static let defaultBearingCameraPitch: Float = 0.68
   static let defaultBearingCameraZoom: Float = 1.35
 
+  /*
   nonisolated static let defaultConcerns: [GeotechnicalConcernItem] = [
     GeotechnicalConcernItem(
       id: "soft-sensitive-clay-lens",
@@ -57,6 +60,7 @@ final class ResultAnalysisViewModel {
       ]
     )
   ]
+  */
 
   var project: Project
   var selectedTab: ResultAnalysisTab = .threeDLayer
@@ -169,13 +173,14 @@ final class ResultAnalysisViewModel {
   var isLeftSheetPresented: Bool = false
   var selectedSheetDetent: PresentationDetent = ResultAnalysisViewModel.collapsedSheetDetent
   var isSubsurfaceConditionsEmpty: Bool = false
-  var isGeotechnicalConcernsEmpty: Bool = false
+  // var isGeotechnicalConcernsEmpty: Bool = false
   var groundConditionsSummary: String =
     "The site generally exhibits alternating layers of clay-dominant and sand-like soil behavior. Subsurface conditions vary across the investigation area, with deeper competent strata predicted toward the southern sector."
-  var geotechnicalConcerns: [GeotechnicalConcernItem] = ResultAnalysisViewModel.defaultConcerns
-  var selectedConcernID: String? = nil
+  // var geotechnicalConcerns: [GeotechnicalConcernItem] = ResultAnalysisViewModel.defaultConcerns
+  // var selectedConcernID: String? = nil
   var predictionUncertaintyPercent: Int = 12
 
+  /*
   var activeConcernVoxels: Set<GridCoord>? {
     guard let selectedConcernID,
           let concern = geotechnicalConcerns.first(where: { $0.id == selectedConcernID }),
@@ -185,6 +190,7 @@ final class ResultAnalysisViewModel {
     }
     return concern.affectedVoxels
   }
+  */
 
   // Interactive Voxel Selection & Camera Rig State
   var selectedVoxel: SoilVoxel?
@@ -257,7 +263,7 @@ final class ResultAnalysisViewModel {
 
     if let project, project.cptPoints.isEmpty {
       self.isSubsurfaceConditionsEmpty = true
-      self.isGeotechnicalConcernsEmpty = true
+      // self.isGeotechnicalConcernsEmpty = true
     }
 
     let coords = resolvedProject.boundaryPoints.isEmpty
@@ -372,7 +378,7 @@ final class ResultAnalysisViewModel {
     slicingXMeters = Double(builtVolume.widthXM)
     slicingYMeters = Double(builtVolume.lengthZM)
     selectedVoxel = nil
-    selectedConcernID = nil
+    // selectedConcernID = nil
     selectedBearingVoxel = nil
     isBearingPopoverPresented = false
     comparedBearingPoints.removeAll()
@@ -388,10 +394,10 @@ final class ResultAnalysisViewModel {
 
     if newProject.cptPoints.isEmpty {
       isSubsurfaceConditionsEmpty = true
-      isGeotechnicalConcernsEmpty = true
+      // isGeotechnicalConcernsEmpty = true
     } else {
       isSubsurfaceConditionsEmpty = false
-      isGeotechnicalConcernsEmpty = false
+      // isGeotechnicalConcernsEmpty = false
     }
     updateGeotechnicalConcernsAndSummary()
   }
@@ -426,19 +432,21 @@ final class ResultAnalysisViewModel {
 
   func selectTab(_ tab: ResultAnalysisTab) {
     selectedTab = tab
-    if tab == .bearingLayer { reevaluateBearingRule() }
+    if tab == .bearingLayer {
+      reevaluateBearingRule()
+      isLeftSheetPresented = true
+      selectedSheetDetent = Self.collapsedSheetDetent
+      isBearingCriteriaCardExpanded = false
+    } else {
+      isLeftSheetPresented = true
+      selectedSheetDetent = Self.collapsedSheetDetent
+      isSlicingCardExpanded = false
+    }
     isProfilePopoverPresented = false
     isBearingPopoverPresented = false
     bearingPopoverLocation = nil
     if isCompareDataSheetActive {
       exitCompareMode()
-    }
-    isLeftSheetPresented = true
-    if tab == .threeDLayer {
-      selectedSheetDetent = Self.collapsedSheetDetent
-      isSlicingCardExpanded = false
-    } else {
-      selectedSheetDetent = Self.defaultSheetDetent
     }
     AccessibilityCaptionCenter.shared.announce("\(tab.rawValue) selected.")
   }
@@ -467,7 +475,7 @@ final class ResultAnalysisViewModel {
     bearingCameraPitch = Self.defaultBearingCameraPitch
     bearingCameraZoom = Self.defaultBearingCameraZoom
     selectedVoxel = nil
-    selectedConcernID = nil
+    // selectedConcernID = nil
     selectedPipePosition3D = nil
     isProfilePopoverPresented = false
     isBearingPopoverPresented = false
@@ -595,6 +603,7 @@ final class ResultAnalysisViewModel {
   func exitCompareMode() {
     isCompareDataSheetActive = false
     comparedBearingPoints.removeAll()
+    selectedSheetDetent = Self.collapsedSheetDetent
     AccessibilityCaptionCenter.shared.announce("Closed compare data and cleared stored points.")
   }
 
@@ -612,6 +621,7 @@ final class ResultAnalysisViewModel {
     }
   }
 
+  /*
   func selectConcern(_ concern: GeotechnicalConcernItem) {
     if selectedConcernID == concern.id {
       selectedConcernID = nil
@@ -629,6 +639,7 @@ final class ResultAnalysisViewModel {
     isProfilePopoverPresented = false
     AccessibilityCaptionCenter.shared.announce("Cleared geotechnical concern highlight.")
   }
+  */
 
   private func updateSelectedCoordinates(with point: CPTPointEntry) {
     selectedCPTPointEasting = point.formattedEasting
@@ -1180,10 +1191,11 @@ final class ResultAnalysisViewModel {
   private func updateGeotechnicalConcernsAndSummary() {
     let allVoxels = Array(volume.voxels.values)
     guard !allVoxels.isEmpty else {
-      geotechnicalConcerns = []
+      // geotechnicalConcerns = []
       return
     }
 
+    /*
     let qcfsVolume: QCFSVolume?
     if case .coreML(let vol) = qcfsResult {
       qcfsVolume = vol
@@ -1209,6 +1221,7 @@ final class ResultAnalysisViewModel {
       let ic = Double(voxel.robertsonIc)
       return max(0.4, min(25.0, 22.0 * exp(-0.85 * max(ic - 1.3, 0.0))))
     }
+    */
 
     // 1. Build dynamic Ground Conditions Summary from 3D voxel stratigraphy
     var shallowCounts: [SoilLayerType: Int] = [:]
@@ -1255,6 +1268,7 @@ final class ResultAnalysisViewModel {
       }
     }
 
+    /*
     // 2. Evaluate the 3 Potential Geotechnical Concerns across the 3D voxel grid
     let minVerticalCells = max(1, Int(ceil(1.0 / Double(max(volume.cellStepYM, 0.25)))))
     var settlementVoxels = Set<GridCoord>()
@@ -1489,8 +1503,10 @@ final class ResultAnalysisViewModel {
     if let selectedConcernID, !builtConcerns.contains(where: { $0.id == selectedConcernID }) {
       self.selectedConcernID = nil
     }
+    */
   }
 
+  /*
   private func computeClusterStats(for coords: Set<GridCoord>) -> (
     sectorName: String,
     minEM: Int,
@@ -1577,6 +1593,7 @@ final class ResultAnalysisViewModel {
       thicknessM: max(safeBot - safeTop, Double(volume.cellStepYM))
     )
   }
+  */
 
   private func findClosestCPTPoint(to voxel: SoilVoxel) -> (title: String, point: CPTPointEntry)? {
     guard !project.cptPoints.isEmpty else { return nil }

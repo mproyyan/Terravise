@@ -35,14 +35,14 @@ struct ResultBearingCriteriaCardView: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
-      // Header Row: "Identification Criteria" + Collapse/Expand Chevron
+      // Header Row: "Controls" + Collapse/Expand Chevron
       Button(action: {
         withAnimation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.82)) {
           isExpanded.toggle()
         }
       }) {
         HStack {
-          Text("Identification Criteria")
+          Text("Controls")
             .font(.headline.weight(.bold))
             .foregroundStyle(Color.primary)
 
