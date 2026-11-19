@@ -7,6 +7,20 @@ enum CPTGridPolicy: String, Codable, Hashable, Sendable {
   case qcfsV3Enumerated
 }
 
+enum CPTDistancePolicy: String, Codable, Hashable, Sendable {
+  case legacyCellDiagonal
+  case sufficiencyV32SiteDiagonal
+
+  func minimumMeters(grid: CPTGridConfig) -> Double {
+    switch self {
+    case .legacyCellDiagonal: return hypot(grid.dxM, grid.dyM)
+    case .sufficiencyV32SiteDiagonal:
+      // Python accepts nearest + 1e-9 >= 0.10 * diagonal.
+      return max(0, 0.10 * hypot(Double(grid.nx - 1) * grid.dxM, Double(grid.ny - 1) * grid.dyM) - 1e-9)
+    }
+  }
+}
+
 struct CPTGridConfig: Sendable {
   let nx: Int
   let ny: Int

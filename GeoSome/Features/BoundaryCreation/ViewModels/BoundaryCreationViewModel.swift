@@ -163,7 +163,6 @@ final class BoundaryCreationViewModel {
 
   func handleMapTap(at coordinate: CLLocationCoordinate2D) {
     guard
-      !isAddCoordinateSheetPresented,
       editingPoint == nil,
       CLLocationCoordinate2DIsValid(coordinate)
     else {
@@ -594,12 +593,16 @@ final class BoundaryCreationViewModel {
     if var existing = editingProject {
       existing.name = finalName
       existing.boundaryPoints = points
+      existing.sufficiencyObservations = CPTSufficiencyHistory.retainValidPrefixes(existing.sufficiencyObservations,
+        projectID: existing.id, gridPolicy: existing.gridPolicy, distancePolicy: existing.cptDistancePolicy, boundary: points, points: existing.cptPoints)
       existing.lastEdited = Date()
       if !existing.cptPoints.isEmpty {
         let recomputed = CPTPipelineCoordinator.recomputeFromScratch(
           boundaryCoordinates: existing.boundaryCoordinates,
           cptPoints: existing.cptPoints,
-          gridPolicy: existing.gridPolicy
+          gridPolicy: existing.gridPolicy,
+          distancePolicy: existing.cptDistancePolicy,
+          assessmentProject: existing
         )
         existing.latestRecommendation = recomputed
         existing.consecutiveSufficientCount = recomputed.consecutiveSufficientCount
@@ -610,7 +613,8 @@ final class BoundaryCreationViewModel {
     return Project(
       name: finalName,
       lastEdited: Date(),
-      boundaryPoints: points
+      boundaryPoints: points,
+      cptDistancePolicy: .sufficiencyV32SiteDiagonal
     )
   }
 

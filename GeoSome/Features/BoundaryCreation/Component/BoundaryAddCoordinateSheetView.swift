@@ -45,7 +45,7 @@ struct BoundaryAddCoordinateSheetView: View {
           .accessibilityAddTraits(.isHeader)
 
         if differentiateWithoutColor {
-          Label("Format: UTM (e.g. 48S 702634 E, 9309747 N) or lat, lon", systemImage: "info.circle")
+          Label("Format: latitude, longitude (one pair per line)", systemImage: "info.circle")
             .font(.caption)
             .foregroundStyle(contrast == .increased ? .primary : .secondary)
             .fixedSize(horizontal: false, vertical: true)
@@ -53,7 +53,7 @@ struct BoundaryAddCoordinateSheetView: View {
 
         ZStack(alignment: .topLeading) {
           if coordinateText.isEmpty {
-            Text("e.g., 48S 702634 E, 9309747 N")
+            Text("e.g., -6.215432, 106.845321")
               .font(.body)
               .foregroundStyle(contrast == .increased ? .primary : .secondary)
               .padding(.horizontal, 5)
@@ -69,7 +69,7 @@ struct BoundaryAddCoordinateSheetView: View {
             .scrollContentBackground(.hidden)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .accessibilityLabel("Coordinate input")
-            .accessibilityHint("Enter UTM coordinates or latitude and longitude, one point per line")
+            .accessibilityHint("Enter latitude and longitude separated by a comma, one pair per line")
         }
         .padding(.horizontal, 11)
         .padding(.vertical, 8)

@@ -17,6 +17,9 @@ struct SchemaGANReconstructionOutput: Sendable {
 }
 
 enum SchemaGANService {
+#if SCHEMAGAN_PARITY_HARNESS
+  static var parityInput: [Float] = []
+#endif
   static let normalizationMean: Double = 2.7903323310879604
   static let normalizationStd: Double = 0.7723778445702414
 
@@ -285,6 +288,15 @@ enum SchemaGANService {
       }
     }
 
+#if SCHEMAGAN_PARITY_HARNESS
+    parityInput = (0 ..< 7).flatMap { channel in
+      (0 ..< nz).flatMap { z in
+        (0 ..< ny).flatMap { y in
+          (0 ..< nx).map { x in ptr[channel * strides[1] + z * strides[2] + y * strides[3] + x * strides[4]] }
+        }
+      }
+    }
+#endif
     let config = MLModelConfiguration()
     config.computeUnits = .all
     guard

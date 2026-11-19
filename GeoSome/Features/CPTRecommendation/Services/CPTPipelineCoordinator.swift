@@ -2,6 +2,10 @@ import CoreLocation
 import Foundation
 
 enum CPTPipelineCoordinator {
+#if DEBUG && CPT_SYNTHETIC_REPLAY
+  /// Only compiled for the explicitly enabled synthetic replay harness.
+  static var researchTestGrid: CPTGridConfig?
+#endif
   /// Phase 4 screening accepts only a successful QC-FS Core ML result.
   static func evaluateBearingRule(
     qcfs: QCFSInferenceResult,
@@ -32,24 +36,36 @@ enum CPTPipelineCoordinator {
     cptPoints: [CPTPointEntry],
     previousConsecutiveSufficientCount: Int,
     gridPolicy: CPTGridPolicy = .legacyDynamic,
-    minimumSeparationMeters: Double? = nil
+    distancePolicy: CPTDistancePolicy = .legacyCellDiagonal,
+    minimumSeparationMeters: Double? = nil,
+    assessmentProject: Project? = nil
   ) -> CPTRecommendationResult {
+#if DEBUG && CPT_SYNTHETIC_REPLAY
+    let grid = researchTestGrid ?? CPTGridConfig.build(
+      boundaryCoordinates: boundaryCoordinates, cptPoints: cptPoints, policy: gridPolicy
+    )
+#else
     let grid = CPTGridConfig.build(
       boundaryCoordinates: boundaryCoordinates,
       cptPoints: cptPoints,
       policy: gridPolicy
     )
+#endif
 
     let reconstruction = SchemaGANService.reconstruct(
       cptPoints: cptPoints,
       grid: grid
     )
 
+#if DEBUG && CPT_SYNTHETIC_REPLAY
+    let qcfsResult = researchTestGrid != nil ? QCFSInferenceResult.incompleteData("Synthetic Ic-only replay; qc/fs unavailable") : QCFSInferenceService.reconstruct(cptPoints: cptPoints, grid: grid, icReconstruction: reconstruction)
+#else
     let qcfsResult = QCFSInferenceService.reconstruct(
       cptPoints: cptPoints,
       grid: grid,
       icReconstruction: reconstruction
     )
+#endif
     let qcfsSource: String
     switch qcfsResult {
     case .coreML(let volume):
@@ -68,16 +84,41 @@ enum CPTPipelineCoordinator {
       previousConsecutiveSufficientCount: previousConsecutiveSufficientCount
     )
 
-    let candidateEval = DQNFeatureBuilder.recommendNextCandidate(
+    var history: [CPTSufficiencyObservation] = []
+    if let project = assessmentProject, project.gridPolicy == gridPolicy, project.cptDistancePolicy == distancePolicy,
+       project.boundaryCoordinates.count == boundaryCoordinates.count,
+       zip(project.boundaryCoordinates, boundaryCoordinates).allSatisfy({ $0.latitude == $1.latitude && $0.longitude == $1.longitude }) {
+      history = CPTSufficiencyHistory.retainValidPrefixes(project.sufficiencyObservations, projectID: project.id,
+        gridPolicy: gridPolicy, distancePolicy: distancePolicy, boundary: project.boundaryPoints, points: cptPoints)
+      if uncertaintyEval.inferenceSource == "Sufficiency V3.2 experimental; STOP unavailable: DQN trajectory not verified",
+         let state = CPTSufficiencyHistory.stateID(projectID: project.id, gridPolicy: gridPolicy,
+           distancePolicy: distancePolicy, boundary: project.boundaryPoints, points: cptPoints) {
+        CPTSufficiencyHistory.record(.init(stateID: state, cptCount: cptPoints.count,
+          probability: uncertaintyEval.sufficiencyProbability), in: &history)
+      }
+    }
+
+    // The V3.2 research filter measures candidate distances from the observed
+    // grid cells. Keep original CPT coordinates in project data and legacy flow.
+    let filterCoordinates = distancePolicy == .sufficiencyV32SiteDiagonal
+      ? reconstruction.observedSitesXY.map { grid.coordinate(ix: $0.ix, iy: $0.iy) }
+      : cptPoints.map(\.coordinate)
+    let decision = CPTSufficiencyDispatch.decide(project: assessmentProject, points: cptPoints, grid: grid, history: history,
+      modelInputsValid: uncertaintyEval.inferenceSource == "Sufficiency V3.2 experimental; STOP unavailable: DQN trajectory not verified") {
+      DQNFeatureBuilder.recommendNextCandidate(
       reconstruction: reconstruction,
       grid: grid,
-      cptCoordinates: cptPoints.map(\.coordinate),
+      cptCoordinates: filterCoordinates,
       boundaryCoordinates: boundaryCoordinates,
-      minimumSeparationMeters: minimumSeparationMeters
-    )
+      minimumSeparationMeters: minimumSeparationMeters ?? distancePolicy.minimumMeters(grid: grid)
+      )
+    }
+    let candidateEval = decision.candidate
+    let stopCandidate = decision.stop
+    let positiveCount = decision.positives
 
     let spotName = spotLabel(forNextIndex: cptPoints.count)
-    let isSufficient = uncertaintyEval.isSufficient
+    let isSufficient = stopCandidate
 
     if let candidate = candidateEval {
       let recommendedCoord = grid.coordinate(ix: candidate.ix, iy: candidate.iy)
@@ -92,7 +133,7 @@ enum CPTPipelineCoordinator {
         rmse: uncertaintyEval.estimatedRMSE,
         confidenceLevel: isSufficient ? max(uncertaintyEval.confidenceLevelPercent, 98) : spotConfidence,
         spotName: spotName,
-        nearestCPTDistance: candidate.nearestCPTDistanceM,
+        nearestCPTDistance: cptPoints.map { grid.distanceMeters(from: recommendedCoord, to: $0.coordinate) }.min() ?? candidate.nearestCPTDistanceM,
         nearbyCountWithin4m: candidate.nearbyCountWithin4m,
         shallowSoilType: candidate.shallowSoilType,
         deepSoilType: candidate.deepSoilType,
@@ -100,7 +141,7 @@ enum CPTPipelineCoordinator {
         qValue: candidate.qValue,
         predictedCoverage: uncertaintyEval.predictedCoverage,
         sufficiencyProbability: uncertaintyEval.sufficiencyProbability,
-        consecutiveSufficientCount: uncertaintyEval.consecutiveSufficientCount,
+        consecutiveSufficientCount: decision.compatible ? positiveCount : 0,
         isSufficient: isSufficient,
         reconstructionSource: reconstruction.inferenceSource,
         recommendationSource: candidate.inferenceSource,
@@ -123,7 +164,7 @@ enum CPTPipelineCoordinator {
         qValue: 0.0,
         predictedCoverage: uncertaintyEval.predictedCoverage,
         sufficiencyProbability: uncertaintyEval.sufficiencyProbability,
-        consecutiveSufficientCount: uncertaintyEval.consecutiveSufficientCount,
+        consecutiveSufficientCount: decision.compatible ? positiveCount : 0,
         isSufficient: isSufficient,
         hasRecommendation: false,
         reconstructionSource: reconstruction.inferenceSource,
@@ -134,30 +175,27 @@ enum CPTPipelineCoordinator {
     }
   }
 
-  /// Recomputes the pipeline sequentially from 1..N CPT points (used when a point is deleted).
+  /// Recompute the current state; only actually recorded historical evaluations are retained.
   static func recomputeFromScratch(
     boundaryCoordinates: [CLLocationCoordinate2D],
     cptPoints: [CPTPointEntry],
-    gridPolicy: CPTGridPolicy = .legacyDynamic
+    gridPolicy: CPTGridPolicy = .legacyDynamic,
+    distancePolicy: CPTDistancePolicy = .legacyCellDiagonal,
+    assessmentProject: Project? = nil
   ) -> CPTRecommendationResult {
     guard !cptPoints.isEmpty else {
       return CPTRecommendationResult()
     }
-    var consecutiveCount = 0
-    var latestResult = CPTRecommendationResult()
-
-    for endIdx in 1 ... cptPoints.count {
-      let prefixPoints = Array(cptPoints.prefix(endIdx))
-      latestResult = runPipeline(
-        boundaryCoordinates: boundaryCoordinates,
-        cptPoints: prefixPoints,
-        previousConsecutiveSufficientCount: consecutiveCount,
-        gridPolicy: gridPolicy
-      )
-      consecutiveCount = latestResult.consecutiveSufficientCount
-    }
-
-    return latestResult
+    var currentProject = assessmentProject
+    currentProject?.cptPoints = cptPoints
+    return runPipeline(
+      boundaryCoordinates: boundaryCoordinates,
+      cptPoints: cptPoints,
+      previousConsecutiveSufficientCount: 0,
+      gridPolicy: gridPolicy,
+      distancePolicy: distancePolicy,
+      assessmentProject: currentProject
+    )
   }
 
   /// Generates "Spot 2" after 1st CPT, "Spot 3" after 2nd CPT, etc.

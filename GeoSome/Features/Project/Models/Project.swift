@@ -11,6 +11,10 @@ struct Project: Identifiable, Hashable, Codable, Sendable {
   var latestRecommendation: CPTRecommendationResult?
   var consecutiveSufficientCount: Int
   var gridPolicy: CPTGridPolicy
+  var cptDistancePolicy: CPTDistancePolicy
+  var cptRecommendationEvidence: [CPTRecommendationEvidence]
+  var sufficiencyObservations: [CPTSufficiencyObservation]
+  var cptInitialObservation: CPTInitialObservationEvidence?
 
   private enum CodingKeys: String, CodingKey {
     case id
@@ -20,7 +24,8 @@ struct Project: Identifiable, Hashable, Codable, Sendable {
     case cptPoints
     case latestRecommendation
     case consecutiveSufficientCount
-    case gridPolicy
+    case gridPolicy, cptDistancePolicy
+    case cptRecommendationEvidence, sufficiencyObservations, cptInitialObservation
   }
 
   init(
@@ -31,7 +36,8 @@ struct Project: Identifiable, Hashable, Codable, Sendable {
     cptPoints: [CPTPointEntry] = [],
     latestRecommendation: CPTRecommendationResult? = nil,
     consecutiveSufficientCount: Int = 0,
-    gridPolicy: CPTGridPolicy = .qcfsV3Enumerated
+    gridPolicy: CPTGridPolicy = .qcfsV3Enumerated,
+    cptDistancePolicy: CPTDistancePolicy = .legacyCellDiagonal
   ) {
     self.id = id
     self.name = name
@@ -41,6 +47,10 @@ struct Project: Identifiable, Hashable, Codable, Sendable {
     self.latestRecommendation = latestRecommendation
     self.consecutiveSufficientCount = consecutiveSufficientCount
     self.gridPolicy = gridPolicy
+    self.cptDistancePolicy = cptDistancePolicy
+    self.cptRecommendationEvidence = []
+    self.sufficiencyObservations = []
+    self.cptInitialObservation = nil
   }
 
   init(from decoder: Decoder) throws {
@@ -53,6 +63,10 @@ struct Project: Identifiable, Hashable, Codable, Sendable {
     latestRecommendation = try container.decodeIfPresent(CPTRecommendationResult.self, forKey: .latestRecommendation)
     consecutiveSufficientCount = try container.decodeIfPresent(Int.self, forKey: .consecutiveSufficientCount) ?? 0
     gridPolicy = try container.decodeIfPresent(CPTGridPolicy.self, forKey: .gridPolicy) ?? .legacyDynamic
+    cptDistancePolicy = try container.decodeIfPresent(CPTDistancePolicy.self, forKey: .cptDistancePolicy) ?? .legacyCellDiagonal
+    cptRecommendationEvidence = try container.decodeIfPresent([CPTRecommendationEvidence].self, forKey: .cptRecommendationEvidence) ?? []
+    sufficiencyObservations = try container.decodeIfPresent([CPTSufficiencyObservation].self, forKey: .sufficiencyObservations) ?? []
+    cptInitialObservation = try container.decodeIfPresent(CPTInitialObservationEvidence.self, forKey: .cptInitialObservation)
   }
 
   var boundaryCoordinates: [CLLocationCoordinate2D] {

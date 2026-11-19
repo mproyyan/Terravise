@@ -63,7 +63,10 @@ final class CPTRecommendationViewModel {
 
   // Upload Sheet State
   var selectedCPTType: CPTType = .electrical
-  var uploadCoordinatesText: String = ""
+  var uploadCoordinatesText: String = "" {
+    didSet { if oldValue != uploadCoordinatesText { activeRecommendationAcceptance = nil } }
+  }
+  private var activeRecommendationAcceptance: UUID?
   var uploadValidationError: String?
   var uploadedCPTFile: CPTUploadedFile?
   var uploadParsedRows: [CPTRowData] = []
@@ -150,6 +153,9 @@ final class CPTRecommendationViewModel {
   func handleMapTap(at coordinate: CLLocationCoordinate2D) {
     guard isUploadSheetPresented else { return }
 
+    // A map selection is a manual action even if it lands on the same coordinate.
+    activeRecommendationAcceptance = nil
+
     guard isCoordinateInsideBoundary(coordinate) else {
       uploadValidationError = "Lokasi berada di luar batas proyek. Pilih titik di dalam area."
       AccessibilityCaptionCenter.shared.announce(
@@ -185,11 +191,29 @@ final class CPTRecommendationViewModel {
   }
 
   func presentUploadSheet() {
+    activeRecommendationAcceptance = nil
     uploadedCPTFile = nil
     uploadParsedRows = []
     uploadValidationError = nil
     if hasUploadedCPTData, !recommendation.isSufficient, recommendation.hasRecommendation {
       uploadCoordinatesText = recommendation.formattedCoordinate
+      if project.cptDistancePolicy == .sufficiencyV32SiteDiagonal,
+         recommendation.recommendationSource == "DQN V4.6-A Core ML",
+         let state = CPTSufficiencyHistory.stateID(projectID: project.id, gridPolicy: project.gridPolicy,
+           distancePolicy: project.cptDistancePolicy, boundary: project.boundaryPoints, points: cptPoints) {
+        if let existing = project.cptRecommendationEvidence.last(where: { $0.stateBefore == state && $0.acceptedCPTID == nil &&
+          $0.model == recommendation.recommendationSource && $0.distancePolicy == project.cptDistancePolicy.rawValue &&
+          $0.recommendedLatitude == recommendation.coordinate.latitude && $0.recommendedLongitude == recommendation.coordinate.longitude }) {
+          activeRecommendationAcceptance = existing.id
+        } else {
+          let evidence = CPTRecommendationEvidence(id: UUID(), stateBefore: state,
+            recommendedLatitude: recommendation.coordinate.latitude, recommendedLongitude: recommendation.coordinate.longitude,
+            model: recommendation.recommendationSource, distancePolicy: project.cptDistancePolicy.rawValue,
+            acceptedCPTID: nil, stateAfter: nil, coordinateMatches: nil, acceptedWithoutManualChange: nil)
+          project.cptRecommendationEvidence.append(evidence)
+          activeRecommendationAcceptance = evidence.id
+        }
+      }
     } else if uploadCoordinatesText.isEmpty {
       let center = resolvedBoundaryRegion.center
       uploadCoordinatesText = UTMCoordinateConverter.formatAsUTM(center)
@@ -201,6 +225,7 @@ final class CPTRecommendationViewModel {
   }
 
   func dismissUploadSheet() {
+    activeRecommendationAcceptance = nil
     isUploadSheetPresented = false
     selectedSheetDetent = hasUploadedCPTData ? targetRecommendationSheetDetent : Self.defaultSheetDetent
   }
@@ -212,10 +237,12 @@ final class CPTRecommendationViewModel {
       uploadValidationError = "Pilih file CSV CPT yang valid dengan kolom dan data yang lengkap."
       return
     }
-    guard let coordinate = Self.parseCoordinate(from: uploadCoordinatesText, referenceCoordinate: coordinates.first) else {
+    guard let parsedCoordinate = Self.parseCoordinate(from: uploadCoordinatesText, referenceCoordinate: coordinates.first) else {
       uploadValidationError = "Koordinat tidak valid. Masukkan format UTM (misal: 48S 702634 E, 9309747 N) atau Latitude, Longitude."
       return
     }
+    let acceptedEvidence = project.cptRecommendationEvidence.first { $0.id == activeRecommendationAcceptance && $0.acceptedCPTID == nil }
+    let coordinate = acceptedEvidence.map { CLLocationCoordinate2D(latitude: $0.recommendedLatitude, longitude: $0.recommendedLongitude) } ?? parsedCoordinate
     guard isCoordinateInsideBoundary(coordinate) else {
       uploadValidationError = "Koordinat berada di luar batas proyek. Pilih titik di dalam area."
       return
@@ -228,14 +255,41 @@ final class CPTRecommendationViewModel {
       file: file,
       rows: rows
     )
+    let stateBefore = CPTSufficiencyHistory.stateID(projectID: project.id, gridPolicy: project.gridPolicy, distancePolicy: project.cptDistancePolicy,
+      boundary: project.boundaryPoints, points: cptPoints)
     cptPoints.append(entry)
+    let stateAfter = CPTSufficiencyHistory.stateID(projectID: project.id, gridPolicy: project.gridPolicy, distancePolicy: project.cptDistancePolicy,
+      boundary: project.boundaryPoints, points: cptPoints)
+    if cptPoints.count == 1, project.cptDistancePolicy == .sufficiencyV32SiteDiagonal,
+       let stateBefore, let stateAfter {
+      project.cptInitialObservation = .init(stateBefore: stateBefore, stateAfter: stateAfter,
+        cptID: entry.id, latitude: coordinate.latitude, longitude: coordinate.longitude)
+    }
+    if let stateBefore, let stateAfter, let acceptedEvidence,
+       let index = project.cptRecommendationEvidence.lastIndex(where: {
+         $0.stateBefore == stateBefore && $0.acceptedCPTID == nil &&
+           $0.id == acceptedEvidence.id
+       }) {
+      project.cptRecommendationEvidence[index].acceptedCPTID = entry.id
+      project.cptRecommendationEvidence[index].stateAfter = stateAfter
+      project.cptRecommendationEvidence[index].coordinateMatches =
+        coordinate.latitude == project.cptRecommendationEvidence[index].recommendedLatitude &&
+        coordinate.longitude == project.cptRecommendationEvidence[index].recommendedLongitude
+      project.cptRecommendationEvidence[index].acceptedWithoutManualChange =
+        acceptedEvidence.id == project.cptRecommendationEvidence[index].id
+    }
+    activeRecommendationAcceptance = nil
 
     let previousConsecutive = project.consecutiveSufficientCount
+    var assessmentProject = project
+    assessmentProject.cptPoints = cptPoints
     let result = CPTPipelineCoordinator.runPipeline(
       boundaryCoordinates: coordinates,
       cptPoints: cptPoints,
       previousConsecutiveSufficientCount: previousConsecutive,
-      gridPolicy: project.gridPolicy
+      gridPolicy: project.gridPolicy,
+      distancePolicy: project.cptDistancePolicy,
+      assessmentProject: assessmentProject
     )
 
     hasUploadedCPTData = true
@@ -287,7 +341,9 @@ final class CPTRecommendationViewModel {
       recommendation = CPTPipelineCoordinator.recomputeFromScratch(
         boundaryCoordinates: coordinates,
         cptPoints: cptPoints,
-        gridPolicy: project.gridPolicy
+        gridPolicy: project.gridPolicy,
+        distancePolicy: project.cptDistancePolicy,
+        assessmentProject: project
       )
       persistCPTStateToProject()
       AccessibilityCaptionCenter.shared.announce("CPT Point deleted. \(cptPoints.count) remaining.")
@@ -311,13 +367,15 @@ final class CPTRecommendationViewModel {
   private func syncStateFromProject(_ sourceProject: Project) {
     cptPoints = sourceProject.cptPoints
     hasUploadedCPTData = !sourceProject.cptPoints.isEmpty
-    if let savedRec = sourceProject.latestRecommendation {
-      recommendation = savedRec
-    } else if !sourceProject.cptPoints.isEmpty {
+    // A historical recommendation can predate CPT edits or the review-only
+    // state. Recompute from the actual saved CPT sequence before displaying it.
+    if !sourceProject.cptPoints.isEmpty {
       recommendation = CPTPipelineCoordinator.recomputeFromScratch(
         boundaryCoordinates: coordinates,
         cptPoints: sourceProject.cptPoints,
-        gridPolicy: sourceProject.gridPolicy
+        gridPolicy: sourceProject.gridPolicy,
+        distancePolicy: sourceProject.cptDistancePolicy,
+        assessmentProject: sourceProject
       )
     }
   }
@@ -326,6 +384,23 @@ final class CPTRecommendationViewModel {
     project.cptPoints = cptPoints
     project.latestRecommendation = hasUploadedCPTData ? recommendation : nil
     project.consecutiveSufficientCount = hasUploadedCPTData ? recommendation.consecutiveSufficientCount : 0
+    project.sufficiencyObservations = CPTSufficiencyHistory.retainValidPrefixes(project.sufficiencyObservations,
+      projectID: project.id, gridPolicy: project.gridPolicy, distancePolicy: project.cptDistancePolicy, boundary: project.boundaryPoints, points: cptPoints)
+    if let state = CPTSufficiencyHistory.stateID(projectID: project.id, gridPolicy: project.gridPolicy, distancePolicy: project.cptDistancePolicy,
+       boundary: project.boundaryPoints, points: cptPoints) {
+      if recommendation.assessmentSource == "Sufficiency V3.2 experimental; STOP unavailable: DQN trajectory not verified" {
+        CPTSufficiencyHistory.record(.init(stateID: state, cptCount: cptPoints.count,
+          probability: recommendation.sufficiencyProbability), in: &project.sufficiencyObservations)
+      }
+      if project.cptDistancePolicy == .sufficiencyV32SiteDiagonal && recommendation.hasRecommendation && recommendation.recommendationSource == "DQN V4.6-A Core ML" &&
+         !project.cptRecommendationEvidence.contains(where: { $0.stateBefore == state && $0.acceptedCPTID == nil &&
+           $0.recommendedLatitude == recommendation.coordinate.latitude && $0.recommendedLongitude == recommendation.coordinate.longitude }) {
+        project.cptRecommendationEvidence.append(.init(id: UUID(), stateBefore: state,
+          recommendedLatitude: recommendation.coordinate.latitude, recommendedLongitude: recommendation.coordinate.longitude,
+          model: "DQN V4.6-A Core ML", distancePolicy: project.cptDistancePolicy.rawValue,
+          acceptedCPTID: nil, stateAfter: nil, coordinateMatches: nil, acceptedWithoutManualChange: nil))
+      }
+    }
     project.lastEdited = Date()
     projectViewModel?.updateProject(project)
   }
