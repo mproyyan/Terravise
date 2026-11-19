@@ -1,35 +1,25 @@
-import Foundation
 import MapKit
 import SwiftUI
 
 struct ProjectCardView: View {
   let project: Project
   let formattedLastEdited: String
-  private let onSelect: (() -> Void)?
-  private let onRename: ((String) -> Void)?
-  private let onDelete: (() -> Void)?
-
-  @State private var activePrompt: ProjectCardPrompt?
-  @State private var isPromptPresented = false
-  @State private var renameDraft = ""
+  private let action: (() -> Void)?
 
   @Environment(\.colorSchemeContrast) private var contrast
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
   @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
+  @ScaledMetric(relativeTo: .body) private var cardWidth: CGFloat = 156
   @ScaledMetric(relativeTo: .body) private var thumbnailHeight: CGFloat = 88
 
   init(
     project: Project,
     formattedLastEdited: String? = nil,
-    onSelect: (() -> Void)? = nil,
-    onRename: ((String) -> Void)? = nil,
-    onDelete: (() -> Void)? = nil
+    action: (() -> Void)? = nil
   ) {
     self.project = project
     self.formattedLastEdited = formattedLastEdited ?? ProjectViewModel.formatLastEdited(project.lastEdited)
-    self.onSelect = onSelect
-    self.onRename = onRename
-    self.onDelete = onDelete
+    self.action = action
   }
 
   private var pointCountSummary: String {
@@ -39,13 +29,13 @@ struct ProjectCardView: View {
 
   var body: some View {
     Button(action: {
-      onSelect?()
+      action?()
     }) {
       VStack(alignment: .leading, spacing: 0) {
         thumbnailView
         detailsView
       }
-      .frame(maxWidth: .infinity)
+      .frame(width: cardWidth)
       .frame(minHeight: 144, alignment: .top)
       .background(Color(.secondarySystemGroupedBackground))
       .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -64,82 +54,6 @@ struct ProjectCardView: View {
     .accessibilityValue("\(pointCountSummary), \(formattedLastEdited)")
     .accessibilityHint("Opens this project")
     .accessibilityInputLabels([project.name, "Open \(project.name)"])
-    .contextMenu {
-      Button(action: presentRenamePrompt) {
-        Label("Rename", systemImage: "pencil")
-      }
-
-      Button(role: .destructive, action: presentDeletePrompt) {
-        Label("Delete Project", systemImage: "trash")
-      }
-    }
-    .alert(activePrompt?.title ?? "Project", isPresented: $isPromptPresented) {
-      switch activePrompt {
-      case .rename:
-        TextField("Project Name", text: $renameDraft)
-          .textInputAutocapitalization(.words)
-
-        Button("Cancel", role: .cancel, action: dismissPrompt)
-        Button("Rename", role: .confirm, action: confirmRename)
-          .keyboardShortcut(.defaultAction)
-          .disabled(renameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-
-      case .delete:
-        Button("Cancel", role: .cancel, action: dismissPrompt)
-        Button("Delete", role: .destructive, action: confirmDelete)
-
-      case nil:
-        Button("OK", role: .cancel, action: dismissPrompt)
-      }
-    } message: {
-      Text(activePrompt?.message ?? "")
-    }
-  }
-
-  private func presentRenamePrompt() {
-    renameDraft = project.name
-    activePrompt = .rename
-    isPromptPresented = true
-  }
-
-  private func presentDeletePrompt() {
-    activePrompt = .delete
-    isPromptPresented = true
-  }
-
-  private func confirmRename() {
-    onRename?(renameDraft.trimmingCharacters(in: .whitespacesAndNewlines))
-    dismissPrompt()
-  }
-
-  private func confirmDelete() {
-    onDelete?()
-    dismissPrompt()
-  }
-
-  private func dismissPrompt() {
-    isPromptPresented = false
-    activePrompt = nil
-  }
-
-  private enum ProjectCardPrompt {
-    case rename
-    case delete
-
-    var title: String {
-      switch self {
-      case .rename: "Rename Project"
-      case .delete: "Delete Project?"
-      }
-    }
-
-    var message: String {
-      switch self {
-      case .rename: "Enter a new name for your project."
-      case .delete: "This action cannot be undone. All saved investigation data for this project will be permanently deleted."
-      }
-    }
   }
 
   private var thumbnailView: some View {
