@@ -5,12 +5,22 @@ import simd
 /// Maps the authoritative southwest-origin QC-FS grid into the existing
 /// centered Result Analysis scene. X is east, scene +Z is south, depth is -Y.
 enum BearingCandidateGeometry {
+  /// Uniform physical meters per scene unit so X (Easting) and Z (Southing) preserve
+  /// the exact real-world geographic aspect ratio without distortion on elongated polygons.
+  static func uniformStepM(volume: SubsurfaceVoxelVolume) -> Double {
+    Double(max(min(volume.cellStepXM, volume.cellStepZM), 1e-4))
+  }
+
   static func localX(_ x: Double, output: BearingRuleOutput, volume: SubsurfaceVoxelVolume) -> Float {
-    Float(x * output.grid.dxM) / volume.cellStepXM - volume.centerX
+    let step = uniformStepM(volume: volume)
+    let widthM = Double(max(output.grid.nx - 1, 1)) * output.grid.dxM
+    return Float((x * output.grid.dxM - widthM * 0.5) / step)
   }
 
   static func localZ(_ y: Double, output: BearingRuleOutput, volume: SubsurfaceVoxelVolume) -> Float {
-    Float(Double(output.grid.ny - 1) * output.grid.dyM - y * output.grid.dyM) / volume.cellStepZM - volume.centerZ
+    let step = uniformStepM(volume: volume)
+    let lengthM = Double(max(output.grid.ny - 1, 1)) * output.grid.dyM
+    return Float((lengthM * 0.5 - y * output.grid.dyM) / step)
   }
 
   static func localY(depthM: Double, volume: SubsurfaceVoxelVolume) -> Float {
@@ -18,8 +28,11 @@ enum BearingCandidateGeometry {
   }
 
   static func gridXY(localX: Float, localZ: Float, output: BearingRuleOutput, volume: SubsurfaceVoxelVolume) -> (x: Int, y: Int)? {
-    let x = Int((Double(localX + volume.centerX) * Double(volume.cellStepXM) / output.grid.dxM).rounded())
-    let y = Int((Double(output.grid.ny - 1) - Double(localZ + volume.centerZ) * Double(volume.cellStepZM) / output.grid.dyM).rounded())
+    let step = uniformStepM(volume: volume)
+    let widthM = Double(max(output.grid.nx - 1, 1)) * output.grid.dxM
+    let lengthM = Double(max(output.grid.ny - 1, 1)) * output.grid.dyM
+    let x = Int(((Double(localX) * step + widthM * 0.5) / output.grid.dxM).rounded())
+    let y = Int(((lengthM * 0.5 - Double(localZ) * step) / output.grid.dyM).rounded())
     guard (0..<output.grid.nx).contains(x), (0..<output.grid.ny).contains(y) else { return nil }
     return (x, y)
   }

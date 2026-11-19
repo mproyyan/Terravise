@@ -1269,32 +1269,50 @@ enum VoxelMeshSynthesizer {
     return nil
   }
 
-  // MARK: - Bearing Layer 1m² Voxel Surface & Border Mesh Synthesis
+  // MARK: - Bearing Layer Smooth Clipped Polygon Surface & Border Mesh Synthesis
 
-  /// Synthesizes the flat 3D Bearing Layer surface mesh directly from the active 1m² voxels (`volume.bearingVoxels`)
-  /// using the exact same `nx × nz` 1m² horizontal grid (`centerX`, `centerZ`) and boundary shape as the 3D Layer.
+  /// Synthesizes the flat 3D Bearing Layer surface mesh directly from `volume.boundaryPolygonUV`
+  /// using the exact same smooth polygon boundary triangulation as the 3D Layer.
   @MainActor
   static func synthesizeBearingVoxelSurfaceMesh(volume: SubsurfaceVoxelVolume) -> MeshResource? {
-    let nx = volume.nx
-    let nz = volume.nz
-    let centerX = volume.centerX
-    let centerZ = volume.centerZ
+    let spanX = Float(max(volume.nx - 1, 1))
+    let spanZ = Float(max(volume.nz - 1, 1))
+    let xMin = -volume.centerX
+    let xMax = spanX - volume.centerX
+    let zMin = -volume.centerZ
+    let zMax = spanZ - volume.centerZ
 
-    @inline(__always)
-    func worldX(_ gridEdgeX: Int) -> Float {
-      (Float(gridEdgeX) - 0.5) - centerX
+    var rawPolygon: [SIMD2<Float>] = []
+    if volume.boundaryPolygonUV.count >= 3 {
+      rawPolygon = volume.boundaryPolygonUV.map { uv in
+        SIMD2<Float>(
+          xMin + uv.x * (xMax - xMin),
+          zMin + uv.y * (zMax - zMin)
+        )
+      }
+    } else {
+      rawPolygon = [
+        SIMD2<Float>(xMin, zMin),
+        SIMD2<Float>(xMax, zMin),
+        SIMD2<Float>(xMax, zMax),
+        SIMD2<Float>(xMin, zMax)
+      ]
     }
 
-    @inline(__always)
-    func worldZ(_ gridEdgeZ: Int) -> Float {
-      (Float(gridEdgeZ) - 0.5) - centerZ
+    rawPolygon = cleanPolygonVertices(rawPolygon)
+    guard rawPolygon.count >= 3 else { return nil }
+    if polygonSignedArea(rawPolygon) < 0 {
+      rawPolygon.reverse()
     }
 
+    let triangles = triangulateConvexOrConcavePolygon(rawPolygon)
+    guard !triangles.isEmpty else { return nil }
+
     @inline(__always)
-    func uvAt(gridEdgeX: Int, gridEdgeZ: Int) -> SIMD2<Float> {
-      let u = Float(gridEdgeX) / Float(max(nx, 1))
-      let v = Float(gridEdgeZ) / Float(max(nz, 1))
-      return SIMD2<Float>(min(max(u, 0.0), 1.0), 1.0 - min(max(v, 0.0), 1.0))
+    func uvAt(_ p: SIMD2<Float>) -> SIMD2<Float> {
+      let u = min(max((p.x - xMin) / max(xMax - xMin, 1e-5), 0.0), 1.0)
+      let v = min(max((p.y - zMin) / max(zMax - zMin, 1e-5), 0.0), 1.0)
+      return SIMD2<Float>(u, 1.0 - v)
     }
 
     var positions: [SIMD3<Float>] = []
@@ -1302,65 +1320,30 @@ enum VoxelMeshSynthesizer {
     var uvs: [SIMD2<Float>] = []
     var indices: [UInt32] = []
 
-    let activeCount = max(volume.bearingVoxels.count, 1)
-    positions.reserveCapacity(activeCount * 8)
-    normals.reserveCapacity(activeCount * 8)
-    uvs.reserveCapacity(activeCount * 8)
-    indices.reserveCapacity(activeCount * 12)
+    for tri in triangles {
+      let a = tri.0, b = tri.1, c = tri.2
+      let uvA = uvAt(a), uvB = uvAt(b), uvC = uvAt(c)
 
-    for ix in 0 ..< nx {
-      for iz in 0 ..< nz {
-        guard volume.bearingVoxels[ColumnCoord(x: ix, z: iz)] != nil else { continue }
+      let baseTop = UInt32(positions.count)
+      positions.append(contentsOf: [
+        SIMD3<Float>(a.x, 0.0, a.y),
+        SIMD3<Float>(c.x, 0.0, c.y),
+        SIMD3<Float>(b.x, 0.0, b.y)
+      ])
+      normals.append(contentsOf: Array(repeating: SIMD3<Float>(0, 1, 0), count: 3))
+      uvs.append(contentsOf: [uvA, uvC, uvB])
+      indices.append(contentsOf: [baseTop, baseTop + 1, baseTop + 2])
 
-        let x0 = worldX(ix)
-        let x1 = worldX(ix + 1)
-        let z0 = worldZ(iz)
-        let z1 = worldZ(iz + 1)
-
-        let uv00 = uvAt(gridEdgeX: ix, gridEdgeZ: iz)
-        let uv01 = uvAt(gridEdgeX: ix, gridEdgeZ: iz + 1)
-        let uv11 = uvAt(gridEdgeX: ix + 1, gridEdgeZ: iz + 1)
-        let uv10 = uvAt(gridEdgeX: ix + 1, gridEdgeZ: iz)
-
-        // Top 1m² voxel face (+Y normal, CCW winding)
-        let baseTop = UInt32(positions.count)
-        positions.append(SIMD3<Float>(x0, 0.0, z0))
-        positions.append(SIMD3<Float>(x0, 0.0, z1))
-        positions.append(SIMD3<Float>(x1, 0.0, z1))
-        positions.append(SIMD3<Float>(x1, 0.0, z0))
-        normals.append(contentsOf: [
-          SIMD3<Float>(0, 1, 0),
-          SIMD3<Float>(0, 1, 0),
-          SIMD3<Float>(0, 1, 0),
-          SIMD3<Float>(0, 1, 0)
-        ])
-        uvs.append(contentsOf: [uv00, uv01, uv11, uv10])
-        indices.append(contentsOf: [
-          baseTop, baseTop + 1, baseTop + 2,
-          baseTop, baseTop + 2, baseTop + 3
-        ])
-
-        // Bottom 1m² voxel face (-Y normal) so surface is visible from any orbit angle
-        let baseBot = UInt32(positions.count)
-        positions.append(SIMD3<Float>(x0, -0.08, z0))
-        positions.append(SIMD3<Float>(x1, -0.08, z0))
-        positions.append(SIMD3<Float>(x1, -0.08, z1))
-        positions.append(SIMD3<Float>(x0, -0.08, z1))
-        normals.append(contentsOf: [
-          SIMD3<Float>(0, -1, 0),
-          SIMD3<Float>(0, -1, 0),
-          SIMD3<Float>(0, -1, 0),
-          SIMD3<Float>(0, -1, 0)
-        ])
-        uvs.append(contentsOf: [uv00, uv10, uv11, uv01])
-        indices.append(contentsOf: [
-          baseBot, baseBot + 1, baseBot + 2,
-          baseBot, baseBot + 2, baseBot + 3
-        ])
-      }
+      let baseBot = UInt32(positions.count)
+      positions.append(contentsOf: [
+        SIMD3<Float>(a.x, -0.08, a.y),
+        SIMD3<Float>(b.x, -0.08, b.y),
+        SIMD3<Float>(c.x, -0.08, c.y)
+      ])
+      normals.append(contentsOf: Array(repeating: SIMD3<Float>(0, -1, 0), count: 3))
+      uvs.append(contentsOf: [uvA, uvB, uvC])
+      indices.append(contentsOf: [baseBot, baseBot + 1, baseBot + 2])
     }
-
-    guard !positions.isEmpty else { return nil }
 
     var descriptor = MeshDescriptor(name: "Bearing1mVoxelSurfaceManifold")
     descriptor.positions = MeshBuffers.Positions(positions)
@@ -1371,115 +1354,82 @@ enum VoxelMeshSynthesizer {
     return try? MeshResource.generate(from: [descriptor])
   }
 
-  /// Synthesizes a single batched dark border mesh framing the perimeter of the active 1m² bearing voxels.
+  /// Synthesizes a single batched smooth dark border mesh framing the perimeter of `volume.boundaryPolygonUV`.
   @MainActor
   static func synthesizeBearingVoxelBorderMesh(volume: SubsurfaceVoxelVolume) -> MeshResource? {
-    let nx = volume.nx
-    let nz = volume.nz
-    let centerX = volume.centerX
-    let centerZ = volume.centerZ
+    let spanX = Float(max(volume.nx - 1, 1))
+    let spanZ = Float(max(volume.nz - 1, 1))
+    let xMin = -volume.centerX
+    let xMax = spanX - volume.centerX
+    let zMin = -volume.centerZ
+    let zMax = spanZ - volume.centerZ
 
-    @inline(__always)
-    func worldX(_ gridEdgeX: Int) -> Float {
-      (Float(gridEdgeX) - 0.5) - centerX
+    var rawPolygon: [SIMD2<Float>] = []
+    if volume.boundaryPolygonUV.count >= 3 {
+      rawPolygon = volume.boundaryPolygonUV.map { uv in
+        SIMD2<Float>(
+          xMin + uv.x * (xMax - xMin),
+          zMin + uv.y * (zMax - zMin)
+        )
+      }
+    } else {
+      rawPolygon = [
+        SIMD2<Float>(xMin, zMin),
+        SIMD2<Float>(xMax, zMin),
+        SIMD2<Float>(xMax, zMax),
+        SIMD2<Float>(xMin, zMax)
+      ]
     }
 
-    @inline(__always)
-    func worldZ(_ gridEdgeZ: Int) -> Float {
-      (Float(gridEdgeZ) - 0.5) - centerZ
-    }
-
-    @inline(__always)
-    func isActive(_ x: Int, _ z: Int) -> Bool {
-      guard x >= 0, x < nx, z >= 0, z < nz else { return false }
-      return volume.bearingVoxels[ColumnCoord(x: x, z: z)] != nil
+    rawPolygon = cleanPolygonVertices(rawPolygon)
+    guard rawPolygon.count >= 3 else { return nil }
+    if polygonSignedArea(rawPolygon) < 0 {
+      rawPolygon.reverse()
     }
 
     var positions: [SIMD3<Float>] = []
     var normals: [SIMD3<Float>] = []
     var indices: [UInt32] = []
 
-    let halfThick: Float = 0.09
+    let halfThick: Float = 0.08
     let yTop: Float = 0.04
     let yBot: Float = -0.10
 
-    func emitBox(minX: Float, maxX: Float, minZ: Float, maxZ: Float) {
-      // Top quad (+Y)
-      let b0 = UInt32(positions.count)
-      positions.append(contentsOf: [
-        SIMD3<Float>(minX, yTop, minZ),
-        SIMD3<Float>(minX, yTop, maxZ),
-        SIMD3<Float>(maxX, yTop, maxZ),
-        SIMD3<Float>(maxX, yTop, minZ)
-      ])
-      normals.append(contentsOf: Array(repeating: SIMD3<Float>(0, 1, 0), count: 4))
-      indices.append(contentsOf: [b0, b0 + 1, b0 + 2, b0, b0 + 2, b0 + 3])
-
-      // Front quad (+Z)
-      let b1 = UInt32(positions.count)
-      positions.append(contentsOf: [
-        SIMD3<Float>(minX, yBot, maxZ),
-        SIMD3<Float>(maxX, yBot, maxZ),
-        SIMD3<Float>(maxX, yTop, maxZ),
-        SIMD3<Float>(minX, yTop, maxZ)
-      ])
-      normals.append(contentsOf: Array(repeating: SIMD3<Float>(0, 0, 1), count: 4))
-      indices.append(contentsOf: [b1, b1 + 1, b1 + 2, b1, b1 + 2, b1 + 3])
-
-      // Back quad (-Z)
-      let b2 = UInt32(positions.count)
-      positions.append(contentsOf: [
-        SIMD3<Float>(maxX, yBot, minZ),
-        SIMD3<Float>(minX, yBot, minZ),
-        SIMD3<Float>(minX, yTop, minZ),
-        SIMD3<Float>(maxX, yTop, minZ)
-      ])
-      normals.append(contentsOf: Array(repeating: SIMD3<Float>(0, 0, -1), count: 4))
-      indices.append(contentsOf: [b2, b2 + 1, b2 + 2, b2, b2 + 2, b2 + 3])
-
-      // Right quad (+X)
-      let b3 = UInt32(positions.count)
-      positions.append(contentsOf: [
-        SIMD3<Float>(maxX, yBot, maxZ),
-        SIMD3<Float>(maxX, yBot, minZ),
-        SIMD3<Float>(maxX, yTop, minZ),
-        SIMD3<Float>(maxX, yTop, maxZ)
-      ])
-      normals.append(contentsOf: Array(repeating: SIMD3<Float>(1, 0, 0), count: 4))
-      indices.append(contentsOf: [b3, b3 + 1, b3 + 2, b3, b3 + 2, b3 + 3])
-
-      // Left quad (-X)
-      let b4 = UInt32(positions.count)
-      positions.append(contentsOf: [
-        SIMD3<Float>(minX, yBot, minZ),
-        SIMD3<Float>(minX, yBot, maxZ),
-        SIMD3<Float>(minX, yTop, maxZ),
-        SIMD3<Float>(minX, yTop, minZ)
-      ])
-      normals.append(contentsOf: Array(repeating: SIMD3<Float>(-1, 0, 0), count: 4))
-      indices.append(contentsOf: [b4, b4 + 1, b4 + 2, b4, b4 + 2, b4 + 3])
+    @inline(__always)
+    func emitQuad(
+      _ v0: SIMD3<Float>,
+      _ v1: SIMD3<Float>,
+      _ v2: SIMD3<Float>,
+      _ v3: SIMD3<Float>,
+      normal: SIMD3<Float>
+    ) {
+      let base = UInt32(positions.count)
+      positions.append(contentsOf: [v0, v1, v2, v3])
+      normals.append(contentsOf: [normal, normal, normal, normal])
+      indices.append(contentsOf: [base, base + 1, base + 2, base, base + 2, base + 3])
     }
 
-    for ix in 0 ..< nx {
-      for iz in 0 ..< nz where isActive(ix, iz) {
-        let x0 = worldX(ix)
-        let x1 = worldX(ix + 1)
-        let z0 = worldZ(iz)
-        let z1 = worldZ(iz + 1)
+    for i in 0 ..< rawPolygon.count {
+      let p0 = rawPolygon[i]
+      let p1 = rawPolygon[(i + 1) % rawPolygon.count]
+      let dirVec = p1 - p0
+      let len = simd_length(dirVec)
+      guard len > 1e-4 else { continue }
+      let dir = dirVec / len
+      let perp = SIMD2<Float>(dir.y, -dir.x) * halfThick
 
-        if !isActive(ix - 1, iz) {
-          emitBox(minX: x0 - halfThick, maxX: x0 + halfThick, minZ: z0 - halfThick, maxZ: z1 + halfThick)
-        }
-        if !isActive(ix + 1, iz) {
-          emitBox(minX: x1 - halfThick, maxX: x1 + halfThick, minZ: z0 - halfThick, maxZ: z1 + halfThick)
-        }
-        if !isActive(ix, iz - 1) {
-          emitBox(minX: x0 - halfThick, maxX: x1 + halfThick, minZ: z0 - halfThick, maxZ: z0 + halfThick)
-        }
-        if !isActive(ix, iz + 1) {
-          emitBox(minX: x0 - halfThick, maxX: x1 + halfThick, minZ: z1 - halfThick, maxZ: z1 + halfThick)
-        }
-      }
+      let aOut = p0 + perp
+      let aIn = p0 - perp
+      let bOut = p1 + perp
+      let bIn = p1 - perp
+
+      let nOut = SIMD3<Float>(dir.y, 0, -dir.x)
+      let nIn = SIMD3<Float>(-dir.y, 0, dir.x)
+
+      emitQuad(SIMD3(aIn.x, yTop, aIn.y), SIMD3(aOut.x, yTop, aOut.y), SIMD3(bOut.x, yTop, bOut.y), SIMD3(bIn.x, yTop, bIn.y), normal: SIMD3(0, 1, 0))
+      emitQuad(SIMD3(aOut.x, yBot, aOut.y), SIMD3(aIn.x, yBot, aIn.y), SIMD3(bIn.x, yBot, bIn.y), SIMD3(bOut.x, yBot, bOut.y), normal: SIMD3(0, -1, 0))
+      emitQuad(SIMD3(aOut.x, yBot, aOut.y), SIMD3(bOut.x, yBot, bOut.y), SIMD3(bOut.x, yTop, bOut.y), SIMD3(aOut.x, yTop, aOut.y), normal: nOut)
+      emitQuad(SIMD3(bIn.x, yBot, bIn.y), SIMD3(aIn.x, yBot, aIn.y), SIMD3(aIn.x, yTop, aIn.y), SIMD3(bIn.x, yTop, bIn.y), normal: nIn)
     }
 
     guard !positions.isEmpty else { return nil }

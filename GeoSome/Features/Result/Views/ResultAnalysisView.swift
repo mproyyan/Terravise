@@ -97,6 +97,8 @@ struct ResultAnalysisView: View {
             bearingRevision: viewModel.bearingRenderRevision,
             measuredCPTCount: viewModel.project.cptPoints.count,
             selectedCell: viewModel.selectedBearingCell,
+            isMapOverlayVisible: viewModel.isBearingMapOverlayVisible,
+            cameraController: viewModel.bearingCameraController,
             cameraYaw: $viewModel.bearingCameraYaw,
             cameraPitch: $viewModel.bearingCameraPitch,
             cameraZoom: $viewModel.bearingCameraZoom,
@@ -202,6 +204,7 @@ struct ResultAnalysisView: View {
           ResultBearingCriteriaCardView(
             cardWidth: oneThirdSheetWidth,
             isExpanded: $viewModel.isBearingCriteriaCardExpanded,
+            isMapOverlayVisible: $viewModel.isBearingMapOverlayVisible,
             coneResistanceQc: $viewModel.coneResistanceQc,
             soilBehaviorIndexIc: $viewModel.soilBehaviorIndexIc,
             selectedIcText: viewModel.bearingIcThresholdText,

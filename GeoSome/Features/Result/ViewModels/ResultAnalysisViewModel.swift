@@ -196,6 +196,7 @@ final class ResultAnalysisViewModel {
 
   // Bearing Layer Camera & Summary State
   var selectedBearingVoxel: BearingLayerVoxel?
+  var bearingCameraController = SubsurfaceCameraController()
   var bearingCameraYaw: Float = ResultAnalysisViewModel.defaultBearingCameraYaw
   var bearingCameraPitch: Float = ResultAnalysisViewModel.defaultBearingCameraPitch
   var bearingCameraZoom: Float = ResultAnalysisViewModel.defaultBearingCameraZoom
@@ -208,6 +209,7 @@ final class ResultAnalysisViewModel {
 
   // Bearing Layer Criteria & Slicing State
   var isBearingCriteriaCardExpanded: Bool = true
+  var isBearingMapOverlayVisible: Bool = false
   var coneResistanceQc: Double = 15.0
   var soilBehaviorIndexIc: Double = 1.80
   var selectedBearingIcText: String = "N/A"
@@ -281,6 +283,11 @@ final class ResultAnalysisViewModel {
     self.cameraController.onCameraMoved = { [weak self] in
       guard let self, self.isProfilePopoverPresented else { return }
       self.isProfilePopoverPresented = false
+    }
+    self.bearingCameraController.configureForBearingLayer(for: builtVolume, resetState: true)
+    self.bearingCameraController.onCameraMoved = { [weak self] in
+      guard let self, self.isBearingPopoverPresented else { return }
+      self.isBearingPopoverPresented = false
     }
 
     if let rec = resolvedProject.latestRecommendation {
@@ -372,6 +379,7 @@ final class ResultAnalysisViewModel {
     isCompareDataSheetActive = false
     selectedPipePosition3D = nil
     cameraController.configure(for: builtVolume, resetState: true)
+    bearingCameraController.configureForBearingLayer(for: builtVolume, resetState: true)
 
     if let rec = newProject.latestRecommendation {
       let siteUncertainty = Int(((1.0 - min(max(rec.predictedCoverage, 0.01), 0.99)) * 100.0).rounded())
@@ -451,6 +459,7 @@ final class ResultAnalysisViewModel {
     minLayerThickness = 2.0
     reevaluateBearingRule()
     cameraController.reset(for: volume)
+    bearingCameraController.resetForBearingLayer(for: volume)
     cameraYaw = Self.defaultCameraYaw
     cameraPitch = Self.defaultCameraPitch
     cameraZoom = Self.defaultCameraZoom
