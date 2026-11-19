@@ -192,7 +192,9 @@ struct BoundaryCreationView: View {
 
       case .addCoordinate:
         BoundaryAddCoordinateSheetView(
-          coordinateText: $viewModel.coordinateInputText,
+          zoneText: $viewModel.addZoneText,
+          eastingText: $viewModel.addEastingText,
+          northingText: $viewModel.addNorthingText,
           isDiscardConfirmationPresented: $viewModel.isDiscardConfirmationPresented,
           isInvalidCoordinateAlertPresented: $viewModel.isInvalidCoordinateAlertPresented,
           canSubmit: viewModel.canSubmitCoordinate,
@@ -209,7 +211,7 @@ struct BoundaryCreationView: View {
         .presentationPlacement(.leading)
         .presentationDetents(
           [
-            BoundaryCreationViewModel.defaultSheetDetent,
+            BoundaryCreationViewModel.editSheetDetent,
             .medium,
             .large
           ]
