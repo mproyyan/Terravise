@@ -48,16 +48,7 @@ struct CPTRecommendedPointSheetView: View {
           Text("Tidak ada kandidat DQN yang tersedia untuk kriteria jarak dan area saat ini, atau model tidak dapat dijalankan.")
             .foregroundStyle(.secondary)
         }
-
-        VStack(alignment: .leading, spacing: 2) {
-          Text("Sumber rekonstruksi: \(recommendation.reconstructionSource)")
-          Text("Sumber rekomendasi: \(recommendation.recommendationSource)")
-          Text("Sumber assessment: \(recommendation.assessmentSource)")
-          Text("QC-FS: \(recommendation.qcfsInferenceSource)")
-        }
-        .font(.caption)
-        .foregroundStyle(.secondary)
-
+        
         // Primary Action: Upload Data CPT
         uploadButton
 
@@ -387,33 +378,6 @@ struct CPTRecommendedPointSheetView: View {
           .foregroundStyle(Color.secondary)
           .fixedSize(horizontal: false, vertical: true)
       }
-
-      Divider()
-
-      // Action row: See Supporting Data
-      Button(action: {
-        onSeeSupportingDataTap?()
-      }) {
-        HStack(spacing: 8) {
-          Image(systemName: "info.circle")
-            .font(.subheadline.weight(.medium))
-            .foregroundStyle(Color.blue)
-
-          Text("See Supporting Data")
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(Color.blue)
-
-          Spacer()
-
-          Image(systemName: "chevron.right")
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(Color.secondary)
-        }
-        .contentShape(Rectangle())
-      }
-      .buttonStyle(.plain)
-      .accessibilityLabel("See Supporting Data")
-      .accessibilityHint("Opens supporting data analysis for recommended point")
     }
     .padding(16)
     .background(

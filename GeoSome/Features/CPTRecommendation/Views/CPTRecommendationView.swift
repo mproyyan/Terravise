@@ -161,9 +161,6 @@ struct CPTRecommendationView: View {
           onUploadTap: {
             viewModel.uploadCPTData()
           },
-          onSeeSupportingDataTap: {
-            viewModel.seeSupportingData()
-          },
           onCPTDataListTap: {
             viewModel.openCPTDataList()
           }
