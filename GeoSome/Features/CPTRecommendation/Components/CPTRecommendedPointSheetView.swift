@@ -320,13 +320,17 @@ struct CPTRecommendedPointSheetView: View {
         .buttonStyle(.plain)
         .accessibilityLabel("Current Ground Certainty Information")
         .popover(isPresented: $isConfidenceTooltipPresented) {
-          Text("Shows how well the ground at this spot is currently understood from surrounding soundings. A lower percentage means this area is an untested blind spot, which is why testing here is recommended.")
-            .font(.subheadline)
-            .foregroundStyle(Color.primary)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(14)
-            .frame(maxWidth: 280)
-            .presentationCompactAdaptation(.popover)
+          VStack(alignment: .leading, spacing: 0) {
+            Text("Shows how well the ground is understood here. A lower percentage indicates an untested blind spot, making this location a priority to test.")
+              .font(.subheadline)
+              .foregroundStyle(Color.secondary)
+              .lineSpacing(3)
+              .fixedSize(horizontal: false, vertical: true)
+          }
+          .padding(.horizontal, 16)
+          .padding(.vertical, 14)
+          .frame(maxWidth: 280)
+          .presentationCompactAdaptation(.popover)
         }
       }
       Text("\(recommendation.confidenceLevel)%")
