@@ -99,9 +99,9 @@ struct LegendMapItem: Identifiable, Sendable {
 
 struct ResultLeftPlaceholderSheetView: View {
   var groundConditionsSummary: String
-  var concerns: [GeotechnicalConcernItem]
+  // var concerns: [GeotechnicalConcernItem]
   var isSubsurfaceConditionsEmpty: Bool
-  var isGeotechnicalConcernsEmpty: Bool
+  // var isGeotechnicalConcernsEmpty: Bool
   var legendItems: [LegendMapItem]
   var predictionUncertaintyPercent: Int
   var cptPointsCount: Int
@@ -115,17 +115,17 @@ struct ResultLeftPlaceholderSheetView: View {
   init(
     groundConditionsSummary: String =
       "The site generally exhibits alternating layers of clay-dominant and sand-like soil behavior. Subsurface conditions vary across the investigation area, with deeper competent strata predicted toward the southern sector.",
-    concerns: [GeotechnicalConcernItem] = ResultAnalysisViewModel.defaultConcerns,
+    // concerns: [GeotechnicalConcernItem] = ResultAnalysisViewModel.defaultConcerns,
     isSubsurfaceConditionsEmpty: Bool = false,
-    isGeotechnicalConcernsEmpty: Bool = false,
+    // isGeotechnicalConcernsEmpty: Bool = false,
     legendItems: [LegendMapItem] = Self.defaultLegendItems,
     predictionUncertaintyPercent: Int = 12,
     cptPointsCount: Int = 12
   ) {
     self.groundConditionsSummary = groundConditionsSummary
-    self.concerns = concerns
+    // self.concerns = concerns
     self.isSubsurfaceConditionsEmpty = isSubsurfaceConditionsEmpty
-    self.isGeotechnicalConcernsEmpty = isGeotechnicalConcernsEmpty
+    // self.isGeotechnicalConcernsEmpty = isGeotechnicalConcernsEmpty
     self.legendItems = legendItems
     self.predictionUncertaintyPercent = predictionUncertaintyPercent
     self.cptPointsCount = cptPointsCount
@@ -135,9 +135,11 @@ struct ResultLeftPlaceholderSheetView: View {
     isSubsurfaceConditionsEmpty || groundConditionsSummary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 
+  /*
   private var shouldShowConcernsEmpty: Bool {
     isGeotechnicalConcernsEmpty || concerns.isEmpty
   }
+  */
 
   var body: some View {
     ScrollView(.vertical, showsIndicators: false) {
@@ -155,6 +157,7 @@ struct ResultLeftPlaceholderSheetView: View {
           groundConditionsCard
         }
 
+        /*
         // 2. Potential Geotechnical Concerns Section
         concernsSectionHeader
 
@@ -163,6 +166,7 @@ struct ResultLeftPlaceholderSheetView: View {
         } else {
           concernsListCard
         }
+        */
 
         // 3. Legend Map Section
         legendMapSectionHeader
@@ -249,6 +253,7 @@ struct ResultLeftPlaceholderSheetView: View {
     .accessibilityElement(children: .combine)
   }
 
+  /*
   private var concernsSectionHeader: some View {
     HStack(spacing: 8) {
       if !shouldShowConcernsEmpty {
@@ -348,6 +353,7 @@ struct ResultLeftPlaceholderSheetView: View {
         .joined(separator: ", ")
     )
   }
+  */
 
   private var legendMapSectionHeader: some View {
     Text("Legend Map")
@@ -457,8 +463,8 @@ struct ResultLeftPlaceholderSheetView: View {
 
 #Preview("Empty State") {
   ResultLeftPlaceholderSheetView(
-    isSubsurfaceConditionsEmpty: true,
-    isGeotechnicalConcernsEmpty: true
+    isSubsurfaceConditionsEmpty: true
+    // isGeotechnicalConcernsEmpty: true
   )
   .frame(width: 360)
   .background(Color(.systemGroupedBackground))

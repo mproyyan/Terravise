@@ -12,10 +12,10 @@ struct ResultLayerSlicingCardView: View {
   var cameraController: SubsurfaceCameraController?
   var virtualCPTPosition3D: SIMD3<Float>?
   var onTapCreateVirtualCPT: (() -> Void)?
-  var concerns: [GeotechnicalConcernItem]
-  var isGeotechnicalConcernsEmpty: Bool
-  var selectedConcernID: String?
-  var onSelectConcern: ((GeotechnicalConcernItem) -> Void)?
+  // var concerns: [GeotechnicalConcernItem]
+  // var isGeotechnicalConcernsEmpty: Bool
+  // var selectedConcernID: String?
+  // var onSelectConcern: ((GeotechnicalConcernItem) -> Void)?
   @Binding var slicingXMeters: Double
   @Binding var slicingYMeters: Double
   var minXMeters: Double
@@ -39,10 +39,10 @@ struct ResultLayerSlicingCardView: View {
     cameraController: SubsurfaceCameraController? = nil,
     virtualCPTPosition3D: SIMD3<Float>? = nil,
     onTapCreateVirtualCPT: (() -> Void)? = nil,
-    concerns: [GeotechnicalConcernItem] = ResultAnalysisViewModel.defaultConcerns,
-    isGeotechnicalConcernsEmpty: Bool = false,
-    selectedConcernID: String? = nil,
-    onSelectConcern: ((GeotechnicalConcernItem) -> Void)? = nil,
+    // concerns: [GeotechnicalConcernItem] = ResultAnalysisViewModel.defaultConcerns,
+    // isGeotechnicalConcernsEmpty: Bool = false,
+    // selectedConcernID: String? = nil,
+    // onSelectConcern: ((GeotechnicalConcernItem) -> Void)? = nil,
     slicingXMeters: Binding<Double>,
     slicingYMeters: Binding<Double>,
     minXMeters: Double = 2.0,
@@ -61,10 +61,10 @@ struct ResultLayerSlicingCardView: View {
     self.cameraController = cameraController
     self.virtualCPTPosition3D = virtualCPTPosition3D
     self.onTapCreateVirtualCPT = onTapCreateVirtualCPT
-    self.concerns = concerns
-    self.isGeotechnicalConcernsEmpty = isGeotechnicalConcernsEmpty
-    self.selectedConcernID = selectedConcernID
-    self.onSelectConcern = onSelectConcern
+    // self.concerns = concerns
+    // self.isGeotechnicalConcernsEmpty = isGeotechnicalConcernsEmpty
+    // self.selectedConcernID = selectedConcernID
+    // self.onSelectConcern = onSelectConcern
     self._slicingXMeters = slicingXMeters
     self._slicingYMeters = slicingYMeters
     self.minXMeters = minXMeters
@@ -74,9 +74,11 @@ struct ResultLayerSlicingCardView: View {
     self.onResetView = onResetView
   }
 
+  /*
   private var shouldShowConcerns: Bool {
     !isGeotechnicalConcernsEmpty && !concerns.isEmpty
   }
+  */
 
   private var maxScrollableContentHeight: CGFloat {
     min(max(maxCardHeight - 86, 220), 520)
@@ -84,14 +86,14 @@ struct ResultLayerSlicingCardView: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
-      // Header Row: "Layer & Slicing" + Collapse/Expand Chevron (Pinned at Top)
+      // Header Row: "Controls" + Collapse/Expand Chevron (Pinned at Top)
       Button(action: {
         withAnimation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.82)) {
           isExpanded.toggle()
         }
       }) {
         HStack {
-          Text("Layer & Slicing")
+          Text("Controls")
             .font(.headline.weight(.bold))
             .foregroundStyle(Color.primary)
 
@@ -106,9 +108,9 @@ struct ResultLayerSlicingCardView: View {
       }
       .buttonStyle(.plain)
       .frame(minHeight: 36)
-      .accessibilityLabel("Layer and Slicing")
+      .accessibilityLabel("Controls")
       .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
-      .accessibilityHint("Double-tap to toggle slicing controls")
+      .accessibilityHint("Double-tap to toggle controls")
 
       if isExpanded {
         ScrollView(.vertical, showsIndicators: true) {
@@ -155,17 +157,21 @@ struct ResultLayerSlicingCardView: View {
         Divider()
       }
 
+      /*
       // 1. Layer Section
       layerSection
 
       Divider()
+      */
 
+      /*
       // 2. Potential Geotechnical Concerns Section (omitted if empty)
       if shouldShowConcerns {
         concernsSection
 
         Divider()
       }
+      */
 
       // 3. Slicing Control Section
       slicingControlSection
@@ -175,6 +181,7 @@ struct ResultLayerSlicingCardView: View {
     }
   }
 
+  /*
   // MARK: - Layer Section
 
   private var layerSection: some View {
@@ -198,7 +205,9 @@ struct ResultLayerSlicingCardView: View {
       }
     }
   }
+  */
 
+  /*
   // MARK: - Potential Geotechnical Concerns Section
 
   private var concernsSection: some View {
@@ -267,6 +276,7 @@ struct ResultLayerSlicingCardView: View {
     .accessibilityHint("Double-tap to toggle highlight for this concern")
     .accessibilityAddTraits(isSelected ? .isSelected : [])
   }
+  */
 
   // MARK: - Slicing Control Section
 
@@ -377,12 +387,12 @@ struct ResultLayerSlicingCardView: View {
   }
 }
 
-#Preview("Expanded with Concerns") {
+#Preview("Expanded") {
   ResultLayerSlicingCardView(
     isExpanded: .constant(true),
     isHardSoilVisible: .constant(true),
-    concerns: ResultAnalysisViewModel.defaultConcerns,
-    selectedConcernID: ResultAnalysisViewModel.defaultConcerns.first?.id,
+    // concerns: ResultAnalysisViewModel.defaultConcerns,
+    // selectedConcernID: ResultAnalysisViewModel.defaultConcerns.first?.id,
     slicingXMeters: .constant(12.7),
     slicingYMeters: .constant(12.7)
   )
@@ -390,6 +400,7 @@ struct ResultLayerSlicingCardView: View {
   .background(Color(.systemGroupedBackground))
 }
 
+/*
 #Preview("No Concerns (Section Gone)") {
   ResultLayerSlicingCardView(
     isExpanded: .constant(true),
@@ -401,3 +412,4 @@ struct ResultLayerSlicingCardView: View {
   .padding()
   .background(Color(.systemGroupedBackground))
 }
+*/

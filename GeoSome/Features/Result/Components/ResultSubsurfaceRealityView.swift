@@ -10,8 +10,8 @@ struct ResultSubsurfaceRealityView: View {
   let selectedVoxel: SoilVoxel?
   var selectedPipePosition3D: SIMD3<Float>? = nil
   var isHardSoilVisible: Bool = true
-  var selectedConcernID: String? = nil
-  var isolatedVoxels: Set<GridCoord>? = nil
+  // var selectedConcernID: String? = nil
+  // var isolatedVoxels: Set<GridCoord>? = nil
   var cameraController: SubsurfaceCameraController
   @Binding var cameraYaw: Float
   @Binding var cameraPitch: Float
@@ -33,7 +33,7 @@ struct ResultSubsurfaceRealityView: View {
   @State private var lastBuiltVoxelCount: Int = -1
   @State private var lastBuiltVolumeID: UUID?
   @State private var lastBuiltHardSoilVisible: Bool = true
-  @State private var lastBuiltConcernID: String? = nil
+  // @State private var lastBuiltConcernID: String? = nil
 
   init(
     volume: SubsurfaceVoxelVolume,
@@ -42,8 +42,8 @@ struct ResultSubsurfaceRealityView: View {
     selectedVoxel: SoilVoxel?,
     selectedPipePosition3D: SIMD3<Float>? = nil,
     isHardSoilVisible: Bool = true,
-    selectedConcernID: String? = nil,
-    isolatedVoxels: Set<GridCoord>? = nil,
+    // selectedConcernID: String? = nil,
+    // isolatedVoxels: Set<GridCoord>? = nil,
     cameraController: SubsurfaceCameraController? = nil,
     cameraYaw: Binding<Float>,
     cameraPitch: Binding<Float>,
@@ -66,8 +66,8 @@ struct ResultSubsurfaceRealityView: View {
     self.selectedVoxel = selectedVoxel
     self.selectedPipePosition3D = selectedPipePosition3D
     self.isHardSoilVisible = isHardSoilVisible
-    self.selectedConcernID = selectedConcernID
-    self.isolatedVoxels = isolatedVoxels
+    // self.selectedConcernID = selectedConcernID
+    // self.isolatedVoxels = isolatedVoxels
     self.cameraController = cameraController ?? SubsurfaceCameraController()
     self._cameraYaw = cameraYaw
     self._cameraPitch = cameraPitch
@@ -121,7 +121,7 @@ struct ResultSubsurfaceRealityView: View {
             volume: volume,
             maxSliceX: maxSliceX,
             maxSliceZ: maxSliceZ,
-            isolatedVoxels: isolatedVoxels,
+            // isolatedVoxels: isolatedVoxels,
             isHardSoilVisible: isHardSoilVisible
           ) {
             terrainEntity.model = ModelComponent(mesh: mesh, materials: materials)
@@ -158,10 +158,12 @@ struct ResultSubsurfaceRealityView: View {
           cptContainer.name = "CPTBoreholeContainer"
           pivotEntity.addChild(cptContainer)
 
+          /*
           // 5. Base Ruler Axes (X and Y meter ticks along bottom perimeter) in Metric Space
           let axesContainer = buildBaseAxesEntity(for: volume)
           axesContainer.name = "BaseAxesContainer"
           pivotEntity.addChild(axesContainer)
+          */
 
           // 6. Directional key + fill lighting for clear 3D depth perception
           let keyLight = DirectionalLight()
@@ -238,20 +240,20 @@ struct ResultSubsurfaceRealityView: View {
             }
           }
 
-          // 4. Rebuild the single batched MeshResource only when slicing thresholds, concern filter, or volume data change
+          // 4. Rebuild the single batched MeshResource only when slicing thresholds or volume data change
           if lastBuiltSliceX != maxSliceX ||
             lastBuiltSliceZ != maxSliceZ ||
             lastBuiltVoxelCount != volume.voxels.count ||
             lastBuiltVolumeID != volume.id ||
-            lastBuiltHardSoilVisible != isHardSoilVisible ||
-            lastBuiltConcernID != selectedConcernID
+            lastBuiltHardSoilVisible != isHardSoilVisible
+            // || lastBuiltConcernID != selectedConcernID
           {
             if let terrainEntity = pivotEntity.findEntity(named: "SubsurfaceTerrainEntity") as? ModelEntity {
               if let updatedMesh = VoxelMeshSynthesizer.synthesizeMesh(
                 volume: volume,
                 maxSliceX: maxSliceX,
                 maxSliceZ: maxSliceZ,
-                isolatedVoxels: isolatedVoxels,
+                // isolatedVoxels: isolatedVoxels,
                 isHardSoilVisible: isHardSoilVisible
               ) {
                 let materials = VoxelMeshSynthesizer.makeMaterialPalette()
@@ -277,9 +279,11 @@ struct ResultSubsurfaceRealityView: View {
               if let oldAxes = pivotEntity.findEntity(named: "BaseAxesContainer") {
                 oldAxes.removeFromParent()
               }
+              /*
               let newAxes = buildBaseAxesEntity(for: volume)
               newAxes.name = "BaseAxesContainer"
               pivotEntity.addChild(newAxes)
+              */
 
               if let hitPlane = pivotEntity.findEntity(named: "TopSurfaceHitPlane") as? ModelEntity {
                 let hitBoxWidth = volume.widthXM + 2.0 * volume.cellStepXM
@@ -298,7 +302,7 @@ struct ResultSubsurfaceRealityView: View {
               lastBuiltVoxelCount = volume.voxels.count
               lastBuiltVolumeID = volume.id
               lastBuiltHardSoilVisible = isHardSoilVisible
-              lastBuiltConcernID = selectedConcernID
+              // lastBuiltConcernID = selectedConcernID
             }
           }
         }

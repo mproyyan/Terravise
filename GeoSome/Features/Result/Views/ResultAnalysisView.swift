@@ -61,8 +61,8 @@ struct ResultAnalysisView: View {
             selectedVoxel: viewModel.selectedVoxel,
             selectedPipePosition3D: viewModel.selectedPipePosition3D,
             isHardSoilVisible: viewModel.isHardSoilVisible,
-            selectedConcernID: viewModel.selectedConcernID,
-            isolatedVoxels: viewModel.activeConcernVoxels,
+            // selectedConcernID: viewModel.selectedConcernID,
+            // isolatedVoxels: viewModel.activeConcernVoxels,
             cameraController: viewModel.cameraController,
             cameraYaw: $viewModel.cameraYaw,
             cameraPitch: $viewModel.cameraPitch,
@@ -175,14 +175,14 @@ struct ResultAnalysisView: View {
                 viewModel.createVirtualCPTAtMinimapCenter()
               }
             },
-            concerns: viewModel.geotechnicalConcerns,
-            isGeotechnicalConcernsEmpty: viewModel.isGeotechnicalConcernsEmpty,
-            selectedConcernID: viewModel.selectedConcernID,
-            onSelectConcern: { concern in
-              withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
-                viewModel.selectConcern(concern)
-              }
-            },
+            // concerns: viewModel.geotechnicalConcerns,
+            // isGeotechnicalConcernsEmpty: viewModel.isGeotechnicalConcernsEmpty,
+            // selectedConcernID: viewModel.selectedConcernID,
+            // onSelectConcern: { concern in
+            //   withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
+            //     viewModel.selectConcern(concern)
+            //   }
+            // },
             slicingXMeters: $viewModel.slicingXMeters,
             slicingYMeters: $viewModel.slicingYMeters,
             minXMeters: viewModel.minSlicingXMeters,
@@ -227,9 +227,9 @@ struct ResultAnalysisView: View {
           case .threeDLayer:
             ResultLeftPlaceholderSheetView(
               groundConditionsSummary: viewModel.groundConditionsSummary,
-              concerns: viewModel.geotechnicalConcerns,
+              // concerns: viewModel.geotechnicalConcerns,
               isSubsurfaceConditionsEmpty: viewModel.isSubsurfaceConditionsEmpty,
-              isGeotechnicalConcernsEmpty: viewModel.isGeotechnicalConcernsEmpty,
+              // isGeotechnicalConcernsEmpty: viewModel.isGeotechnicalConcernsEmpty,
               legendItems: viewModel.activeLegendItems,
               predictionUncertaintyPercent: viewModel.predictionUncertaintyPercent,
               cptPointsCount: viewModel.displayedCPTPointsCount

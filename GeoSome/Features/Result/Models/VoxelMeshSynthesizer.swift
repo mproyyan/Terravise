@@ -447,7 +447,7 @@ enum VoxelMeshSynthesizer {
     volume: SubsurfaceVoxelVolume,
     maxSliceX: Int,
     maxSliceZ: Int,
-    isolatedVoxels: Set<GridCoord>? = nil,
+    // isolatedVoxels: Set<GridCoord>? = nil,
     isHardSoilVisible: Bool = true
   ) -> MeshResource? {
     let nx = volume.nx
@@ -554,6 +554,7 @@ enum VoxelMeshSynthesizer {
       let gz = min(max(Int(fz.rounded()), 0), nz - 1)
       let clampedY = min(max(layerY, 0), ny - 1)
 
+      /*
       // When a geotechnical concern is active:
       if let isolatedVoxels {
         let coord = GridCoord(x: gx, y: clampedY, z: gz)
@@ -565,6 +566,7 @@ enum VoxelMeshSynthesizer {
           return Self.dimmedMaterialIndex
         }
       }
+      */
 
       let rawMat = activeMaterialAt(x: gx, y: clampedY, z: gz)
       if rawMat >= 0 {
@@ -581,6 +583,7 @@ enum VoxelMeshSynthesizer {
       return 0
     }
 
+    /*
     // 0. If a Geotechnical Concern is isolated, synthesize the solid 3D faces of the concern cluster FIRST
     // so that the opaque concern voxels are drawn into the depth buffer before the translucent gray boundary shell.
     if let iso = isolatedVoxels, !iso.isEmpty {
@@ -679,6 +682,7 @@ enum VoxelMeshSynthesizer {
         }
       }
     }
+    */
 
     // 1. Build initial metric 2D boundary polygon from `volume.boundaryPolygonUV`
     var rawPolygon: [SIMD2<Float>] = []
