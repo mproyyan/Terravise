@@ -132,6 +132,7 @@ struct CPTUploadDataSheetView: View {
         isPresented: $isDocumentPickerPresented,
         allowedContentTypes: [
           .commaSeparatedText,
+          UTType("org.openxmlformats.spreadsheetml.sheet") ?? .data,
           .data
         ],
         allowsMultipleSelection: false
@@ -441,8 +442,9 @@ struct CPTUploadDataSheetView: View {
     parsedRows = []
     lastLoadedCSVText = nil
     importError = nil
-    guard url.pathExtension.lowercased() == "csv" else {
-      importError = "Format .\(url.pathExtension.lowercased()) belum didukung. Ekspor data sebagai CSV."
+    let ext = url.pathExtension.lowercased()
+    guard ext == "csv" || ext == "xlsx" else {
+      importError = "Format .\(ext) belum didukung. Ekspor data sebagai CSV atau Excel (.xlsx)."
       return
     }
     let name = url.lastPathComponent

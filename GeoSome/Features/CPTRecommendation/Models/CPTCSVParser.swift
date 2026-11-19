@@ -12,14 +12,23 @@ enum CPTCSVParser {
     cptType: CPTType,
     equipment: CPTEquipmentParameters = CPTEquipmentParameters()
   ) -> CPTCSVParseResult {
-    guard url.pathExtension.lowercased() == "csv" else {
+    let ext = url.pathExtension.lowercased()
+    guard ext == "csv" || ext == "xlsx" else {
       return CPTCSVParseResult(rows: [], matchedRequiredColumns: [],
-                               error: "Format .\(url.pathExtension.lowercased()) belum didukung. Ekspor data sebagai CSV.")
+                               error: "Format .\(ext) belum didukung. Ekspor data sebagai CSV atau Excel (.xlsx).")
     }
+
+    if ext == "xlsx" {
+      if let data = try? Data(contentsOf: url),
+         let csvText = CPTXLSXCodec.extractCSVText(from: data) {
+        return parse(text: csvText, cptType: cptType, equipment: equipment)
+      }
+    }
+
     guard let rawText = (try? String(contentsOf: url, encoding: .utf8))
       ?? (try? String(contentsOf: url, encoding: .ascii))
     else {
-      return CPTCSVParseResult(rows: [], matchedRequiredColumns: [], error: "File CSV tidak dapat dibaca sebagai teks.")
+      return CPTCSVParseResult(rows: [], matchedRequiredColumns: [], error: "File tidak dapat dibaca.")
     }
     return parse(text: rawText, cptType: cptType, equipment: equipment)
   }

@@ -44,8 +44,12 @@ struct CPTInitialSetupSheetView: View {
     !points.isEmpty
   }
 
-  private var csvTemplateString: String {
-    selectedCPTType.requiredColumns.joined(separator: ",") + "\n"
+  private var templateFileURL: URL {
+    let fileName = "cpt_template_\(selectedCPTType.nameIdentifier).xlsx"
+    let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
+    let xlsxData = CPTXLSXCodec.generateTemplate(for: selectedCPTType)
+    try? xlsxData.write(to: tempURL)
+    return tempURL
   }
 
   private var currentEquipmentParameters: CPTEquipmentParameters {
@@ -283,9 +287,7 @@ struct CPTInitialSetupSheetView: View {
           .foregroundStyle(Color.secondary)
 
         ShareLink(
-          item: csvTemplateString,
-          subject: Text("CPT Template"),
-          message: Text("CSV Template for \(selectedCPTType.displayName)")
+          item: templateFileURL
         ) {
           HStack(spacing: 6) {
             Image(systemName: "square.and.arrow.down")

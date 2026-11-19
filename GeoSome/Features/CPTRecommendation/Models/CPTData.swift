@@ -31,6 +31,14 @@ enum CPTType: String, CaseIterable, Identifiable, Codable, Sendable {
       ["depth_(m)", "qc_(MPa)", "fs_(kPa)", "u2_(kPa)"]
     }
   }
+
+  var nameIdentifier: String {
+    switch self {
+    case .electrical: "electrical"
+    case .cptmBicone: "bicone"
+    case .cptu: "piezocone"
+    }
+  }
 }
 
 struct CPTEquipmentParameters: Hashable, Codable, Sendable {
