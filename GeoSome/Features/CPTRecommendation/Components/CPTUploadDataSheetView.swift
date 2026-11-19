@@ -10,6 +10,7 @@ struct CPTUploadDataSheetView: View {
   @Binding var parsedRows: [CPTRowData]
   @Binding var validationError: String?
   var equipmentParameters: Binding<CPTEquipmentParameters>?
+  var showCPTTypeSelection: Bool = false
   var onCloseTap: (() -> Void)?
   var onSubmitTap: (() -> Void)?
   var onDownloadTemplate: (() -> Void)?
@@ -22,6 +23,13 @@ struct CPTUploadDataSheetView: View {
   @State private var lastLoadedCSVText: String?
   @State private var importError: String?
 
+  // Equipment Parameter Inputs (CPTu & CPTm)
+  @State private var netAreaRatioText: String = "0,8"
+  @State private var pistonDiameterText: String = "3,57"
+  @State private var coneDiameterText: String = "3,57"
+  @State private var frictionSleeveDiameterText: String = "3,57"
+  @State private var frictionSleeveLengthText: String = "13,3"
+
   init(
     selectedCPTType: Binding<CPTType>,
     zoneText: Binding<String>,
@@ -31,6 +39,7 @@ struct CPTUploadDataSheetView: View {
     parsedRows: Binding<[CPTRowData]> = .constant([]),
     validationError: Binding<String?> = .constant(nil),
     equipmentParameters: Binding<CPTEquipmentParameters>? = nil,
+    showCPTTypeSelection: Bool = false,
     onCloseTap: (() -> Void)? = nil,
     onSubmitTap: (() -> Void)? = nil,
     onDownloadTemplate: (() -> Void)? = nil
@@ -43,6 +52,7 @@ struct CPTUploadDataSheetView: View {
     _parsedRows = parsedRows
     _validationError = validationError
     self.equipmentParameters = equipmentParameters
+    self.showCPTTypeSelection = showCPTTypeSelection
     self.onCloseTap = onCloseTap
     self.onSubmitTap = onSubmitTap
     self.onDownloadTemplate = onDownloadTemplate
@@ -70,13 +80,25 @@ struct CPTUploadDataSheetView: View {
   }
 
   private var currentEquipmentParameters: CPTEquipmentParameters {
-    equipmentParameters?.wrappedValue ?? CPTEquipmentParameters()
+    if showCPTTypeSelection {
+      return CPTEquipmentParameters(
+        netAreaRatio: CPTCSVParser.parseDouble(netAreaRatioText) ?? 0.80,
+        pistonDiameterCm: CPTCSVParser.parseDouble(pistonDiameterText) ?? 3.57,
+        coneDiameterCm: CPTCSVParser.parseDouble(coneDiameterText) ?? 3.57,
+        frictionSleeveDiameterCm: CPTCSVParser.parseDouble(frictionSleeveDiameterText) ?? 3.57,
+        frictionSleeveLengthCm: CPTCSVParser.parseDouble(frictionSleeveLengthText) ?? 13.3
+      )
+    }
+    return equipmentParameters?.wrappedValue ?? CPTEquipmentParameters()
   }
 
   var body: some View {
     NavigationStack {
       ScrollView(.vertical, showsIndicators: false) {
         VStack(alignment: .leading, spacing: 20) {
+          if showCPTTypeSelection {
+            cptTypeSection
+          }
           coordinatesSection
           cptFileSection
           if isFileUploaded {
@@ -155,6 +177,177 @@ struct CPTUploadDataSheetView: View {
   }
 
   // MARK: - Sections
+
+  private var cptTypeSection: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text("Type Data CPT")
+        .font(.headline.weight(.bold))
+        .foregroundStyle(Color.primary)
+        .accessibilityAddTraits(.isHeader)
+
+      HStack {
+        Text("CPT Type")
+          .font(.body)
+          .foregroundStyle(Color.primary)
+
+        Spacer()
+
+        Menu {
+          ForEach(CPTType.allCases) { type in
+            Button(action: {
+              selectedCPTType = type
+              if let file = uploadedFile, let lastText = lastLoadedCSVText {
+                let reparse = CPTCSVParser.parse(text: lastText, cptType: type, equipment: currentEquipmentParameters)
+                parsedRows = reparse.rows
+                uploadedFile = CPTUploadedFile(
+                  id: file.id,
+                  name: file.name,
+                  byteSize: file.byteSize,
+                  rowCount: reparse.rows.count,
+                  matchedColumns: reparse.matchedRequiredColumns
+                )
+                if let err = reparse.error {
+                  importError = err
+                } else {
+                  importError = nil
+                }
+              }
+            }) {
+              HStack {
+                Text(type.displayName)
+                if selectedCPTType == type {
+                  Image(systemName: "checkmark")
+                }
+              }
+            }
+          }
+        } label: {
+          HStack(spacing: 4) {
+            Text(selectedCPTType.displayName)
+              .font(.body)
+              .foregroundStyle(Color.secondary)
+
+            Image(systemName: "chevron.up.chevron.down")
+              .font(.caption.weight(.semibold))
+              .foregroundStyle(Color.secondary)
+          }
+          .padding(.vertical, 8)
+          .padding(.leading, 8)
+        }
+      }
+      .padding(.horizontal, 16)
+      .frame(height: 52)
+      .background(
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
+          .fill(Color(.secondarySystemGroupedBackground))
+      )
+      .overlay(
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
+          .stroke(
+            Color.primary.opacity(contrast == .increased ? 0.35 : 0.08),
+            lineWidth: contrast == .increased ? 1.5 : 1
+          )
+      )
+
+      if selectedCPTType == .cptu {
+        cptuEquipmentCard
+      } else if selectedCPTType == .cptmBicone {
+        cptmBiconeEquipmentCard
+      }
+    }
+  }
+
+  private var cptuEquipmentCard: some View {
+    equipmentParameterRow(
+      title: "Net Area Ratio (a)",
+      placeholder: "0,8",
+      text: $netAreaRatioText
+    )
+    .background(
+      RoundedRectangle(cornerRadius: 16, style: .continuous)
+        .fill(Color(.secondarySystemGroupedBackground))
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: 16, style: .continuous)
+        .stroke(
+          Color.primary.opacity(contrast == .increased ? 0.35 : 0.08),
+          lineWidth: contrast == .increased ? 1.5 : 1
+        )
+    )
+  }
+
+  private var cptmBiconeEquipmentCard: some View {
+    VStack(spacing: 0) {
+      equipmentParameterRow(
+        title: "Piston Diameter (Dpi)",
+        placeholder: "3,57",
+        text: $pistonDiameterText
+      )
+
+      Divider().padding(.horizontal, 16)
+
+      equipmentParameterRow(
+        title: "Cone Diameter (Dc)",
+        placeholder: "3,57",
+        text: $coneDiameterText
+      )
+
+      Divider().padding(.horizontal, 16)
+
+      equipmentParameterRow(
+        title: "Friction Sleeve Diameter (Ds)",
+        placeholder: "3,57",
+        text: $frictionSleeveDiameterText
+      )
+
+      Divider().padding(.horizontal, 16)
+
+      equipmentParameterRow(
+        title: "Friction Sleeve Length (Ls)",
+        placeholder: "13,3",
+        text: $frictionSleeveLengthText
+      )
+    }
+    .background(
+      RoundedRectangle(cornerRadius: 16, style: .continuous)
+        .fill(Color(.secondarySystemGroupedBackground))
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: 16, style: .continuous)
+        .stroke(
+          Color.primary.opacity(contrast == .increased ? 0.35 : 0.08),
+          lineWidth: contrast == .increased ? 1.5 : 1
+        )
+    )
+  }
+
+  private func equipmentParameterRow(
+    title: String,
+    placeholder: String,
+    text: Binding<String>
+  ) -> some View {
+    HStack(spacing: 12) {
+      Text(title)
+        .font(.body)
+        .foregroundStyle(Color.primary)
+        .lineLimit(1)
+
+      Spacer(minLength: 8)
+
+      TextField(placeholder, text: text)
+        #if canImport(UIKit)
+        .keyboardType(.decimalPad)
+        #endif
+        .font(.body)
+        .foregroundStyle(Color.secondary)
+        .multilineTextAlignment(.trailing)
+        .autocorrectionDisabled()
+        .textInputAutocapitalization(.never)
+        .frame(maxWidth: 110)
+    }
+    .padding(.horizontal, 16)
+    .frame(height: 52)
+  }
 
   private var coordinatesSection: some View {
     VStack(alignment: .leading, spacing: 8) {

@@ -214,6 +214,7 @@ struct CPTRecommendationView: View {
             parsedRows: $viewModel.uploadParsedRows,
             validationError: $viewModel.uploadValidationError,
             equipmentParameters: $viewModel.uploadEquipmentParameters,
+            showCPTTypeSelection: viewModel.hasUploadedCPTData,
             onCloseTap: {
               viewModel.dismissUploadSheet()
             },
