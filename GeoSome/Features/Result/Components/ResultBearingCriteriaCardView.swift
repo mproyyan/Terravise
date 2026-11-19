@@ -3,6 +3,7 @@ import SwiftUI
 struct ResultBearingCriteriaCardView: View {
   var cardWidth: CGFloat
   @Binding var isExpanded: Bool
+  @Binding var isMapOverlayVisible: Bool
   @Binding var coneResistanceQc: Double
   @Binding var soilBehaviorIndexIc: Double
   var selectedIcText: String = "N/A"
@@ -15,6 +16,7 @@ struct ResultBearingCriteriaCardView: View {
   init(
     cardWidth: CGFloat = 360,
     isExpanded: Binding<Bool>,
+    isMapOverlayVisible: Binding<Bool> = .constant(false),
     coneResistanceQc: Binding<Double>,
     soilBehaviorIndexIc: Binding<Double>,
     selectedIcText: String = "N/A",
@@ -23,6 +25,7 @@ struct ResultBearingCriteriaCardView: View {
   ) {
     self.cardWidth = cardWidth
     self._isExpanded = isExpanded
+    self._isMapOverlayVisible = isMapOverlayVisible
     self._coneResistanceQc = coneResistanceQc
     self._soilBehaviorIndexIc = soilBehaviorIndexIc
     self.selectedIcText = selectedIcText
@@ -60,6 +63,29 @@ struct ResultBearingCriteriaCardView: View {
 
       if isExpanded {
         VStack(alignment: .leading, spacing: 14) {
+          // Layer Section: Map Overlay Toggle
+          VStack(alignment: .leading, spacing: 8) {
+            Text("Layer")
+              .font(.subheadline.weight(.bold))
+              .foregroundStyle(Color.primary)
+              .accessibilityAddTraits(.isHeader)
+
+            HStack {
+              Text("Map Overlay")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(Color.secondary)
+
+              Spacer()
+
+              Toggle("", isOn: $isMapOverlayVisible)
+                .labelsHidden()
+                .tint(.green)
+                .accessibilityLabel("Map Overlay")
+            }
+          }
+
+          Divider()
+
           // Slicing Control Title
           Text("Slicing Control")
             .font(.subheadline.weight(.bold))

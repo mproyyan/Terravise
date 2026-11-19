@@ -1,3 +1,5 @@
+import CoreLocation
+import MapKit
 import RealityKit
 import simd
 import SwiftUI
@@ -9,6 +11,7 @@ struct ResultBearingSurfaceRealityView: View {
   let bearingRevision: Int
   let measuredCPTCount: Int
   let selectedCell: (x: Int, y: Int)?
+  var isMapOverlayVisible: Bool = false
   var cameraController: SubsurfaceCameraController = SubsurfaceCameraController()
   @Binding var cameraYaw: Float
   @Binding var cameraPitch: Float
@@ -27,15 +30,30 @@ struct ResultBearingSurfaceRealityView: View {
 
   @State private var lastBuiltVolumeID: UUID?
   @State private var lastBuiltBearingRevision: Int = -1
+  @State private var lastAppliedMapOverlayVisible: Bool = false
+
+  private struct CachedMapSnapshotEntry {
+    let texture: TextureResource
+    let minX: Float
+    let maxX: Float
+    let minZ: Float
+    let maxZ: Float
+  }
 
   // Cached textures so they are synthesized only once
   @MainActor private static var cachedBadgeTextures: [String: TextureResource] = [:]
   @MainActor private static var cachedComparisonBadgeTextures: [String: TextureResource] = [:]
+  @MainActor private static var cachedMapSnapshots: [String: CachedMapSnapshotEntry] = [:]
 
   var body: some View {
     let _ = cameraController.revision
     GeometryReader { proxy in
       ZStack(alignment: .top) {
+        if isMapOverlayVisible {
+          Color(red: 0.96, green: 0.95, blue: 0.92)
+            .ignoresSafeArea()
+        }
+
         RealityView { content in
           content.camera = .virtual
 
@@ -83,6 +101,12 @@ struct ResultBearingSurfaceRealityView: View {
             Task { @MainActor in
               lastBuiltVolumeID = volume.id
               lastBuiltBearingRevision = bearingRevision
+              lastAppliedMapOverlayVisible = isMapOverlayVisible
+            }
+          } else if lastAppliedMapOverlayVisible != isMapOverlayVisible {
+            updateMapOverlayAppearance(on: pivotEntity)
+            Task { @MainActor in
+              lastAppliedMapOverlayVisible = isMapOverlayVisible
             }
           }
 
@@ -169,7 +193,14 @@ struct ResultBearingSurfaceRealityView: View {
   private func populatePivotScene(pivotEntity: Entity, volume: SubsurfaceVoxelVolume) {
     pivotEntity.children.removeAll()
 
-    // Restore the original flat contour heatmap; only evaluated columns are drawn.
+    // 0. Full-Background 3D Map Plane inside the same 3D world (`BearingSurfacePivot`, Y = -0.10)
+    // so it shares the exact PerspectiveCamera & 3D coordinates with zero drift during pan/zoom/rotate/tilt.
+    let mapOverlayEntity = makeMapOverlayEntity(for: volume, output: bearingOutput)
+    mapOverlayEntity.name = "BearingMapOverlayPlane"
+    mapOverlayEntity.isEnabled = isMapOverlayVisible
+    pivotEntity.addChild(mapOverlayEntity)
+
+    // 1 & 2. Smooth Clipped Polygon Contour Heatmap Surface & Border
     if let bearingOutput, let surfaceEntity = makeBearingSurfaceEntity(for: volume, output: bearingOutput) {
       surfaceEntity.name = "BearingSurfacePlane"
       pivotEntity.addChild(surfaceEntity)
@@ -186,11 +217,24 @@ struct ResultBearingSurfaceRealityView: View {
     // 4. Comparison Markers (B-1, B-2, B-3...)
     updateComparisonMarkers(on: pivotEntity)
     updateInspectionMarker(on: pivotEntity)
+  }
 
-    // 5. Perimeter Ruler Axes: X (m) along front edge, Y (m) along right edge
-    let axesEntity = makeRulerAxesEntity(for: volume)
-    axesEntity.name = "BearingRulerAxes"
-    pivotEntity.addChild(axesEntity)
+  @MainActor
+  private func updateMapOverlayAppearance(on pivotEntity: Entity) {
+    if let mapPlane = pivotEntity.findEntity(named: "BearingMapOverlayPlane") {
+      mapPlane.isEnabled = isMapOverlayVisible
+    }
+    if let surfaceEntity = pivotEntity.findEntity(named: "BearingSurfacePlane") as? ModelEntity,
+       var model = surfaceEntity.model,
+       var mat = model.materials.first as? UnlitMaterial
+    {
+      mat.faceCulling = .none
+      mat.blending = isMapOverlayVisible
+        ? .transparent(opacity: .init(floatLiteral: 0.72))
+        : .opaque
+      model.materials = [mat]
+      surfaceEntity.model = model
+    }
   }
 
   // MARK: - Comparison Markers (B-1, B-2, B-3...)
@@ -398,7 +442,7 @@ struct ResultBearingSurfaceRealityView: View {
 
     // 1. Check if tap landed on a measured CPT marker on the surface
     let cptHitRadiusSq = pow(1.6 * adaptiveScale, 2)
-    for (idx, pos) in volume.cptSurfacePositions.prefix(measuredCPTCount).enumerated() {
+    for (idx, pos) in cptLocalPositions(for: volume, output: output).prefix(measuredCPTCount).enumerated() {
       let dx = groundHit.x - pos.x
       let dz = groundHit.z - pos.z
       if (dx * dx + dz * dz) <= cptHitRadiusSq,
@@ -481,6 +525,346 @@ struct ResultBearingSurfaceRealityView: View {
     return best
   }
 
+  private func cptLocalPositions(
+    for volume: SubsurfaceVoxelVolume,
+    output: BearingRuleOutput?
+  ) -> [SIMD3<Float>] {
+    let xMin: Float
+    let xMax: Float
+    let zMin: Float
+    let zMax: Float
+    if let output, output.grid.nx > 0, output.grid.ny > 0 {
+      xMin = BearingCandidateGeometry.localX(0, output: output, volume: volume)
+      xMax = BearingCandidateGeometry.localX(Double(max(output.grid.nx - 1, 1)), output: output, volume: volume)
+      zMin = BearingCandidateGeometry.localZ(Double(max(output.grid.ny - 1, 1)), output: output, volume: volume)
+      zMax = BearingCandidateGeometry.localZ(0, output: output, volume: volume)
+    } else {
+      let step = Float(BearingCandidateGeometry.uniformStepM(volume: volume))
+      xMin = -0.5 * volume.widthXM / step
+      xMax = 0.5 * volume.widthXM / step
+      zMin = -0.5 * volume.lengthZM / step
+      zMax = 0.5 * volume.lengthZM / step
+    }
+
+    if !volume.cptNormalizedUVs.isEmpty {
+      return volume.cptNormalizedUVs.map { uv in
+        SIMD3<Float>(
+          xMin + uv.x * (xMax - xMin),
+          0.0,
+          zMin + uv.y * (zMax - zMin)
+        )
+      }
+    }
+    return volume.cptSurfacePositions
+  }
+
+  // MARK: - 0. Full-Background 3D Map Plane Beneath Heatmap Surface
+
+  @MainActor
+  private func makeMapOverlayEntity(for volume: SubsurfaceVoxelVolume, output: BearingRuleOutput?) -> ModelEntity {
+    let xMin: Float
+    let xMax: Float
+    let zMin: Float
+    let zMax: Float
+    if let output, output.grid.nx > 0, output.grid.ny > 0 {
+      xMin = BearingCandidateGeometry.localX(0, output: output, volume: volume)
+      xMax = BearingCandidateGeometry.localX(Double(max(output.grid.nx - 1, 1)), output: output, volume: volume)
+      zMin = BearingCandidateGeometry.localZ(Double(max(output.grid.ny - 1, 1)), output: output, volume: volume)
+      zMax = BearingCandidateGeometry.localZ(0, output: output, volume: volume)
+    } else {
+      let step = Float(BearingCandidateGeometry.uniformStepM(volume: volume))
+      xMin = -0.5 * volume.widthXM / step
+      xMax = 0.5 * volume.widthXM / step
+      zMin = -0.5 * volume.lengthZM / step
+      zMax = 0.5 * volume.lengthZM / step
+    }
+
+    // Expand the 3D map ground plane far beyond the site bounds (`paddingFactor = 2.4` around maxSpan)
+    // so the map fills 100% of the screen background at all allowed pan/zoom/tilt angles without clipped edges.
+    let paddingFactor: Float = 2.4
+    let spanX = max(xMax - xMin, 4.0)
+    let spanZ = max(zMax - zMin, 4.0)
+    let maxSpan = max(spanX, spanZ)
+    let pad = maxSpan * paddingFactor
+    let defaultMapMinX = xMin - pad
+    let defaultMapMaxX = xMax + pad
+    let defaultMapMinZ = zMin - pad
+    let defaultMapMaxZ = zMax + pad
+
+    let cacheKey = String(
+      format: "fullmap_%.6f_%.6f_%.6f_%.6f_%.2f_%.2f",
+      volume.minLatitude, volume.maxLatitude,
+      volume.minLongitude, volume.maxLongitude,
+      spanX, spanZ
+    )
+
+    let entity = ModelEntity()
+    entity.position = .zero
+
+    if let cached = Self.cachedMapSnapshots[cacheKey],
+       let mesh = Self.makeMapQuadMesh(minX: cached.minX, maxX: cached.maxX, minZ: cached.minZ, maxZ: cached.maxZ)
+    {
+      var mat = UnlitMaterial()
+      mat.color = .init(tint: .white, texture: .init(cached.texture))
+      mat.faceCulling = .none
+      entity.model = ModelComponent(mesh: mesh, materials: [mat])
+      return entity
+    }
+
+    if let fallbackMesh = Self.makeMapQuadMesh(
+      minX: defaultMapMinX,
+      maxX: defaultMapMaxX,
+      minZ: defaultMapMinZ,
+      maxZ: defaultMapMaxZ
+    ) {
+      var mat = UnlitMaterial()
+      if let fallbackTex = Self.makeFallbackMapTexture(
+        volume: volume,
+        xMin: xMin,
+        xMax: xMax,
+        zMin: zMin,
+        zMax: zMax,
+        mapMinX: defaultMapMinX,
+        mapMaxX: defaultMapMaxX,
+        mapMinZ: defaultMapMinZ,
+        mapMaxZ: defaultMapMaxZ
+      ) {
+        mat.color = .init(tint: .white, texture: .init(fallbackTex))
+      } else {
+        mat.color = .init(tint: UIColor(red: 0.96, green: 0.95, blue: 0.92, alpha: 1.0))
+      }
+      mat.faceCulling = .none
+      entity.model = ModelComponent(mesh: fallbackMesh, materials: [mat])
+    }
+
+    Self.requestRealMapSnapshot(
+      volume: volume,
+      xMin: xMin,
+      xMax: xMax,
+      zMin: zMin,
+      zMax: zMax,
+      paddingFactor: paddingFactor,
+      cacheKey: cacheKey
+    ) { [weak entity] entry in
+      guard let entity,
+            let calibratedMesh = Self.makeMapQuadMesh(
+              minX: entry.minX,
+              maxX: entry.maxX,
+              minZ: entry.minZ,
+              maxZ: entry.maxZ
+            )
+      else {
+        return
+      }
+      var mat = UnlitMaterial()
+      mat.color = .init(tint: .white, texture: .init(entry.texture))
+      mat.faceCulling = .none
+      entity.model = ModelComponent(mesh: calibratedMesh, materials: [mat])
+    }
+
+    return entity
+  }
+
+  @MainActor
+  private static func makeMapQuadMesh(
+    minX: Float,
+    maxX: Float,
+    minZ: Float,
+    maxZ: Float,
+    yLevel: Float = -0.10
+  ) -> MeshResource? {
+    let positions: [SIMD3<Float>] = [
+      SIMD3<Float>(minX, yLevel, minZ),
+      SIMD3<Float>(minX, yLevel, maxZ),
+      SIMD3<Float>(maxX, yLevel, maxZ),
+      SIMD3<Float>(maxX, yLevel, minZ)
+    ]
+    let normals = Array(repeating: SIMD3<Float>(0, 1, 0), count: 4)
+    let uvs: [SIMD2<Float>] = [
+      SIMD2<Float>(0.0, 1.0),
+      SIMD2<Float>(0.0, 0.0),
+      SIMD2<Float>(1.0, 0.0),
+      SIMD2<Float>(1.0, 1.0)
+    ]
+    let indices: [UInt32] = [0, 1, 2, 0, 2, 3]
+
+    var descriptor = MeshDescriptor(name: "BearingMapOverlayQuad")
+    descriptor.positions = MeshBuffers.Positions(positions)
+    descriptor.normals = MeshBuffers.Normals(normals)
+    descriptor.textureCoordinates = MeshBuffers.TextureCoordinates(uvs)
+    descriptor.primitives = .triangles(indices)
+    return try? MeshResource.generate(from: [descriptor])
+  }
+
+  @MainActor
+  private static func makeFallbackMapTexture(
+    volume: SubsurfaceVoxelVolume,
+    xMin: Float,
+    xMax: Float,
+    zMin: Float,
+    zMax: Float,
+    mapMinX: Float,
+    mapMaxX: Float,
+    mapMinZ: Float,
+    mapMaxZ: Float
+  ) -> TextureResource? {
+    let size = CGSize(width: 960, height: 960)
+    let renderer = UIGraphicsImageRenderer(size: size)
+    let totalW = max(mapMaxX - mapMinX, 1e-4)
+    let totalZ = max(mapMaxZ - mapMinZ, 1e-4)
+
+    let img = renderer.image { ctx in
+      let cg = ctx.cgContext
+      let rect = CGRect(origin: .zero, size: size)
+
+      UIColor(red: 0.96, green: 0.95, blue: 0.92, alpha: 1.0).setFill()
+      cg.fill(rect)
+
+      let gridCount = 24
+      for i in 0 ... gridCount {
+        let pos = CGFloat(i) / CGFloat(gridCount) * size.width
+        let isMajor = (i % 4 == 0)
+        cg.setStrokeColor(
+          isMajor
+            ? UIColor(red: 0.87, green: 0.85, blue: 0.80, alpha: 0.85).cgColor
+            : UIColor(red: 0.91, green: 0.89, blue: 0.85, alpha: 0.65).cgColor
+        )
+        cg.setLineWidth(isMajor ? 2.0 : 1.0)
+        cg.move(to: CGPoint(x: pos, y: 0))
+        cg.addLine(to: CGPoint(x: pos, y: size.height))
+        cg.move(to: CGPoint(x: 0, y: pos))
+        cg.addLine(to: CGPoint(x: size.width, y: pos))
+        cg.strokePath()
+      }
+
+      if volume.boundaryPolygonUV.count >= 3 {
+        let path = UIBezierPath()
+        for (idx, uv) in volume.boundaryPolygonUV.enumerated() {
+          let wx = xMin + uv.x * (xMax - xMin)
+          let wz = zMin + uv.y * (zMax - zMin)
+          let px = CGFloat((wx - mapMinX) / totalW) * size.width
+          let py = CGFloat((wz - mapMinZ) / totalZ) * size.height
+          if idx == 0 {
+            path.move(to: CGPoint(x: px, y: py))
+          } else {
+            path.addLine(to: CGPoint(x: px, y: py))
+          }
+        }
+        path.close()
+        UIColor.systemBlue.withAlphaComponent(0.08).setFill()
+        path.fill()
+        UIColor.systemBlue.withAlphaComponent(0.65).setStroke()
+        path.lineWidth = 2.5
+        let dash: [CGFloat] = [8, 5]
+        path.setLineDash(dash, count: dash.count, phase: 0)
+        path.stroke()
+      }
+    }
+
+    guard let cgImage = img.cgImage else { return nil }
+    return try? TextureResource(image: cgImage, options: .init(semantic: .color))
+  }
+
+  @MainActor
+  private static func requestRealMapSnapshot(
+    volume: SubsurfaceVoxelVolume,
+    xMin: Float,
+    xMax: Float,
+    zMin: Float,
+    zMax: Float,
+    paddingFactor: Float,
+    cacheKey: String,
+    completion: @escaping @MainActor (CachedMapSnapshotEntry) -> Void
+  ) {
+    let centerLat = (volume.minLatitude + volume.maxLatitude) * 0.5
+    let centerLon = (volume.minLongitude + volume.maxLongitude) * 0.5
+    let latSpan = max(volume.maxLatitude - volume.minLatitude, 0.0004)
+    let lonSpan = max(volume.maxLongitude - volume.minLongitude, 0.0004)
+    let maxDegSpan = max(latSpan, lonSpan)
+    let regionSpan = maxDegSpan * Double(1.0 + 2.0 * paddingFactor)
+
+    let options = MKMapSnapshotter.Options()
+    options.region = MKCoordinateRegion(
+      center: CLLocationCoordinate2D(latitude: centerLat, longitude: centerLon),
+      span: MKCoordinateSpan(
+        latitudeDelta: regionSpan,
+        longitudeDelta: regionSpan
+      )
+    )
+    options.mapType = .standard
+    options.showsBuildings = true
+    options.size = CGSize(width: 1440, height: 1440)
+    options.traitCollection = UITraitCollection(userInterfaceStyle: .light)
+
+    let snapshotter = MKMapSnapshotter(options: options)
+    snapshotter.start { snapshot, _ in
+      guard let snapshot else { return }
+
+      let imgSize = snapshot.image.size
+      let nwCoord = CLLocationCoordinate2D(latitude: volume.maxLatitude, longitude: volume.minLongitude)
+      let seCoord = CLLocationCoordinate2D(latitude: volume.minLatitude, longitude: volume.maxLongitude)
+      let pNW = snapshot.point(for: nwCoord)
+      let pSE = snapshot.point(for: seCoord)
+
+      let uNW = Float(pNW.x / max(imgSize.width, 1.0))
+      let uSE = Float(pSE.x / max(imgSize.width, 1.0))
+      let vNW = Float(pNW.y / max(imgSize.height, 1.0))
+      let vSE = Float(pSE.y / max(imgSize.height, 1.0))
+
+      let du = max(uSE - uNW, 1e-4)
+      let dv = max(vSE - vNW, 1e-4)
+      let siteSpanX = xMax - xMin
+      let siteSpanZ = zMax - zMin
+
+      // Calibrate exact 3D quad bounds so (xMin, zMin) lands on pixel pNW and (xMax, zMax) lands on pixel pSE
+      let calMinX = xMin - (uNW / du) * siteSpanX
+      let calMaxX = xMin + ((1.0 - uNW) / du) * siteSpanX
+      let calMinZ = zMin - (vNW / dv) * siteSpanZ
+      let calMaxZ = zMin + ((1.0 - vNW) / dv) * siteSpanZ
+
+      let boundaryUVs = volume.boundaryPolygonUV
+      let compositedImage = UIGraphicsImageRenderer(size: imgSize).image { _ in
+        snapshot.image.draw(at: .zero)
+
+        if boundaryUVs.count >= 3 {
+          let polyPath = UIBezierPath()
+          for (idx, uv) in boundaryUVs.enumerated() {
+            let lon = volume.minLongitude + Double(uv.x) * (volume.maxLongitude - volume.minLongitude)
+            let lat = volume.maxLatitude - Double(uv.y) * (volume.maxLatitude - volume.minLatitude)
+            let pt = snapshot.point(for: CLLocationCoordinate2D(latitude: lat, longitude: lon))
+            if idx == 0 {
+              polyPath.move(to: pt)
+            } else {
+              polyPath.addLine(to: pt)
+            }
+          }
+          polyPath.close()
+          UIColor.systemBlue.withAlphaComponent(0.65).setStroke()
+          polyPath.lineWidth = 2.5
+          let dash: [CGFloat] = [8, 5]
+          polyPath.setLineDash(dash, count: dash.count, phase: 0)
+          polyPath.stroke()
+        }
+      }
+
+      guard let cgImg = compositedImage.cgImage else { return }
+      Task { @MainActor in
+        guard let tex = try? TextureResource(image: cgImg, options: .init(semantic: .color)) else {
+          return
+        }
+        let entry = CachedMapSnapshotEntry(
+          texture: tex,
+          minX: calMinX,
+          maxX: calMaxX,
+          minZ: calMinZ,
+          maxZ: calMaxZ
+        )
+        Self.cachedMapSnapshots[cacheKey] = entry
+        completion(entry)
+      }
+    }
+  }
+
   // MARK: - 1. Smooth Clipped Polygon 3D Surface Mesh & Border with Contour Heatmap
 
   private struct SmoothBearingGeometry {
@@ -498,6 +882,10 @@ struct ResultBearingSurfaceRealityView: View {
     } else {
       material.color = .init(tint: UIColor(red: 0.14, green: 0.62, blue: 0.68, alpha: 1.0))
     }
+    material.faceCulling = .none
+    material.blending = isMapOverlayVisible
+      ? .transparent(opacity: .init(floatLiteral: 0.72))
+      : .opaque
 
     let entity = ModelEntity(mesh: mesh, materials: [material])
     entity.position = .zero
@@ -761,7 +1149,8 @@ struct ResultBearingSurfaceRealityView: View {
       let uvB = uvAt(b)
       let uvC = uvAt(c)
 
-      // Top face (+Y normal, CCW winding: a, c, b)
+      // Top face (+Y normal, CCW winding: a, c, b). Double-sided via `faceCulling = .none`
+      // so transparent blending over the Map Overlay plane passes through a single surface layer.
       let baseTop = UInt32(positions.count)
       positions.append(SIMD3<Float>(a.x, yTopSurface, a.y))
       positions.append(SIMD3<Float>(c.x, yTopSurface, c.y))
@@ -773,19 +1162,6 @@ struct ResultBearingSurfaceRealityView: View {
       ])
       uvs.append(contentsOf: [uvA, uvC, uvB])
       indices.append(contentsOf: [baseTop, baseTop + 1, baseTop + 2])
-
-      // Bottom face (-Y normal, CCW winding: a, b, c)
-      let baseBot = UInt32(positions.count)
-      positions.append(SIMD3<Float>(a.x, yBotSurface, a.y))
-      positions.append(SIMD3<Float>(b.x, yBotSurface, b.y))
-      positions.append(SIMD3<Float>(c.x, yBotSurface, c.y))
-      normals.append(contentsOf: [
-        SIMD3<Float>(0, -1, 0),
-        SIMD3<Float>(0, -1, 0),
-        SIMD3<Float>(0, -1, 0)
-      ])
-      uvs.append(contentsOf: [uvA, uvB, uvC])
-      indices.append(contentsOf: [baseBot, baseBot + 1, baseBot + 2])
     }
 
     // Side wall extrusion along smooth perimeter segments
@@ -1293,7 +1669,7 @@ struct ResultBearingSurfaceRealityView: View {
 
     let badgePlaneMesh = MeshResource.generatePlane(width: 4.0, depth: 1.4, cornerRadius: 0.7)
 
-    for (idx, pos) in volume.cptSurfacePositions.prefix(measuredCPTCount).enumerated() {
+    for (idx, pos) in cptLocalPositions(for: volume, output: bearingOutput).prefix(measuredCPTCount).enumerated() {
       let label = String(format: "CPT-%02d", idx + 1)
 
       let group = Entity()
@@ -1331,102 +1707,6 @@ struct ResultBearingSurfaceRealityView: View {
     }
 
     return container
-  }
-
-  // MARK: - 4. Base Ruler Axes Along 1m² Voxel Grid Perimeter
-
-  private func makeRulerAxesEntity(for volume: SubsurfaceVoxelVolume) -> Entity {
-    let container = Entity()
-    let axisColor = UIColor(white: 0.22, alpha: 1.0)
-    let axisMaterial = UnlitMaterial(color: axisColor)
-
-    let minX = -0.5 - volume.centerX
-    let maxX = Float(volume.nx) - 0.5 - volume.centerX
-    let minZ = -0.5 - volume.centerZ
-    let maxZ = Float(volume.nz) - 0.5 - volume.centerZ
-
-    let xLength = max(maxX - minX, 1.0)
-    let zLength = max(maxZ - minZ, 1.0)
-    let frontZ = maxZ + 1.0
-    let rightX = maxX + 1.0
-
-    // X Axis bar along front edge
-    let xBar = ModelEntity(
-      mesh: .generateBox(width: xLength, height: 0.10, depth: 0.12),
-      materials: [axisMaterial]
-    )
-    xBar.position = SIMD3<Float>((minX + maxX) * 0.5, 0, frontZ)
-    container.addChild(xBar)
-
-    let xTickValues = Array(0...5)
-    let labelOrientation = simd_quatf(angle: -1.22, axis: SIMD3<Float>(1, 0, 0))
-    for val in xTickValues {
-      let t = Float(val) / 5.0
-      let tx = minX + t * xLength
-
-      let tick = ModelEntity(
-        mesh: .generateBox(width: 0.12, height: 0.10, depth: 0.6),
-        materials: [axisMaterial]
-      )
-      tick.position = SIMD3<Float>(tx, 0, frontZ + 0.3)
-      container.addChild(tick)
-
-      let labelEntity = makeAxisTextEntity(text: String(format: "%.0f", t * volume.widthXM), size: 0.95, color: axisColor)
-      labelEntity.orientation = labelOrientation
-      labelEntity.position = SIMD3<Float>(tx - 0.38, -0.10, frontZ + 1.55)
-      container.addChild(labelEntity)
-    }
-
-    let xTitleEntity = makeAxisTextEntity(text: "X (m)", size: 1.05, color: axisColor)
-    xTitleEntity.orientation = labelOrientation
-    xTitleEntity.position = SIMD3<Float>((minX + maxX) * 0.5 - 1.4, -0.15, frontZ + 3.2)
-    container.addChild(xTitleEntity)
-
-    // Y Axis bar along right edge (0 at front to 4 at back)
-    let yBar = ModelEntity(
-      mesh: .generateBox(width: 0.12, height: 0.10, depth: zLength),
-      materials: [axisMaterial]
-    )
-    yBar.position = SIMD3<Float>(rightX, 0, (minZ + maxZ) * 0.5)
-    container.addChild(yBar)
-
-    let yTickValues = Array(0...4)
-    for val in yTickValues {
-      let t = Float(val) / 4.0
-      let tz = maxZ - t * zLength
-
-      let tick = ModelEntity(
-        mesh: .generateBox(width: 0.6, height: 0.10, depth: 0.12),
-        materials: [axisMaterial]
-      )
-      tick.position = SIMD3<Float>(rightX + 0.3, 0, tz)
-      container.addChild(tick)
-
-      let labelEntity = makeAxisTextEntity(text: String(format: "%.0f", t * volume.lengthZM), size: 0.95, color: axisColor)
-      labelEntity.orientation = labelOrientation
-      labelEntity.position = SIMD3<Float>(rightX + 0.95, -0.10, tz + 0.35)
-      container.addChild(labelEntity)
-    }
-
-    let yTitleEntity = makeAxisTextEntity(text: "Y (m)", size: 1.05, color: axisColor)
-    yTitleEntity.orientation = labelOrientation
-    yTitleEntity.position = SIMD3<Float>(rightX + 2.55, -0.12, (minZ + maxZ) * 0.5 + 0.4)
-    container.addChild(yTitleEntity)
-
-    return container
-  }
-
-  private func makeAxisTextEntity(text: String, size: CGFloat, color: UIColor) -> ModelEntity {
-    let mesh = MeshResource.generateText(
-      text,
-      extrusionDepth: 0.04,
-      font: .systemFont(ofSize: size, weight: .semibold),
-      containerFrame: .zero,
-      alignment: .center,
-      lineBreakMode: .byClipping
-    )
-    let mat = UnlitMaterial(color: color)
-    return ModelEntity(mesh: mesh, materials: [mat])
   }
 
   // MARK: - Candidate depth heatmap & badge texture generation

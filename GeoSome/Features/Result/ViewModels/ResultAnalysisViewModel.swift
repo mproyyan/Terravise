@@ -209,6 +209,7 @@ final class ResultAnalysisViewModel {
 
   // Bearing Layer Criteria & Slicing State
   var isBearingCriteriaCardExpanded: Bool = true
+  var isBearingMapOverlayVisible: Bool = false
   var coneResistanceQc: Double = 15.0
   var soilBehaviorIndexIc: Double = 1.80
   var selectedBearingIcText: String = "N/A"

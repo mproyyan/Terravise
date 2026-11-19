@@ -128,19 +128,22 @@ final class SubsurfaceCameraController {
   /// Restricts minimum pitch to `bearingMinPitch` (~37.2° above horizontal) so the flat heatmap never
   /// tilts edge-on, while allowing `maxPitch` up to `pi / 2` (90° straight top-down 2D map view).
   func configureForBearingLayer(for volume: SubsurfaceVoxelVolume, resetState: Bool = false) {
-    let maxSpan = max(Float(volume.nx), Float(volume.nz), 16.0)
+    let uniformStep = max(min(volume.cellStepXM, volume.cellStepZM), 1e-4)
+    let widthUnits = max(volume.widthXM / uniformStep, Float(volume.nx))
+    let lengthUnits = max(volume.lengthZM / uniformStep, Float(volume.nz))
+    let maxSpan = max(widthUnits, lengthUnits, 16.0)
 
     siteMaxSpanM = maxSpan
     minPitch = Self.bearingMinPitch
     maxPitch = Self.bearingMaxPitch
     minDistance = max(maxSpan * 0.14, 3.5)
-    maxDistance = max(maxSpan * 2.6, 65.0)
-    maxTargetExtentX = max(Float(volume.nx) * 0.65, 8.0)
-    maxTargetExtentZ = max(Float(volume.nz) * 0.65, 8.0)
+    maxDistance = max(maxSpan * 1.55, 34.0)
+    maxTargetExtentX = max(widthUnits * 0.45, 6.0)
+    maxTargetExtentZ = max(lengthUnits * 0.45, 6.0)
 
-    let computedDefaultDist = min(max(maxSpan * 1.18, minDistance * 2.0), maxDistance)
+    let computedDefaultDist = min(max(maxSpan * 1.12, minDistance * 2.0), maxDistance)
     defaultDistance = computedDefaultDist
-    let defaultTargetOffset = SIMD3<Float>(-maxSpan * 0.12, 0.0, 0.0)
+    let defaultTargetOffset = SIMD3<Float>(-maxSpan * 0.08, 0.0, 0.0)
 
     if resetState {
       stopInertia()
