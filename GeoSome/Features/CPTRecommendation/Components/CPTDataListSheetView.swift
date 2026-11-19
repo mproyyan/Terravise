@@ -81,7 +81,7 @@ struct CPTDataListSheetView: View {
       .accessibilityHidden(true)
 
       // Point Info
-      VStack(alignment: .leading, spacing: 2) {
+      VStack(alignment: .leading, spacing: 3) {
         Text("CPT Point \(index + 1)")
           .font(.caption.weight(.medium))
           .foregroundStyle(Color.secondary)
@@ -89,6 +89,10 @@ struct CPTDataListSheetView: View {
         Text(point.formattedCoordinate)
           .font(.subheadline.weight(.bold))
           .foregroundStyle(Color.primary)
+
+        Text("\(point.file.name) • \(point.rows.count) rows")
+          .font(.caption2)
+          .foregroundStyle(Color.secondary)
       }
 
       Spacer()
@@ -112,7 +116,7 @@ struct CPTDataListSheetView: View {
     )
     .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     .accessibilityElement(children: .combine)
-    .accessibilityLabel("CPT Point \(index + 1), coordinates \(point.formattedCoordinate)")
+    .accessibilityLabel("CPT Point \(index + 1), file \(point.file.name), coordinates \(point.formattedCoordinate)")
     .accessibilityHint("Double tap to view detailed CPT data")
   }
 }
