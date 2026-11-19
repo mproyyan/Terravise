@@ -22,6 +22,13 @@ final class SubsurfaceCameraController {
   static let absoluteMinPitch: Float = 0.08 // ~4.6° above horizontal ground plane
   static let absoluteMaxPitch: Float = 1.48 // ~84.8° near top-down nadir
 
+  // Bearing Layer camera angle presets: aerial top-down focus that can straighten to a 90° 2D map view
+  // while preventing extreme low-angle horizontal tilt.
+  static let defaultBearingYaw: Float = 0.0
+  static let defaultBearingPitch: Float = 0.96 // ~55° above horizontal
+  static let bearingMinPitch: Float = 0.65     // ~37.2° above horizontal (prevents flat edge-on tilt)
+  static let bearingMaxPitch: Float = .pi * 0.5 // 90.0° straight top-down 2D map view
+
   // MARK: - Core Camera State (Metric Space: 1 unit = 1 meter)
 
   /// Look-at target point on the ground plane (`Y = 0`) in meters.
@@ -113,6 +120,45 @@ final class SubsurfaceCameraController {
   /// Resets the camera rig to the default overview framing for the given volume.
   func reset(for volume: SubsurfaceVoxelVolume) {
     configure(for: volume, resetState: true)
+  }
+
+  /// Configures the camera rig for the Bearing Layer heatmap surface (operating in grid-unit coordinates
+  /// where the surface spans `volume.nx × volume.nz` at `Y = 0`).
+  ///
+  /// Restricts minimum pitch to `bearingMinPitch` (~37.2° above horizontal) so the flat heatmap never
+  /// tilts edge-on, while allowing `maxPitch` up to `pi / 2` (90° straight top-down 2D map view).
+  func configureForBearingLayer(for volume: SubsurfaceVoxelVolume, resetState: Bool = false) {
+    let maxSpan = max(Float(volume.nx), Float(volume.nz), 16.0)
+
+    siteMaxSpanM = maxSpan
+    minPitch = Self.bearingMinPitch
+    maxPitch = Self.bearingMaxPitch
+    minDistance = max(maxSpan * 0.14, 3.5)
+    maxDistance = max(maxSpan * 2.6, 65.0)
+    maxTargetExtentX = max(Float(volume.nx) * 0.65, 8.0)
+    maxTargetExtentZ = max(Float(volume.nz) * 0.65, 8.0)
+
+    let computedDefaultDist = min(max(maxSpan * 1.18, minDistance * 2.0), maxDistance)
+    defaultDistance = computedDefaultDist
+    let defaultTargetOffset = SIMD3<Float>(-maxSpan * 0.12, 0.0, 0.0)
+
+    if resetState {
+      stopInertia()
+      target = clampTarget(defaultTargetOffset)
+      distance = computedDefaultDist
+      yaw = Self.defaultBearingYaw
+      pitch = Self.defaultBearingPitch
+    } else {
+      target = clampTarget(target)
+      distance = min(max(distance, minDistance), maxDistance)
+      pitch = min(max(pitch, minPitch), maxPitch)
+    }
+    revision &+= 1
+  }
+
+  /// Resets the Bearing Layer camera rig to its default aerial framing.
+  func resetForBearingLayer(for volume: SubsurfaceVoxelVolume) {
+    configureForBearingLayer(for: volume, resetState: true)
   }
 
   // MARK: - Derived Camera Transform & Clipping Planes
@@ -217,6 +263,28 @@ final class SubsurfaceCameraController {
     let hitX = ray.origin.x + t * ray.direction.x
     let hitZ = ray.origin.z + t * ray.direction.z
     return SIMD3<Float>(hitX, 0.0, hitZ)
+  }
+
+  /// Projects a 3D world point onto 2D viewport screen coordinates (in points).
+  func projectToScreen(
+    _ worldPoint: SIMD3<Float>,
+    viewportSize: CGSize
+  ) -> CGPoint? {
+    let width = Float(max(viewportSize.width, 1.0))
+    let height = Float(max(viewportSize.height, 1.0))
+    let rel = worldPoint - eyePosition
+    let pCam = cameraOrientation.inverse.act(rel)
+    guard pCam.z < -nearPlane else { return nil }
+
+    let aspect = width / height
+    let tanHalfFov = tan((fovDegrees * .pi / 180.0) * 0.5)
+    let depth = -pCam.z
+    let ndcX = (pCam.x / depth) / max(aspect * tanHalfFov, 1e-5)
+    let ndcY = (pCam.y / depth) / max(tanHalfFov, 1e-5)
+
+    let screenX = CGFloat((ndcX + 1.0) * 0.5 * width)
+    let screenY = CGFloat((1.0 - ndcY) * 0.5 * height)
+    return CGPoint(x: screenX, y: screenY)
   }
 
   // MARK: - Gesture Handlers (Pan, Pinch-to-Point, Rotate, Tilt)
@@ -471,9 +539,16 @@ final class SubsurfaceCameraController {
 struct SubsurfaceCameraGestureOverlay: UIViewRepresentable {
   let controller: SubsurfaceCameraController
   var onSingleTap: (CGPoint, CGSize) -> Void
+  var shouldInterceptOneFingerPan: ((CGPoint, CGSize) -> Bool)? = nil
+  var onInterceptedOneFingerPan: ((CGPoint, CGSize) -> Void)? = nil
 
   func makeCoordinator() -> Coordinator {
-    Coordinator(controller: controller, onSingleTap: onSingleTap)
+    Coordinator(
+      controller: controller,
+      onSingleTap: onSingleTap,
+      shouldInterceptOneFingerPan: shouldInterceptOneFingerPan,
+      onInterceptedOneFingerPan: onInterceptedOneFingerPan
+    )
   }
 
   func makeUIView(context: Context) -> UIView {
@@ -487,17 +562,22 @@ struct SubsurfaceCameraGestureOverlay: UIViewRepresentable {
   func updateUIView(_ uiView: UIView, context: Context) {
     context.coordinator.controller = controller
     context.coordinator.onSingleTap = onSingleTap
+    context.coordinator.shouldInterceptOneFingerPan = shouldInterceptOneFingerPan
+    context.coordinator.onInterceptedOneFingerPan = onInterceptedOneFingerPan
   }
 
   @MainActor
   final class Coordinator: NSObject, UIGestureRecognizerDelegate {
     var controller: SubsurfaceCameraController
     var onSingleTap: (CGPoint, CGSize) -> Void
+    var shouldInterceptOneFingerPan: ((CGPoint, CGSize) -> Bool)?
+    var onInterceptedOneFingerPan: ((CGPoint, CGSize) -> Void)?
 
     private weak var hostView: UIView?
     private var displayLink: CADisplayLink?
     private var lastFrameTimestamp: CFTimeInterval?
     private var lastTwoFingerEndTime: CFTimeInterval = 0
+    private var isInterceptingOneFingerPan: Bool = false
 
     private var oneFingerPanPrevTranslation: CGPoint = .zero
     private var twoFingerPanPrevTranslation: CGPoint = .zero
@@ -511,10 +591,14 @@ struct SubsurfaceCameraGestureOverlay: UIViewRepresentable {
 
     init(
       controller: SubsurfaceCameraController,
-      onSingleTap: @escaping (CGPoint, CGSize) -> Void
+      onSingleTap: @escaping (CGPoint, CGSize) -> Void,
+      shouldInterceptOneFingerPan: ((CGPoint, CGSize) -> Bool)? = nil,
+      onInterceptedOneFingerPan: ((CGPoint, CGSize) -> Void)? = nil
     ) {
       self.controller = controller
       self.onSingleTap = onSingleTap
+      self.shouldInterceptOneFingerPan = shouldInterceptOneFingerPan
+      self.onInterceptedOneFingerPan = onInterceptedOneFingerPan
       super.init()
     }
 
@@ -595,30 +679,46 @@ struct SubsurfaceCameraGestureOverlay: UIViewRepresentable {
     @objc private func handleOneFingerPan(_ recognizer: UIPanGestureRecognizer) {
       guard let view = hostView else { return }
       let size = view.bounds.size
+      let location = recognizer.location(in: view)
 
       switch recognizer.state {
       case .began:
         stopDisplayLink()
-        controller.beginInteraction()
-        oneFingerPanPrevTranslation = .zero
+        if shouldInterceptOneFingerPan?(location, size) == true {
+          isInterceptingOneFingerPan = true
+          controller.stopInertia()
+          onInterceptedOneFingerPan?(location, size)
+        } else {
+          isInterceptingOneFingerPan = false
+          controller.beginInteraction()
+          oneFingerPanPrevTranslation = .zero
+        }
 
       case .changed:
-        let current = recognizer.translation(in: view)
-        let delta = CGPoint(
-          x: current.x - oneFingerPanPrevTranslation.x,
-          y: current.y - oneFingerPanPrevTranslation.y
-        )
-        oneFingerPanPrevTranslation = current
-        let velocity = recognizer.velocity(in: view)
-        controller.applyGroundPan(
-          translationDelta: delta,
-          velocityInPoints: velocity,
-          viewportSize: size
-        )
+        if isInterceptingOneFingerPan {
+          onInterceptedOneFingerPan?(location, size)
+        } else {
+          let current = recognizer.translation(in: view)
+          let delta = CGPoint(
+            x: current.x - oneFingerPanPrevTranslation.x,
+            y: current.y - oneFingerPanPrevTranslation.y
+          )
+          oneFingerPanPrevTranslation = current
+          let velocity = recognizer.velocity(in: view)
+          controller.applyGroundPan(
+            translationDelta: delta,
+            velocityInPoints: velocity,
+            viewportSize: size
+          )
+        }
 
       case .ended, .cancelled, .failed:
-        controller.endInteraction()
-        startDisplayLinkIfNeeded()
+        if isInterceptingOneFingerPan {
+          isInterceptingOneFingerPan = false
+        } else {
+          controller.endInteraction()
+          startDisplayLinkIfNeeded()
+        }
 
       default:
         break

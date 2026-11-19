@@ -9,6 +9,7 @@ struct ResultBearingSurfaceRealityView: View {
   let bearingRevision: Int
   let measuredCPTCount: Int
   let selectedCell: (x: Int, y: Int)?
+  var cameraController: SubsurfaceCameraController = SubsurfaceCameraController()
   @Binding var cameraYaw: Float
   @Binding var cameraPitch: Float
   @Binding var cameraZoom: Float
@@ -24,10 +25,6 @@ struct ResultBearingSurfaceRealityView: View {
   var onTapBearingSurface: ((CGPoint, BearingLayerVoxel?, Int, Int) -> Void)? = nil
   var onSelectBearingVoxel: ((BearingLayerVoxel?) -> Void)? = nil
 
-  @State private var panOffset = SIMD2<Float>(repeating: 0)
-  @State private var panStart: SIMD2<Float>?
-  @State private var pinchStartZoom: Float?
-  @State private var pinchStartPan: SIMD2<Float>?
   @State private var lastBuiltVolumeID: UUID?
   @State private var lastBuiltBearingRevision: Int = -1
 
@@ -36,6 +33,7 @@ struct ResultBearingSurfaceRealityView: View {
   @MainActor private static var cachedComparisonBadgeTextures: [String: TextureResource] = [:]
 
   var body: some View {
+    let _ = cameraController.revision
     GeometryReader { proxy in
       ZStack(alignment: .top) {
         RealityView { content in
@@ -44,12 +42,19 @@ struct ResultBearingSurfaceRealityView: View {
           let rootAnchor = Entity()
           rootAnchor.name = "BearingSurfaceRootAnchor"
 
+          let cameraEntity = PerspectiveCamera()
+          cameraEntity.name = "BearingPerspectiveCamera"
+          cameraEntity.camera.fieldOfViewInDegrees = cameraController.fovDegrees
+          cameraEntity.camera.near = cameraController.nearPlane
+          cameraEntity.camera.far = cameraController.farPlane
+          cameraEntity.transform = cameraController.cameraTransform
+          rootAnchor.addChild(cameraEntity)
+
           let pivotEntity = Entity()
           pivotEntity.name = "BearingSurfacePivot"
-          pivotEntity.position = sceneOffsetWithPan()
-          pivotEntity.orientation = makeOrbitOrientation(yaw: cameraYaw, pitch: cameraPitch)
-          let scale = computeNormalizedScale(for: volume) * cameraZoom
-          pivotEntity.scale = SIMD3<Float>(repeating: scale)
+          pivotEntity.position = .zero
+          pivotEntity.orientation = simd_quatf(ix: 0, iy: 0, iz: 0, r: 1)
+          pivotEntity.scale = .one
           rootAnchor.addChild(pivotEntity)
 
           populatePivotScene(pivotEntity: pivotEntity, volume: volume)
@@ -62,10 +67,16 @@ struct ResultBearingSurfaceRealityView: View {
             return
           }
 
-          pivotEntity.position = sceneOffsetWithPan()
-          pivotEntity.orientation = makeOrbitOrientation(yaw: cameraYaw, pitch: cameraPitch)
-          let scale = computeNormalizedScale(for: volume) * cameraZoom
-          pivotEntity.scale = SIMD3<Float>(repeating: scale)
+          if let cameraEntity = rootAnchor.findEntity(named: "BearingPerspectiveCamera") as? PerspectiveCamera {
+            cameraEntity.camera.fieldOfViewInDegrees = cameraController.fovDegrees
+            cameraEntity.camera.near = cameraController.nearPlane
+            cameraEntity.camera.far = cameraController.farPlane
+            cameraEntity.transform = cameraController.cameraTransform
+          }
+
+          pivotEntity.position = .zero
+          pivotEntity.orientation = simd_quatf(ix: 0, iy: 0, iz: 0, r: 1)
+          pivotEntity.scale = .one
 
           if lastBuiltVolumeID != volume.id || lastBuiltBearingRevision != bearingRevision {
             populatePivotScene(pivotEntity: pivotEntity, volume: volume)
@@ -77,13 +88,28 @@ struct ResultBearingSurfaceRealityView: View {
 
           updateComparisonMarkers(on: pivotEntity)
           updateInspectionMarker(on: pivotEntity)
+          updateAdaptiveMarkerScales(on: pivotEntity)
         }
-        .gesture(panDragGesture(viewport: proxy.size))
-        .simultaneousGesture(inspectionMarkerDragGesture)
-        .simultaneousGesture(zoomMagnifyGesture(viewport: proxy.size))
-        .simultaneousGesture(targetedTapGesture)
-        .simultaneousGesture(doubleTapZoomGesture(viewport: proxy.size))
-        .onChange(of: volume.id) { _, _ in panOffset = .zero }
+        .overlay {
+          SubsurfaceCameraGestureOverlay(
+            controller: cameraController,
+            onSingleTap: { screenPoint, viewportSize in
+              handleSurfaceTap(at: screenPoint, in: viewportSize)
+            },
+            shouldInterceptOneFingerPan: { screenPoint, viewportSize in
+              shouldInterceptMarkerDrag(at: screenPoint, in: viewportSize)
+            },
+            onInterceptedOneFingerPan: { screenPoint, viewportSize in
+              handleInspectionMarkerDrag(at: screenPoint, in: viewportSize)
+            }
+          )
+        }
+        .onAppear {
+          cameraController.updateViewportSize(proxy.size)
+        }
+        .onChange(of: proxy.size) { _, newSize in
+          cameraController.updateViewportSize(newSize)
+        }
 
         // Native-looking Bearing Popover Overlay
         if isBearingPopoverPresented, let tapLoc = bearingPopoverLocation {
@@ -285,82 +311,160 @@ struct ResultBearingSurfaceRealityView: View {
     return tex
   }
 
-  // MARK: - Gestures
+  // MARK: - Camera-Driven Surface Picking, Marker Drag & Adaptive Scaling
 
-  private func panDragGesture(viewport: CGSize) -> some Gesture {
-    DragGesture(minimumDistance: 4)
-      .targetedToAnyEntity()
-      .onChanged { value in
-        guard value.entity.name == "BearingSurfacePlane" else { return }
-        if panStart == nil { panStart = panOffset }
-        let base = panStart ?? panOffset
-        let scale = Float(1.4 / max(min(viewport.width, viewport.height), 1))
-        panOffset = base + SIMD2(Float(value.translation.width) * scale, -Float(value.translation.height) * scale)
+  @MainActor
+  private func updateAdaptiveMarkerScales(on pivotEntity: Entity) {
+    let refDist = max(cameraController.defaultDistance, 16.0)
+    let adaptiveScale = min(1.15, max(cameraController.distance / refDist, 0.35))
+    let scaleVec = SIMD3<Float>(repeating: adaptiveScale)
+
+    if let cptContainer = pivotEntity.findEntity(named: "BearingCPTMarkers") {
+      for child in cptContainer.children {
+        child.scale = scaleVec
       }
-      .onEnded { _ in
-        panStart = nil
+    }
+    if let cmpContainer = pivotEntity.findEntity(named: "BearingComparisonMarkers") {
+      for child in cmpContainer.children {
+        child.scale = scaleVec
       }
+    }
+    if let marker = pivotEntity.findEntity(named: "BearingInspectionMarker") {
+      marker.scale = scaleVec
+    }
   }
 
-  private func zoomMagnifyGesture(viewport: CGSize) -> some Gesture {
-    MagnifyGesture()
-      .onChanged { value in
-        if pinchStartZoom == nil {
-          pinchStartZoom = cameraZoom
-          pinchStartPan = panOffset
-        }
-        let baseZoom = pinchStartZoom ?? cameraZoom
-        let updated = baseZoom * Float(value.magnification)
-        let nextZoom = min(max(updated, 0.65), 10.0)
-        let ratio = nextZoom / max(baseZoom, 0.001)
-        let scale = Float(1.4 / max(min(viewport.width, viewport.height), 1))
-        let anchor = SIMD2<Float>(
-          Float(value.startLocation.x - viewport.width * 0.5) * scale,
-          -Float(value.startLocation.y - viewport.height * 0.5) * scale
-        )
-        let startingPan = pinchStartPan ?? panOffset
-        panOffset = startingPan + (anchor - startingPan) * (1 - ratio)
-        cameraZoom = nextZoom
+  private func shouldInterceptMarkerDrag(at screenPoint: CGPoint, in viewportSize: CGSize) -> Bool {
+    guard let output = bearingOutput,
+          let selectedCell,
+          (0..<output.grid.nx).contains(selectedCell.x),
+          (0..<output.grid.ny).contains(selectedCell.y),
+          output.topDepthMXY[output.grid.column(selectedCell.x, selectedCell.y)] != nil
+    else {
+      return false
+    }
+
+    let markerPos = SIMD3<Float>(
+      BearingCandidateGeometry.localX(Double(selectedCell.x), output: output, volume: volume),
+      0.55,
+      BearingCandidateGeometry.localZ(Double(selectedCell.y), output: output, volume: volume)
+    )
+    if let markerScreen = cameraController.projectToScreen(markerPos, viewportSize: viewportSize) {
+      let dx = screenPoint.x - markerScreen.x
+      let dy = screenPoint.y - markerScreen.y
+      if (dx * dx + dy * dy) <= (32.0 * 32.0) {
+        return true
       }
-      .onEnded { _ in
-        pinchStartZoom = nil
-        pinchStartPan = nil
-      }
+    }
+    return false
   }
 
-  private func doubleTapZoomGesture(viewport: CGSize) -> some Gesture {
-    SpatialTapGesture(count: 2)
-      .onEnded { value in
-        let nextZoom = min(cameraZoom * 2, 10.0)
-        let ratio = nextZoom / max(cameraZoom, 0.001)
-        let scale = Float(1.4 / max(min(viewport.width, viewport.height), 1))
-        let anchor = SIMD2<Float>(
-          Float(value.location.x - viewport.width * 0.5) * scale,
-          -Float(value.location.y - viewport.height * 0.5) * scale
-        )
-        panOffset += (anchor - panOffset) * (1 - ratio)
-        cameraZoom = nextZoom
-      }
+  private func handleInspectionMarkerDrag(at screenPoint: CGPoint, in viewportSize: CGSize) {
+    guard let output = bearingOutput,
+          let groundHit = cameraController.intersectGroundPlane(
+            screenPoint: screenPoint,
+            viewportSize: viewportSize
+          ),
+          let cell = nearestCandidateCell(localX: groundHit.x, localZ: groundHit.z, output: output)
+    else {
+      return
+    }
+    bearingPopoverLocation = screenPoint
+    if selectedCell?.x != cell.x || selectedCell?.y != cell.y {
+      onTapBearingSurface?(screenPoint, nil, cell.x, cell.y)
+    }
   }
 
-  private var inspectionMarkerDragGesture: some Gesture {
-    DragGesture(minimumDistance: 0)
-      .targetedToAnyEntity()
-      .onChanged { value in
-        guard value.entity.name == "BearingInspectionMarker" ||
-                value.entity.name == "BearingInspectionMarkerDot",
-              let output = bearingOutput,
-              let pivot = findPivotEntity(from: value.entity) else { return }
-        guard let surface = pivot.findEntity(named: "BearingSurfacePlane"),
-              let hit = value.hitTest(point: value.location, in: .local).first(where: { $0.entity === surface }) else { return }
-        let localPoint = pivot.convert(position: hit.position, from: nil)
-        guard let cell = nearestCandidateCell(localX: localPoint.x, localZ: localPoint.z, output: output) else { return }
-        bearingPopoverLocation = value.location
-        if selectedCell?.x != cell.x || selectedCell?.y != cell.y {
-          onTapBearingSurface?(value.location, nil, cell.x, cell.y)
+  private func handleSurfaceTap(at screenPoint: CGPoint, in viewportSize: CGSize) {
+    guard viewportSize.width > 1, viewportSize.height > 1 else { return }
+    guard let output = bearingOutput else {
+      if isBearingPopoverPresented {
+        withAnimation(.easeInOut(duration: 0.2)) {
+          isBearingPopoverPresented = false
         }
       }
-      .onEnded { _ in }
+      return
+    }
+
+    guard let groundHit = cameraController.intersectGroundPlane(
+      screenPoint: screenPoint,
+      viewportSize: viewportSize
+    ) else {
+      return
+    }
+
+    let refDist = max(cameraController.defaultDistance, 16.0)
+    let adaptiveScale = min(1.15, max(cameraController.distance / refDist, 0.35))
+
+    // 1. Check if tap landed on a measured CPT marker on the surface
+    let cptHitRadiusSq = pow(1.6 * adaptiveScale, 2)
+    for (idx, pos) in volume.cptSurfacePositions.prefix(measuredCPTCount).enumerated() {
+      let dx = groundHit.x - pos.x
+      let dz = groundHit.z - pos.z
+      if (dx * dx + dz * dz) <= cptHitRadiusSq,
+         let cell = BearingCandidateGeometry.gridXY(localX: pos.x, localZ: pos.z, output: output, volume: volume),
+         output.intervalCountXY[output.grid.column(cell.x, cell.y)] > 0
+      {
+        let _ = idx
+        onSelectBearingVoxel?(nil)
+        onTapBearingSurface?(screenPoint, nil, cell.x, cell.y)
+        return
+      }
+    }
+
+    // 2. Check if tap landed inside the smooth site boundary polygon
+    let xMin = BearingCandidateGeometry.localX(0, output: output, volume: volume)
+    let xMax = BearingCandidateGeometry.localX(Double(max(output.grid.nx - 1, 1)), output: output, volume: volume)
+    let zMin = BearingCandidateGeometry.localZ(Double(max(output.grid.ny - 1, 1)), output: output, volume: volume)
+    let zMax = BearingCandidateGeometry.localZ(0, output: output, volume: volume)
+
+    var rawPolygon: [SIMD2<Float>] = []
+    if volume.boundaryPolygonUV.count >= 3 {
+      rawPolygon = volume.boundaryPolygonUV.map { uv in
+        SIMD2<Float>(
+          xMin + uv.x * (xMax - xMin),
+          zMin + uv.y * (zMax - zMin)
+        )
+      }
+    } else {
+      rawPolygon = [
+        SIMD2<Float>(xMin, zMin),
+        SIMD2<Float>(xMax, zMin),
+        SIMD2<Float>(xMax, zMax),
+        SIMD2<Float>(xMin, zMax)
+      ]
+    }
+    rawPolygon = Self.cleanPolygonVertices(rawPolygon)
+
+    let hit2D = SIMD2<Float>(groundHit.x, groundHit.z)
+    let isInsideBoundary = rawPolygon.count >= 3 ? Self.isPointInPolygon2D(hit2D, polygon: rawPolygon) : true
+
+    if isInsideBoundary {
+      if let cell = BearingCandidateGeometry.gridXY(localX: groundHit.x, localZ: groundHit.z, output: output, volume: volume),
+         output.intervalCountXY[output.grid.column(cell.x, cell.y)] > 0
+      {
+        onSelectBearingVoxel?(nil)
+        onTapBearingSurface?(screenPoint, nil, cell.x, cell.y)
+        return
+      } else if let nearest = nearestCandidateCell(localX: groundHit.x, localZ: groundHit.z, output: output) {
+        let stepX = Float(output.grid.dxM) / max(volume.cellStepXM, 1e-4)
+        let stepZ = Float(output.grid.dyM) / max(volume.cellStepZM, 1e-4)
+        let maxSnapDistSq = pow(max(stepX, stepZ) * 1.65, 2)
+        let dx = groundHit.x - BearingCandidateGeometry.localX(Double(nearest.x), output: output, volume: volume)
+        let dz = groundHit.z - BearingCandidateGeometry.localZ(Double(nearest.y), output: output, volume: volume)
+        if (dx * dx + dz * dz) <= maxSnapDistSq {
+          onSelectBearingVoxel?(nil)
+          onTapBearingSurface?(screenPoint, nil, nearest.x, nearest.y)
+          return
+        }
+      }
+    }
+
+    if isBearingPopoverPresented {
+      withAnimation(.easeInOut(duration: 0.2)) {
+        isBearingPopoverPresented = false
+      }
+    }
   }
 
   private func nearestCandidateCell(localX: Float, localZ: Float, output: BearingRuleOutput) -> (x: Int, y: Int)? {
@@ -375,81 +479,6 @@ struct ResultBearingSurfaceRealityView: View {
       }
     }
     return best
-  }
-
-  private var targetedTapGesture: some Gesture {
-    SpatialTapGesture()
-      .targetedToAnyEntity()
-      .onEnded { value in
-        guard let output = bearingOutput else { return }
-        let name = value.entity.name
-        if name.hasPrefix("BearingCPT_"),
-           let idxStr = name.split(separator: "_").last,
-           let idx = Int(idxStr)
-        {
-          if idx < measuredCPTCount, idx < volume.cptSurfacePositions.count {
-            let pos = volume.cptSurfacePositions[idx]
-            if let cell = BearingCandidateGeometry.gridXY(localX: pos.x, localZ: pos.z, output: output, volume: volume),
-               output.intervalCountXY[output.grid.column(cell.x, cell.y)] > 0 {
-              onSelectBearingVoxel?(nil)
-              onTapBearingSurface?(value.location, nil, cell.x, cell.y)
-            }
-          }
-        } else {
-          guard name == "BearingSurfacePlane" else { return }
-          let hits = value.hitTest(point: value.location, in: .local)
-          if let firstHit = hits.first,
-             let pivot = findPivotEntity(from: value.entity)
-          {
-            let localPt = pivot.convert(position: firstHit.position, from: nil)
-            if let cell = BearingCandidateGeometry.gridXY(localX: localPt.x, localZ: localPt.z, output: output, volume: volume),
-               output.intervalCountXY[output.grid.column(cell.x, cell.y)] > 0 {
-              onSelectBearingVoxel?(nil)
-              onTapBearingSurface?(value.location, nil, cell.x, cell.y)
-            } else if let nearest = nearestCandidateCell(localX: localPt.x, localZ: localPt.z, output: output) {
-              let stepX = Float(output.grid.dxM) / max(volume.cellStepXM, 1e-4)
-              let stepZ = Float(output.grid.dyM) / max(volume.cellStepZM, 1e-4)
-              let maxSnapDistSq = pow(max(stepX, stepZ) * 1.6, 2)
-              let dx = localPt.x - BearingCandidateGeometry.localX(Double(nearest.x), output: output, volume: volume)
-              let dz = localPt.z - BearingCandidateGeometry.localZ(Double(nearest.y), output: output, volume: volume)
-              if dx * dx + dz * dz <= maxSnapDistSq {
-                onSelectBearingVoxel?(nil)
-                onTapBearingSurface?(value.location, nil, nearest.x, nearest.y)
-              }
-            }
-          }
-        }
-      }
-  }
-
-  private func findPivotEntity(from entity: Entity) -> Entity? {
-    var current: Entity? = entity
-    while let c = current {
-      if c.name == "BearingSurfacePivot" { return c }
-      current = c.parent
-    }
-    return nil
-  }
-
-  // MARK: - Transform Helpers (Identical 1m² Grid Scale to 3D Layer)
-
-  private func computeNormalizedScale(for volume: SubsurfaceVoxelVolume) -> Float {
-    let maxSpan = max(Float(volume.nx), Float(volume.nz), 16.0)
-    return 0.92 / maxSpan
-  }
-
-  private func computeSceneOffset() -> SIMD3<Float> {
-    SIMD3<Float>(0.18, -0.02, -1.75)
-  }
-
-  private func sceneOffsetWithPan() -> SIMD3<Float> {
-    computeSceneOffset() + SIMD3(panOffset.x, panOffset.y, 0)
-  }
-
-  private func makeOrbitOrientation(yaw: Float, pitch: Float) -> simd_quatf {
-    let pitchQuat = simd_quatf(angle: pitch, axis: SIMD3<Float>(1, 0, 0))
-    let yawQuat = simd_quatf(angle: yaw, axis: SIMD3<Float>(0, 1, 0))
-    return simd_mul(pitchQuat, yawQuat)
   }
 
   // MARK: - 1. Smooth Clipped Polygon 3D Surface Mesh & Border with Contour Heatmap
@@ -1330,6 +1359,7 @@ struct ResultBearingSurfaceRealityView: View {
     container.addChild(xBar)
 
     let xTickValues = Array(0...5)
+    let labelOrientation = simd_quatf(angle: -1.22, axis: SIMD3<Float>(1, 0, 0))
     for val in xTickValues {
       let t = Float(val) / 5.0
       let tx = minX + t * xLength
@@ -1342,14 +1372,14 @@ struct ResultBearingSurfaceRealityView: View {
       container.addChild(tick)
 
       let labelEntity = makeAxisTextEntity(text: String(format: "%.0f", t * volume.widthXM), size: 0.95, color: axisColor)
-      labelEntity.orientation = simd_quatf(angle: -0.75, axis: SIMD3<Float>(1, 0, 0))
-      labelEntity.position = SIMD3<Float>(tx - 0.38, -0.25, frontZ + 1.45)
+      labelEntity.orientation = labelOrientation
+      labelEntity.position = SIMD3<Float>(tx - 0.38, -0.10, frontZ + 1.55)
       container.addChild(labelEntity)
     }
 
     let xTitleEntity = makeAxisTextEntity(text: "X (m)", size: 1.05, color: axisColor)
-    xTitleEntity.orientation = simd_quatf(angle: -0.75, axis: SIMD3<Float>(1, 0, 0))
-    xTitleEntity.position = SIMD3<Float>((minX + maxX) * 0.5 - 1.4, -0.55, frontZ + 3.1)
+    xTitleEntity.orientation = labelOrientation
+    xTitleEntity.position = SIMD3<Float>((minX + maxX) * 0.5 - 1.4, -0.15, frontZ + 3.2)
     container.addChild(xTitleEntity)
 
     // Y Axis bar along right edge (0 at front to 4 at back)
@@ -1373,14 +1403,14 @@ struct ResultBearingSurfaceRealityView: View {
       container.addChild(tick)
 
       let labelEntity = makeAxisTextEntity(text: String(format: "%.0f", t * volume.lengthZM), size: 0.95, color: axisColor)
-      labelEntity.orientation = simd_quatf(angle: -0.75, axis: SIMD3<Float>(1, 0, 0))
-      labelEntity.position = SIMD3<Float>(rightX + 0.95, -0.18, tz + 0.25)
+      labelEntity.orientation = labelOrientation
+      labelEntity.position = SIMD3<Float>(rightX + 0.95, -0.10, tz + 0.35)
       container.addChild(labelEntity)
     }
 
     let yTitleEntity = makeAxisTextEntity(text: "Y (m)", size: 1.05, color: axisColor)
-    yTitleEntity.orientation = simd_quatf(angle: -0.75, axis: SIMD3<Float>(1, 0, 0))
-    yTitleEntity.position = SIMD3<Float>(rightX + 2.45, -0.25, (minZ + maxZ) * 0.5 + 0.3)
+    yTitleEntity.orientation = labelOrientation
+    yTitleEntity.position = SIMD3<Float>(rightX + 2.55, -0.12, (minZ + maxZ) * 0.5 + 0.4)
     container.addChild(yTitleEntity)
 
     return container

@@ -97,6 +97,7 @@ struct ResultAnalysisView: View {
             bearingRevision: viewModel.bearingRenderRevision,
             measuredCPTCount: viewModel.project.cptPoints.count,
             selectedCell: viewModel.selectedBearingCell,
+            cameraController: viewModel.bearingCameraController,
             cameraYaw: $viewModel.bearingCameraYaw,
             cameraPitch: $viewModel.bearingCameraPitch,
             cameraZoom: $viewModel.bearingCameraZoom,
