@@ -45,6 +45,10 @@ final class BoundaryCreationViewModel {
   private var isEditingNameSession = false
   private var hasRecordedNameEditInSession = false
 
+  var isEditingExistingProject: Bool {
+    editingProject != nil
+  }
+
   var canUndo: Bool {
     !undoStack.isEmpty
   }

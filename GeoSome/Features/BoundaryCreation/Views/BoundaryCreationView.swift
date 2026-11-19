@@ -279,6 +279,7 @@ struct BoundaryCreationView: View {
         canUndo: viewModel.canUndo,
         canRedo: viewModel.canRedo,
         canCreateProject: viewModel.canCreateProject,
+        isEditingExistingProject: editingProjectId != nil || viewModel.isEditingExistingProject,
         onBeginEditingName: {
           viewModel.beginEditingProjectName()
         },
