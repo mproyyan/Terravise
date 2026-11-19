@@ -299,12 +299,12 @@ struct CPTRecommendedPointSheetView: View {
             Text("Shows how well the ground is understood here. A lower percentage indicates an untested blind spot, making this location a priority to test.")
               .font(.subheadline)
               .foregroundStyle(Color.secondary)
-              .lineSpacing(3)
+              .lineSpacing(4)
               .fixedSize(horizontal: false, vertical: true)
           }
-          .padding(.horizontal, 16)
-          .padding(.vertical, 14)
-          .frame(maxWidth: 280)
+          .padding(.horizontal, 18)
+          .padding(.vertical, 16)
+          .frame(width: 320)
           .presentationCompactAdaptation(.popover)
         }
       }
