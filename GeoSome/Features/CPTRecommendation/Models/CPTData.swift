@@ -284,6 +284,7 @@ struct CPTPointEntry: Identifiable, Hashable, Codable, Sendable {
   var file: CPTUploadedFile
   var rows: [CPTRowData]
   var uploadedAt: Date
+  var equipmentParameters: CPTEquipmentParameters?
 
   private enum CodingKeys: String, CodingKey {
     case id
@@ -293,6 +294,7 @@ struct CPTPointEntry: Identifiable, Hashable, Codable, Sendable {
     case file
     case rows
     case uploadedAt
+    case equipmentParameters
   }
 
   init(
@@ -301,7 +303,8 @@ struct CPTPointEntry: Identifiable, Hashable, Codable, Sendable {
     coordinate: CLLocationCoordinate2D,
     file: CPTUploadedFile,
     rows: [CPTRowData] = [],
-    uploadedAt: Date = Date()
+    uploadedAt: Date = Date(),
+    equipmentParameters: CPTEquipmentParameters? = nil
   ) {
     self.id = id
     self.type = type
@@ -309,6 +312,7 @@ struct CPTPointEntry: Identifiable, Hashable, Codable, Sendable {
     self.file = file
     self.rows = rows
     self.uploadedAt = uploadedAt
+    self.equipmentParameters = equipmentParameters
   }
 
   init(from decoder: Decoder) throws {
@@ -321,6 +325,7 @@ struct CPTPointEntry: Identifiable, Hashable, Codable, Sendable {
     file = try container.decode(CPTUploadedFile.self, forKey: .file)
     rows = try container.decode([CPTRowData].self, forKey: .rows)
     uploadedAt = try container.decodeIfPresent(Date.self, forKey: .uploadedAt) ?? Date()
+    equipmentParameters = try container.decodeIfPresent(CPTEquipmentParameters.self, forKey: .equipmentParameters)
   }
 
   func encode(to encoder: Encoder) throws {
@@ -332,6 +337,11 @@ struct CPTPointEntry: Identifiable, Hashable, Codable, Sendable {
     try container.encode(file, forKey: .file)
     try container.encode(rows, forKey: .rows)
     try container.encode(uploadedAt, forKey: .uploadedAt)
+    try container.encodeIfPresent(equipmentParameters, forKey: .equipmentParameters)
+  }
+
+  var resolvedEquipmentParameters: CPTEquipmentParameters {
+    equipmentParameters ?? CPTEquipmentParameters()
   }
 
   var formattedCoordinate: String {

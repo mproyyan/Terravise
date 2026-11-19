@@ -195,6 +195,63 @@ public enum UTMCoordinateConverter {
     return coordinateToUTM(coordinate).formattedString
   }
 
+  // MARK: - Component-Based UTM Parser
+
+  /// Parses discrete Zone, Easting, and Northing strings into `CLLocationCoordinate2D`.
+  public static func parseUTMComponents(
+    zoneText: String,
+    eastingText: String,
+    northingText: String,
+    referenceCoordinate: CLLocationCoordinate2D? = nil
+  ) -> CLLocationCoordinate2D? {
+    let zoneClean = zoneText.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !zoneClean.isEmpty else { return nil }
+
+    let zonePattern = #"^([0-9]{1,2})\s*([NSns]?)$"#
+    guard let zoneRegex = try? NSRegularExpression(pattern: zonePattern),
+          let match = zoneRegex.firstMatch(in: zoneClean, range: NSRange(zoneClean.startIndex..., in: zoneClean)),
+          let zoneRange = Range(match.range(at: 1), in: zoneClean),
+          let zoneNumber = Int(zoneClean[zoneRange]),
+          validZoneRange.contains(zoneNumber)
+    else {
+      return nil
+    }
+
+    let isSouth: Bool
+    if match.range(at: 2).location != NSNotFound,
+       let hemRange = Range(match.range(at: 2), in: zoneClean),
+       !zoneClean[hemRange].isEmpty {
+      isSouth = zoneClean[hemRange].uppercased() == "S"
+    } else if let ref = referenceCoordinate {
+      isSouth = coordinateToUTM(ref).isSouthernHemisphere
+    } else {
+      isSouth = defaultIsSouthernHemisphere
+    }
+
+    let eClean = eastingText
+      .replacingOccurrences(of: ",", with: ".")
+      .replacingOccurrences(of: "m", with: "", options: .caseInsensitive)
+      .replacingOccurrences(of: "E", with: "", options: .caseInsensitive)
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+
+    let nClean = northingText
+      .replacingOccurrences(of: ",", with: ".")
+      .replacingOccurrences(of: "m", with: "", options: .caseInsensitive)
+      .replacingOccurrences(of: "N", with: "", options: .caseInsensitive)
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+
+    guard let easting = Double(eClean), let northing = Double(nClean) else {
+      return nil
+    }
+
+    return utmToCoordinate(
+      easting: easting,
+      northing: northing,
+      zone: zoneNumber,
+      isSouthernHemisphere: isSouth
+    )
+  }
+
   // MARK: - Flexible Parser (Supports UTM and Lat/Lon)
 
   /// Parses text into `CLLocationCoordinate2D`.

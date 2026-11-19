@@ -3,10 +3,13 @@ import UniformTypeIdentifiers
 
 struct CPTUploadDataSheetView: View {
   @Binding var selectedCPTType: CPTType
-  @Binding var coordinatesText: String
+  @Binding var zoneText: String
+  @Binding var eastingText: String
+  @Binding var northingText: String
   @Binding var uploadedFile: CPTUploadedFile?
   @Binding var parsedRows: [CPTRowData]
   @Binding var validationError: String?
+  var equipmentParameters: Binding<CPTEquipmentParameters>?
   var onCloseTap: (() -> Void)?
   var onSubmitTap: (() -> Void)?
   var onDownloadTemplate: (() -> Void)?
@@ -28,19 +31,25 @@ struct CPTUploadDataSheetView: View {
 
   init(
     selectedCPTType: Binding<CPTType>,
-    coordinatesText: Binding<String>,
+    zoneText: Binding<String>,
+    eastingText: Binding<String>,
+    northingText: Binding<String>,
     uploadedFile: Binding<CPTUploadedFile?>,
     parsedRows: Binding<[CPTRowData]> = .constant([]),
     validationError: Binding<String?> = .constant(nil),
+    equipmentParameters: Binding<CPTEquipmentParameters>? = nil,
     onCloseTap: (() -> Void)? = nil,
     onSubmitTap: (() -> Void)? = nil,
     onDownloadTemplate: (() -> Void)? = nil
   ) {
     _selectedCPTType = selectedCPTType
-    _coordinatesText = coordinatesText
+    _zoneText = zoneText
+    _eastingText = eastingText
+    _northingText = northingText
     _uploadedFile = uploadedFile
     _parsedRows = parsedRows
     _validationError = validationError
+    self.equipmentParameters = equipmentParameters
     self.onCloseTap = onCloseTap
     self.onSubmitTap = onSubmitTap
     self.onDownloadTemplate = onDownloadTemplate
@@ -53,7 +62,9 @@ struct CPTUploadDataSheetView: View {
 
   private var isSubmitEnabled: Bool {
     guard let file = uploadedFile else { return false }
-    let hasCoords = !coordinatesText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    let hasCoords = !zoneText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+                    !eastingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+                    !northingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     return hasCoords && !parsedRows.isEmpty && file.rowCount == parsedRows.count && allRequiredColumnsMatched && importError == nil
   }
 
@@ -86,7 +97,7 @@ struct CPTUploadDataSheetView: View {
           if let validationError {
             Text(validationError).font(.caption).foregroundStyle(.red)
           } else if !isSubmitEnabled && importError == nil {
-            Text("Masukkan koordinat dan pilih file CSV CPT yang valid untuk melanjutkan.")
+            Text("Enter the coordinates and select a valid CPT CSV file to proceed.")
               .font(.caption).foregroundStyle(.secondary)
           }
         }
@@ -95,7 +106,9 @@ struct CPTUploadDataSheetView: View {
         .padding(.bottom, 24)
       }
       .scrollBounceBehavior(.basedOnSize)
-      .onChange(of: coordinatesText) { _, _ in validationError = nil }
+      .onChange(of: zoneText) { _, _ in validationError = nil }
+      .onChange(of: eastingText) { _, _ in validationError = nil }
+      .onChange(of: northingText) { _, _ in validationError = nil }
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
       .navigationTitle("Upload Data CPT")
       .navigationBarTitleDisplayMode(.inline)
@@ -113,6 +126,7 @@ struct CPTUploadDataSheetView: View {
         ToolbarItem(placement: .confirmationAction) {
           Button(role: .confirm) {
             if isSubmitEnabled {
+              equipmentParameters?.wrappedValue = currentEquipmentParameters
               onSubmitTap?()
             }
           }
@@ -332,15 +346,33 @@ struct CPTUploadDataSheetView: View {
         .foregroundStyle(Color.primary)
         .accessibilityAddTraits(.isHeader)
 
-      HStack {
-        TextField("e.g -6.215432, 106.845321", text: $coordinatesText)
-          .font(.body)
-          .foregroundStyle(Color.primary)
-          .autocorrectionDisabled()
-          .textInputAutocapitalization(.never)
+      VStack(spacing: 0) {
+        coordinateRow(
+          title: "Zone",
+          placeholder: "48S",
+          text: $zoneText,
+          keyboardType: .default,
+          autocapitalization: .characters
+        )
+
+        Divider().padding(.horizontal, 16)
+
+        coordinateRow(
+          title: "Easting (m)",
+          placeholder: "702634",
+          text: $eastingText,
+          keyboardType: .decimalPad
+        )
+
+        Divider().padding(.horizontal, 16)
+
+        coordinateRow(
+          title: "Northing (m)",
+          placeholder: "9309747",
+          text: $northingText,
+          keyboardType: .decimalPad
+        )
       }
-      .padding(.horizontal, 16)
-      .frame(height: 52)
       .background(
         RoundedRectangle(cornerRadius: 16, style: .continuous)
           .fill(Color(.secondarySystemGroupedBackground))
@@ -354,10 +386,40 @@ struct CPTUploadDataSheetView: View {
       )
       .accessibilityHint("Enter coordinates manually or tap inside the boundary area on the map")
 
-      Text("Tap inside the boundary area on the map to set coordinate.")
+      Text("Tap inside the boundary area on the map to set coordinates.")
         .font(.caption)
         .foregroundStyle(Color.secondary)
     }
+  }
+
+  private func coordinateRow(
+    title: String,
+    placeholder: String,
+    text: Binding<String>,
+    keyboardType: UIKeyboardType = .decimalPad,
+    autocapitalization: TextInputAutocapitalization = .never
+  ) -> some View {
+    HStack(spacing: 12) {
+      Text(title)
+        .font(.body)
+        .foregroundStyle(Color.primary)
+        .lineLimit(1)
+
+      Spacer(minLength: 8)
+
+      TextField(placeholder, text: text)
+        #if canImport(UIKit)
+        .keyboardType(keyboardType)
+        #endif
+        .font(.body)
+        .foregroundStyle(Color.secondary)
+        .multilineTextAlignment(.trailing)
+        .autocorrectionDisabled()
+        .textInputAutocapitalization(autocapitalization)
+        .frame(maxWidth: 130)
+    }
+    .padding(.horizontal, 16)
+    .frame(height: 52)
   }
 
   private var requiredColumnsSection: some View {
@@ -529,11 +591,6 @@ struct CPTUploadDataSheetView: View {
             .font(.subheadline.weight(.bold))
             .foregroundStyle(Color.primary)
 
-          Text("Pilih file .csv dengan kolom wajib di atas.")
-            .font(.footnote)
-            .foregroundStyle(Color.secondary)
-            .multilineTextAlignment(.center)
-            .padding(.horizontal, 16)
 
           Button(action: {
             isDocumentPickerPresented = true
@@ -656,36 +713,48 @@ struct CPTUploadDataSheetView: View {
 
 #Preview("Electrical CPT") {
   @Previewable @State var type: CPTType = .electrical
-  @Previewable @State var coords = ""
+  @Previewable @State var zone = "48S"
+  @Previewable @State var easting = "702634"
+  @Previewable @State var northing = "9309747"
   @Previewable @State var file: CPTUploadedFile? = nil
 
   CPTUploadDataSheetView(
     selectedCPTType: $type,
-    coordinatesText: $coords,
+    zoneText: $zone,
+    eastingText: $easting,
+    northingText: $northing,
     uploadedFile: $file
   )
 }
 
 #Preview("CPTu") {
   @Previewable @State var type: CPTType = .cptu
-  @Previewable @State var coords = ""
+  @Previewable @State var zone = "48S"
+  @Previewable @State var easting = "702634"
+  @Previewable @State var northing = "9309747"
   @Previewable @State var file: CPTUploadedFile? = nil
 
   CPTUploadDataSheetView(
     selectedCPTType: $type,
-    coordinatesText: $coords,
+    zoneText: $zone,
+    eastingText: $easting,
+    northingText: $northing,
     uploadedFile: $file
   )
 }
 
 #Preview("CPTm Bicone") {
   @Previewable @State var type: CPTType = .cptmBicone
-  @Previewable @State var coords = ""
+  @Previewable @State var zone = "48S"
+  @Previewable @State var easting = "702634"
+  @Previewable @State var northing = "9309747"
   @Previewable @State var file: CPTUploadedFile? = nil
 
   CPTUploadDataSheetView(
     selectedCPTType: $type,
-    coordinatesText: $coords,
+    zoneText: $zone,
+    eastingText: $easting,
+    northingText: $northing,
     uploadedFile: $file
   )
 }
