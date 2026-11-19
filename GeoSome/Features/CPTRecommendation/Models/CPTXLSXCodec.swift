@@ -230,13 +230,16 @@ enum CPTXLSXCodec {
     guard initStatus == Z_OK else { return nil }
     defer { inflateEnd(&stream) }
 
+    let inCount = uInt(compressed.count)
+    let destCapacity = uInt(decompressed.count)
+
     compressed.withUnsafeBytes { rawIn in
       stream.next_in = UnsafeMutablePointer<Bytef>(mutating: rawIn.bindMemory(to: Bytef.self).baseAddress)
-      stream.avail_in = uInt(compressed.count)
+      stream.avail_in = inCount
 
       decompressed.withUnsafeMutableBytes { rawOut in
         stream.next_out = rawOut.bindMemory(to: Bytef.self).baseAddress
-        stream.avail_out = uInt(decompressed.count)
+        stream.avail_out = destCapacity
         _ = inflate(&stream, Z_FINISH)
       }
     }
