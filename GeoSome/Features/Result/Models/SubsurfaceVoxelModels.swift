@@ -21,7 +21,7 @@ struct ColumnCoord: Hashable, Sendable {
 
 /// Top-right mode switcher tabs on the Result Analysis screen.
 enum ResultAnalysisTab: String, CaseIterable, Identifiable, Sendable {
-  case threeDLayer = "3D Layer"
+  case threeDLayer = "Soil Interpolation"
   case bearingLayer = "Bearing Layer"
 
   var id: String { rawValue }

@@ -53,10 +53,12 @@ struct ResultBearingLayerSheetView: View {
         predictionUncertaintySection
       }
       .padding(.horizontal, 18)
-      .padding(.top, 22)
+      .padding(.top, 20)
       .padding(.bottom, 28)
     }
-    .background(Color(.systemGroupedBackground))
+    .scrollBounceBehavior(.basedOnSize)
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    .accessibilityLabel("Bearing Layer sheet")
   }
 
   // MARK: - 1. Depth Summary
@@ -101,6 +103,7 @@ struct ResultBearingLayerSheetView: View {
     .padding(.horizontal, 12)
     .padding(.vertical, 14)
     .background(cardBackground)
+    .overlay(cardStroke)
     .accessibilityElement(children: .combine)
     .accessibilityLabel("\(title): \(value)")
   }
@@ -143,6 +146,7 @@ struct ResultBearingLayerSheetView: View {
       .padding(.horizontal, 16)
       .padding(.vertical, 14)
       .background(cardBackground)
+      .overlay(cardStroke)
       .accessibilityElement(children: .combine)
       .accessibilityLabel("Mean candidate error risk: \(relativeUncertaintyText)")
 
@@ -168,7 +172,7 @@ struct ResultBearingLayerSheetView: View {
         .padding(.vertical, 12)
         .background(
           RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .fill(Color(red: 0.94, green: 0.94, blue: 0.97))
+            .fill(Color(.tertiarySystemGroupedBackground).opacity(0.65))
         )
 
         Text(highUncertaintyDescription)
@@ -179,6 +183,7 @@ struct ResultBearingLayerSheetView: View {
       .frame(maxWidth: .infinity, alignment: .leading)
       .padding(14)
       .background(cardBackground)
+      .overlay(cardStroke)
       .accessibilityElement(children: .combine)
       .accessibilityLabel(
         "High Uncertainty Area: \(highUncertaintyAreaPercentText). \(highUncertaintyDescription)"
@@ -189,16 +194,16 @@ struct ResultBearingLayerSheetView: View {
   // MARK: - Card Styling
 
   private var cardBackground: some View {
-    RoundedRectangle(cornerRadius: 16, style: .continuous)
+    RoundedRectangle(cornerRadius: 18, style: .continuous)
       .fill(Color(.secondarySystemGroupedBackground))
-      .overlay(
-        RoundedRectangle(cornerRadius: 16, style: .continuous)
-          .stroke(
-            Color.primary.opacity(contrast == .increased ? 0.25 : 0.05),
-            lineWidth: 1
-          )
+  }
+
+  private var cardStroke: some View {
+    RoundedRectangle(cornerRadius: 18, style: .continuous)
+      .stroke(
+        Color.primary.opacity(contrast == .increased ? 0.35 : 0.08),
+        lineWidth: contrast == .increased ? 1.5 : 1
       )
-      .shadow(color: Color.black.opacity(0.03), radius: 6, x: 0, y: 2)
   }
 }
 

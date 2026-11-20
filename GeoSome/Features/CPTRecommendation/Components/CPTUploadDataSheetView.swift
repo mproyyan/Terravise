@@ -703,30 +703,42 @@ struct CPTUploadDataSheetView: View {
       byteSize = Int64(fileSize)
     }
 
-    if let rawData = try? Data(contentsOf: url),
-       let csvText = String(data: rawData, encoding: .utf8) ?? String(data: rawData, encoding: .isoLatin1)
-    {
-      lastLoadedCSVText = csvText
-      let parseResult = CPTCSVParser.parse(
-        text: csvText,
-        cptType: selectedCPTType,
-        equipment: currentEquipmentParameters
-      )
-      if parseResult.error == nil, !parseResult.rows.isEmpty {
-        parsedRows = parseResult.rows
-        uploadedFile = CPTUploadedFile(
-          name: name,
-          byteSize: byteSize,
-          rowCount: parseResult.rows.count,
-          matchedColumns: parseResult.matchedRequiredColumns
-        )
-        return
-      }
-      importError = parseResult.error ?? "CSV tidak memiliki data CPT yang valid."
+    guard let rawData = try? Data(contentsOf: url) else {
+      importError = "File tidak dapat dibaca."
       return
     }
 
-    importError = "File CSV tidak dapat dibaca sebagai teks."
+    let csvText: String?
+    if ext == "xlsx" {
+      csvText = CPTXLSXCodec.extractCSVText(from: rawData)
+    } else {
+      csvText = String(data: rawData, encoding: .utf8) ?? String(data: rawData, encoding: .isoLatin1)
+    }
+
+    guard let csvText else {
+      importError = ext == "xlsx"
+        ? "File Excel (.xlsx) tidak dapat dibaca atau formatnya tidak didukung."
+        : "File CSV tidak dapat dibaca sebagai teks."
+      return
+    }
+
+    lastLoadedCSVText = csvText
+    let parseResult = CPTCSVParser.parse(
+      text: csvText,
+      cptType: selectedCPTType,
+      equipment: currentEquipmentParameters
+    )
+    if parseResult.error == nil, !parseResult.rows.isEmpty {
+      parsedRows = parseResult.rows
+      uploadedFile = CPTUploadedFile(
+        name: name,
+        byteSize: byteSize,
+        rowCount: parseResult.rows.count,
+        matchedColumns: parseResult.matchedRequiredColumns
+      )
+      return
+    }
+    importError = parseResult.error ?? (ext == "xlsx" ? "File Excel tidak memiliki data CPT yang valid." : "CSV tidak memiliki data CPT yang valid.")
   }
 
   private func revalidateCSVIfNeeded(for cptType: CPTType) {
