@@ -62,6 +62,10 @@ struct CPTDataListSheetView: View {
       .padding(.bottom, 24)
     }
     .scrollBounceBehavior(.basedOnSize)
+    .scrollContentBackground(.hidden)
+    #if canImport(UIKit)
+    .background(ClearBackgroundView())
+    #endif
     .navigationTitle("Data CPT")
     .navigationBarTitleDisplayMode(.inline)
   }

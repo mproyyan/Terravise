@@ -1,5 +1,8 @@
 import CoreLocation
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 struct CPTPointDetailSheetView: View {
   var pointTitle: String
@@ -28,6 +31,7 @@ struct CPTPointDetailSheetView: View {
       VStack(alignment: .leading, spacing: 20) {
         detailCoordinateSection
         cptTypeSection
+        cptFileSection
         cptDataSection
         deletePointButton
       }
@@ -36,6 +40,10 @@ struct CPTPointDetailSheetView: View {
       .padding(.bottom, 24)
     }
     .scrollBounceBehavior(.basedOnSize)
+    .scrollContentBackground(.hidden)
+    #if canImport(UIKit)
+    .background(ClearBackgroundView())
+    #endif
     .navigationTitle(pointTitle)
     .navigationBarTitleDisplayMode(.inline)
     .navigationBarBackButtonHidden(onCloseTap != nil)
@@ -125,7 +133,43 @@ struct CPTPointDetailSheetView: View {
     }
   }
 
-  // MARK: - Section 3: CPT Data Table
+  // MARK: - Section 3: CPT File Info
+
+  private var formattedUploadDate: String {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "d MMM yyyy, HH:mm"
+    return formatter.string(from: point.uploadedAt)
+  }
+
+  private var cptFileSection: some View {
+    CPTCardContainer(title: "CPT File") {
+      HStack(alignment: .top) {
+        // Left Column: File Name + Size & Rows
+        VStack(alignment: .leading, spacing: 4) {
+          Text(point.file.name)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(Color.primary)
+            .lineLimit(1)
+
+          Text("\(point.file.formattedSize) · \(point.rows.count) data rows")
+            .font(.caption)
+            .foregroundStyle(Color.secondary)
+        }
+
+        Spacer(minLength: 12)
+
+        // Right Column: Upload Date
+        Text(formattedUploadDate)
+          .font(.caption)
+          .foregroundStyle(Color.secondary)
+          .multilineTextAlignment(.trailing)
+      }
+      .padding(.horizontal, 16)
+      .padding(.vertical, 14)
+    }
+  }
+
+  // MARK: - Section 4: CPT Data Table
 
   private var cptDataSection: some View {
     CPTDataTableView(point: point)
@@ -335,6 +379,32 @@ struct CPTDataTableView: View {
     }
   }
 }
+
+#if canImport(UIKit)
+struct ClearBackgroundView: UIViewRepresentable {
+  func makeUIView(context: Context) -> UIView {
+    let view = UIView()
+    view.backgroundColor = .clear
+    DispatchQueue.main.async {
+      view.superview?.backgroundColor = .clear
+      var current: UIView? = view
+      while let parent = current?.superview {
+        let typeName = String(describing: type(of: parent))
+        if typeName.contains("Hosting") || typeName.contains("View") {
+          parent.backgroundColor = .clear
+        }
+        if typeName.contains("UINavigationTransitionView") || typeName.contains("Sheet") || typeName.contains("UIPresentationController") {
+          break
+        }
+        current = parent
+      }
+    }
+    return view
+  }
+
+  func updateUIView(_ uiView: UIView, context: Context) {}
+}
+#endif
 
 #Preview {
   NavigationStack {

@@ -184,8 +184,74 @@ enum CPTXLSXCodec {
 
   private static func unzipEntries(from data: Data) -> [String: Data] {
     var result: [String: Data] = [:]
-    var offset = 0
 
+    // 1. Try Central Directory first (standard and handles data descriptors)
+    var eocdOffset = -1
+    let searchStart = max(0, data.count - 65557)
+    if data.count >= 22 {
+      var i = data.count - 22
+      while i >= searchStart {
+        if data.loadUInt32(at: i) == 0x06054B50 {
+          eocdOffset = i
+          break
+        }
+        i -= 1
+      }
+    }
+
+    if eocdOffset >= 0 {
+      let cdOffset = Int(data.loadUInt32(at: eocdOffset + 16))
+      let totalEntries = Int(data.loadUInt16(at: eocdOffset + 10))
+      var currentCD = cdOffset
+      var entriesRead = 0
+
+      while currentCD + 46 <= data.count && entriesRead < totalEntries {
+        guard data.loadUInt32(at: currentCD) == 0x02014B50 else { break }
+
+        let method = data.loadUInt16(at: currentCD + 10)
+        let compressedSize = Int(data.loadUInt32(at: currentCD + 20))
+        let uncompressedSize = Int(data.loadUInt32(at: currentCD + 24))
+        let nameLen = Int(data.loadUInt16(at: currentCD + 28))
+        let extraLen = Int(data.loadUInt16(at: currentCD + 30))
+        let commentLen = Int(data.loadUInt16(at: currentCD + 32))
+        let localOffset = Int(data.loadUInt32(at: currentCD + 42))
+
+        let nameStart = currentCD + 46
+        let nameEnd = nameStart + nameLen
+        if nameEnd <= data.count {
+          let nameData = data.subdata(in: nameStart..<nameEnd)
+          let name = String(decoding: nameData, as: UTF8.self)
+
+          if localOffset + 30 <= data.count && data.loadUInt32(at: localOffset) == 0x04034B50 {
+            let localNameLen = Int(data.loadUInt16(at: localOffset + 26))
+            let localExtraLen = Int(data.loadUInt16(at: localOffset + 28))
+            let dataStart = localOffset + 30 + localNameLen + localExtraLen
+            let dataEnd = dataStart + compressedSize
+
+            if dataEnd <= data.count {
+              let rawData = data.subdata(in: dataStart..<dataEnd)
+              if method == 0 {
+                result[name] = rawData
+              } else if method == 8 {
+                if let decomp = decompressDeflate(rawData, uncompressedSize: uncompressedSize) {
+                  result[name] = decomp
+                }
+              }
+            }
+          }
+        }
+
+        currentCD += 46 + nameLen + extraLen + commentLen
+        entriesRead += 1
+      }
+
+      if !result.isEmpty {
+        return result
+      }
+    }
+
+    // 2. Fallback: Sequential Local File Header scan
+    var offset = 0
     while offset + 30 <= data.count {
       let sig = data.loadUInt32(at: offset)
       guard sig == 0x04034B50 else { break }
@@ -224,30 +290,50 @@ enum CPTXLSXCodec {
   }
 
   private static func decompressDeflate(_ compressed: Data, uncompressedSize: Int) -> Data? {
-    var decompressed = Data(count: max(uncompressedSize, 4096))
+    guard !compressed.isEmpty else { return Data() }
     var stream = z_stream()
     let initStatus = inflateInit2_(&stream, -MAX_WBITS, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size))
     guard initStatus == Z_OK else { return nil }
     defer { inflateEnd(&stream) }
 
-    let inCount = uInt(compressed.count)
-    let destCapacity = uInt(decompressed.count)
+    let initialCapacity = max(uncompressedSize, 32768)
+    var decompressed = Data(count: initialCapacity)
+    var totalOut = 0
 
-    compressed.withUnsafeBytes { rawIn in
+    return compressed.withUnsafeBytes { rawIn -> Data? in
       stream.next_in = UnsafeMutablePointer<Bytef>(mutating: rawIn.bindMemory(to: Bytef.self).baseAddress)
-      stream.avail_in = inCount
+      stream.avail_in = uInt(compressed.count)
 
-      decompressed.withUnsafeMutableBytes { rawOut in
-        stream.next_out = rawOut.bindMemory(to: Bytef.self).baseAddress
-        stream.avail_out = destCapacity
-        _ = inflate(&stream, Z_FINISH)
+      while true {
+        let chunkCapacity = 32768
+        if decompressed.count < totalOut + chunkCapacity {
+          decompressed.count = max(decompressed.count * 2, totalOut + chunkCapacity)
+        }
+
+        var status: Int32 = Z_OK
+        decompressed.withUnsafeMutableBytes { rawOut in
+          let base = rawOut.bindMemory(to: Bytef.self).baseAddress!
+          stream.next_out = base.advanced(by: totalOut)
+          stream.avail_out = uInt(rawOut.count - totalOut)
+          status = inflate(&stream, Z_SYNC_FLUSH)
+        }
+
+        totalOut = Int(stream.total_out)
+
+        if status == Z_STREAM_END {
+          decompressed.count = totalOut
+          return decompressed
+        } else if status == Z_OK {
+          continue
+        } else {
+          if totalOut > 0 {
+            decompressed.count = totalOut
+            return decompressed
+          }
+          return nil
+        }
       }
     }
-
-    let actualCount = Int(stream.total_out)
-    guard actualCount > 0 else { return nil }
-    decompressed.count = actualCount
-    return decompressed
   }
 
   // MARK: - Private XML Sheet Parser to CSV
@@ -394,14 +480,18 @@ private extension Data {
   }
 
   func loadUInt16(at offset: Int) -> UInt16 {
-    withUnsafeBytes { raw in
-      raw.load(fromByteOffset: offset, as: UInt16.self).littleEndian
-    }
+    guard offset + 2 <= count else { return 0 }
+    let b0 = UInt16(self[offset])
+    let b1 = UInt16(self[offset + 1])
+    return b0 | (b1 << 8)
   }
 
   func loadUInt32(at offset: Int) -> UInt32 {
-    withUnsafeBytes { raw in
-      raw.load(fromByteOffset: offset, as: UInt32.self).littleEndian
-    }
+    guard offset + 4 <= count else { return 0 }
+    let b0 = UInt32(self[offset])
+    let b1 = UInt32(self[offset + 1])
+    let b2 = UInt32(self[offset + 2])
+    let b3 = UInt32(self[offset + 3])
+    return b0 | (b1 << 8) | (b2 << 16) | (b3 << 24)
   }
 }
