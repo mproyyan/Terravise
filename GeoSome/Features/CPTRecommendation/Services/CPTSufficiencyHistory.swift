@@ -24,6 +24,7 @@ struct CPTRecommendationEvidence: Codable, Hashable, Sendable {
   var coordinateMatches: Bool?
   /// Nil means the app cannot prove whether the user manually edited the coordinate.
   var acceptedWithoutManualChange: Bool?
+  var candidateSpacing: CPTCandidateSpacing? = nil
 }
 
 struct CPTSufficiencyObservation: Codable, Hashable, Sendable {

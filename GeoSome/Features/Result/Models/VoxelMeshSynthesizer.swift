@@ -137,7 +137,8 @@ enum VoxelMeshSynthesizer {
   static func buildVolume(
     boundaryCoordinates: [CLLocationCoordinate2D],
     cptPoints: [CPTPointEntry],
-    gridPolicy: CPTGridPolicy = .legacyDynamic
+    gridPolicy: CPTGridPolicy = .legacyDynamic,
+    evaluatedReconstruction: SchemaGANReconstructionOutput? = nil
   ) -> SubsurfaceVoxelVolume {
     let polygon = boundaryCoordinates.count >= 3
       ? boundaryCoordinates
@@ -181,9 +182,9 @@ enum VoxelMeshSynthesizer {
     let schemaGrid: CPTGridConfig?
     let schemaRecon: SchemaGANReconstructionOutput?
     if !cptPoints.isEmpty {
-      let g = CPTGridConfig.build(boundaryCoordinates: polygon, cptPoints: cptPoints, policy: gridPolicy)
+      let g = evaluatedReconstruction?.grid ?? CPTGridConfig.build(boundaryCoordinates: polygon, cptPoints: cptPoints, policy: gridPolicy)
       schemaGrid = g
-      schemaRecon = SchemaGANService.reconstruct(cptPoints: cptPoints, grid: g)
+      schemaRecon = evaluatedReconstruction ?? SchemaGANService.reconstruct(cptPoints: cptPoints, grid: g)
     } else {
       schemaGrid = nil
       schemaRecon = nil

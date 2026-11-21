@@ -246,14 +246,14 @@ final class CPTRecommendationViewModel {
          let state = CPTSufficiencyHistory.stateID(projectID: project.id, gridPolicy: project.gridPolicy,
            distancePolicy: project.cptDistancePolicy, boundary: project.boundaryPoints, points: cptPoints) {
         if let existing = project.cptRecommendationEvidence.last(where: { $0.stateBefore == state && $0.acceptedCPTID == nil &&
-          $0.model == recommendation.recommendationSource && $0.distancePolicy == project.cptDistancePolicy.rawValue &&
+          $0.model == recommendation.recommendationSource && $0.distancePolicy == project.cptDistancePolicy.rawValue && $0.candidateSpacing == recommendation.candidateSpacing &&
           $0.recommendedLatitude == recommendation.coordinate.latitude && $0.recommendedLongitude == recommendation.coordinate.longitude }) {
           activeRecommendationAcceptance = existing.id
         } else {
           let evidence = CPTRecommendationEvidence(id: UUID(), stateBefore: state,
             recommendedLatitude: recommendation.coordinate.latitude, recommendedLongitude: recommendation.coordinate.longitude,
             model: recommendation.recommendationSource, distancePolicy: project.cptDistancePolicy.rawValue,
-            acceptedCPTID: nil, stateAfter: nil, coordinateMatches: nil, acceptedWithoutManualChange: nil)
+            acceptedCPTID: nil, stateAfter: nil, coordinateMatches: nil, acceptedWithoutManualChange: nil, candidateSpacing: recommendation.candidateSpacing)
           project.cptRecommendationEvidence.append(evidence)
           activeRecommendationAcceptance = evidence.id
         }
@@ -305,7 +305,9 @@ final class CPTRecommendationViewModel {
     let result = CPTPipelineCoordinator.recomputeFromScratch(
       boundaryCoordinates: coordinates,
       cptPoints: cptPoints,
-      gridPolicy: project.gridPolicy
+      gridPolicy: project.gridPolicy,
+      distancePolicy: project.cptDistancePolicy,
+      assessmentProject: { var p = project; p.cptPoints = cptPoints; return p }()
     )
 
     hasUploadedCPTData = true
@@ -317,11 +319,11 @@ final class CPTRecommendationViewModel {
     isUploadSheetPresented = false
     isCPTListPresented = false
 
-    if result.isSufficient || !result.hasRecommendation {
+    if result.isSufficient {
       AccessibilityCaptionCenter.shared.announce(
         "Initial CPT data processed. Site fully covered — no further CPT points needed."
       )
-    } else {
+    } else if result.hasRecommendation {
       AccessibilityCaptionCenter.shared.announce(
         "Initial CPT data processed. Next recommended point: \(result.spotName) at \(result.formattedCoordinate)."
       )
@@ -359,6 +361,9 @@ final class CPTRecommendationViewModel {
     cptPoints.append(entry)
     let stateAfter = CPTSufficiencyHistory.stateID(projectID: project.id, gridPolicy: project.gridPolicy, distancePolicy: project.cptDistancePolicy,
       boundary: project.boundaryPoints, points: cptPoints)
+    if let stateBefore, let stateAfter {
+      project.stratigraphicAcquisitions.append(.init(cptID: entry.id, before: stateBefore, after: stateAfter))
+    }
     if cptPoints.count == 1, project.cptDistancePolicy == .sufficiencyV32SiteDiagonal,
        let stateBefore, let stateAfter {
       project.cptInitialObservation = .init(stateBefore: stateBefore, stateAfter: stateAfter,
@@ -421,7 +426,7 @@ final class CPTRecommendationViewModel {
     isUploadSheetPresented = false
     isCPTListPresented = false
 
-    if result.isSufficient || !result.hasRecommendation {
+    if result.isSufficient {
       AccessibilityCaptionCenter.shared.announce(
         "CPT data uploaded. Site fully covered — no further CPT points needed."
       )
@@ -492,12 +497,18 @@ final class CPTRecommendationViewModel {
         distancePolicy: sourceProject.cptDistancePolicy,
         assessmentProject: sourceProject
       )
+    } else {
+      recommendation = CPTRecommendationResult(hasRecommendation:false)
     }
+    project.stratigraphicEvidence=recommendation.stratigraphicEvidence
+    project.latestRecommendation=hasUploadedCPTData ? recommendation : nil
+    projectViewModel?.updateProject(project)
     selectedSheetDetent = hasUploadedCPTData ? targetRecommendationSheetDetent : Self.defaultSheetDetent
   }
 
   private func persistCPTStateToProject() {
     project.cptPoints = cptPoints
+    project.stratigraphicEvidence=recommendation.stratigraphicEvidence
     project.latestRecommendation = hasUploadedCPTData ? recommendation : nil
     project.consecutiveSufficientCount = hasUploadedCPTData ? recommendation.consecutiveSufficientCount : 0
     project.sufficiencyObservations = CPTSufficiencyHistory.retainValidPrefixes(project.sufficiencyObservations,
@@ -509,12 +520,12 @@ final class CPTRecommendationViewModel {
           probability: recommendation.sufficiencyProbability), in: &project.sufficiencyObservations)
       }
       if project.cptDistancePolicy == .sufficiencyV32SiteDiagonal && recommendation.hasRecommendation && recommendation.recommendationSource == "DQN V4.6-A Core ML" &&
-         !project.cptRecommendationEvidence.contains(where: { $0.stateBefore == state && $0.acceptedCPTID == nil &&
+         !project.cptRecommendationEvidence.contains(where: { $0.stateBefore == state && $0.acceptedCPTID == nil && $0.candidateSpacing == recommendation.candidateSpacing &&
            $0.recommendedLatitude == recommendation.coordinate.latitude && $0.recommendedLongitude == recommendation.coordinate.longitude }) {
         project.cptRecommendationEvidence.append(.init(id: UUID(), stateBefore: state,
           recommendedLatitude: recommendation.coordinate.latitude, recommendedLongitude: recommendation.coordinate.longitude,
           model: "DQN V4.6-A Core ML", distancePolicy: project.cptDistancePolicy.rawValue,
-          acceptedCPTID: nil, stateAfter: nil, coordinateMatches: nil, acceptedWithoutManualChange: nil))
+          acceptedCPTID: nil, stateAfter: nil, coordinateMatches: nil, acceptedWithoutManualChange: nil, candidateSpacing: recommendation.candidateSpacing))
       }
     }
     project.lastEdited = Date()

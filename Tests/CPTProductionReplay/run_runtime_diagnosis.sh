@@ -1,0 +1,16 @@
+#!/bin/bash
+set -euo pipefail
+root="$(cd "$(dirname "$0")/../.." && pwd)"; work="$(mktemp -d /tmp/cpt-production-ios.XXXXXX)"; trap 'rm -rf "$work"' EXIT
+app="$work/Replay.app"; mkdir -p "$app"
+source_app="${TERRAVISE_SOURCE_APP:-/tmp/terravise-strat-build/Build/Products/Debug-iphonesimulator/GeoSome.app}"
+for f in StratigraphicImplementationIdentity.json StratigraphicStopContract.md StratigraphicStopConfig.json CPTParityAttestation.json UncertaintyV3.json SufficiencyV3_2.json SufficiencyV32FeatureParity.json SchemaGAN_V4_2_Flexible.mlmodelc DQN_V4_6_A.mlmodelc QCFS_CNN_V3.mlmodelc; do cp -R "$source_app/$f" "$app/"; done
+cp "${TERRAVISE_RUNTIME_PROJECTS_FILE:-/tmp/terravise-strat-runtime-private/projects.json}" "$app/private-projects.json"
+schemas=$(find /tmp/terravise-strat-build -path '*/Build/Intermediates.noindex/GeoSome.build/Debug-iphonesimulator/GeoSome.build/DerivedSources/CoreMLGenerated/SchemaGAN_V4_2_Flexible/SchemaGAN_V4_2_Flexible.swift' -print -quit)
+dqn=$(find /tmp/terravise-strat-build -path '*/Build/Intermediates.noindex/GeoSome.build/Debug-iphonesimulator/GeoSome.build/DerivedSources/CoreMLGenerated/DQN_V4_6_A/DQN_V4_6_A.swift' -print -quit)
+files=(GeoSome/Features/CPTRecommendation/Services/StratigraphicStop.swift GeoSome/Features/CPTRecommendation/Services/StratigraphicHistory.swift GeoSome/Features/CPTRecommendation/Services/StratigraphicService.swift GeoSome/Features/CPTRecommendation/ViewModels/CPTRecommendationViewModel.swift GeoSome/Features/CPTRecommendation/Models/CPTData.swift GeoSome/Features/CPTRecommendation/Models/CPTGridConfig.swift GeoSome/Features/CPTRecommendation/Services/UTMCoordinateConverter.swift GeoSome/Features/CPTRecommendation/Services/SchemaGANService.swift GeoSome/Features/CPTRecommendation/Services/UncertaintySufficiencyService.swift GeoSome/Features/CPTRecommendation/Services/CPTSufficiencyHistory.swift GeoSome/Features/CPTRecommendation/Services/CPTSufficiencyDispatch.swift GeoSome/Features/CPTRecommendation/Services/CPTPipelineParityAttestation.swift GeoSome/Features/CPTRecommendation/Services/CPTPipelineCoordinator.swift GeoSome/Features/CPTRecommendation/Services/QCFSInferenceService.swift GeoSome/Features/CPTRecommendation/Services/DQNFeatureBuilder.swift GeoSome/Features/CPTRecommendation/Services/BearingRuleService.swift GeoSome/Features/CPTRecommendation/Services/BearingRuleEngine.swift GeoSome/Features/BoundaryCreation/Models/BoundaryPoint.swift GeoSome/Features/Project/Models/Project.swift GeoSome/Features/Project/ViewModels/ProjectViewModel.swift GeoSome/Accessibility/AccessibilitySupport.swift GeoSome/Navigation/AppRoute.swift)
+for i in "${!files[@]}"; do files[$i]="$root/${files[$i]}"; done
+sdk=$(DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcrun --sdk iphonesimulator --show-sdk-path)
+entry="${TERRAVISE_DIAG_ENTRY:?Set the native regression entry source; normally supplied by AdaptiveCandidateSpacing/run.sh}"
+output="${TERRAVISE_DIAG_OUTPUT:-/tmp/terravise-strat-runtime-private/runtime_audit.json}"
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcrun --sdk iphonesimulator swiftc -parse-as-library -target arm64-apple-ios17.0-simulator -sdk "$sdk" "$entry" "${files[@]}" "$schemas" "$dqn" -o "$app/Replay"
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcrun simctl spawn booted "$app/Replay" "$output"

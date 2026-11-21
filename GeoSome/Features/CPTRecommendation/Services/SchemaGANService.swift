@@ -325,7 +325,8 @@ enum SchemaGANService {
           let idx = iz * zStride + iy * yStride + ix * xStride
           let normVal = Double(outPtr[idx])
           let val = normVal * normalizationStd + normalizationMean
-          physical[ix][iy][iz] = val.isFinite ? val : normalizationMean
+          guard val.isFinite else { return nil }
+          physical[ix][iy][iz] = val
         }
       }
     }

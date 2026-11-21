@@ -20,3 +20,14 @@ try:
 except (OSError,ValueError,KeyError,TypeError): pass
 out.parent.mkdir(parents=True,exist_ok=True);out.write_text(json.dumps(result,separators=(',',':')))
 print('CPT parity build attestation:', 'verified' if result['valid'] else 'unavailable (fail closed)')
+
+# Bind the restored stratigraphic producer/consumer and resources to this build.
+strat_sources=[root/'GeoSome/Features/CPTRecommendation/Services'/n for n in ['StratigraphicStop.swift','StratigraphicHistory.swift','StratigraphicService.swift','CPTPipelineCoordinator.swift','DQNFeatureBuilder.swift','SchemaGANService.swift','UncertaintySufficiencyService.swift']]
+strat_sources += [paths['swift_grid_mapping'],paths['swift_cpt_input'],root/'GeoSome/Features/CPTRecommendation/ViewModels/CPTRecommendationViewModel.swift',root/'GeoSome/Features/Project/Models/Project.swift',root/'GeoSome/Features/BoundaryCreation/ViewModels/BoundaryCreationViewModel.swift',root/'GeoSome/Features/Result/ViewModels/ResultAnalysisViewModel.swift',root/'GeoSome/Features/Result/Models/VoxelMeshSynthesizer.swift']
+compiled=out.parent/'SchemaGAN_V4_2_Flexible.mlmodelc'
+strat_resources={'UncertaintyV3.json':sha(resources/'UncertaintyV3.json'),'StratigraphicStopConfig.json':sha(resources/'StratigraphicStopConfig.json'),'StratigraphicStopContract.md':sha(resources/'StratigraphicStopContract.md')}
+if compiled.exists():
+ for p in sorted(compiled.rglob('*')):
+  if p.is_file():strat_resources['schema/'+str(p.relative_to(compiled))]=sha(p)
+identity={'sources':{str(p.relative_to(root)):sha(p) for p in strat_sources},'resources':strat_resources}
+(out.parent/'StratigraphicImplementationIdentity.json').write_text(json.dumps(identity,sort_keys=True,separators=(',',':')))

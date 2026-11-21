@@ -254,10 +254,11 @@ struct ResultAnalysisView: View {
                 shallowestDepthText: viewModel.shallowestBearingDepthText,
                 deepestDepthText: viewModel.deepestBearingDepthText,
                 variationDepthText: viewModel.variationBearingDepthText,
-                relativeUncertaintyText: viewModel.relativeUncertaintyText,
-                depthErrorBoundText: viewModel.bearingDepthErrorBoundText,
+                // Use the current Bearing evaluation, not depth error or CPT coverage.
+                relativeUncertaintyText: viewModel.bearingUncertaintyExperimentalInferenceReady
+                  ? viewModel.relativeUncertaintyText : nil,
                 highUncertaintyAreaPercentText: viewModel.highUncertaintyAreaPercentText,
-                highUncertaintyDescription: viewModel.highUncertaintyDescription
+                highUncertaintyDescription: nil
               )
             }
           }

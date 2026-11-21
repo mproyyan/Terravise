@@ -24,7 +24,11 @@ enum DQNFeatureBuilder {
     grid: CPTGridConfig,
     cptCoordinates: [CLLocationCoordinate2D],
     boundaryCoordinates: [CLLocationCoordinate2D],
-    minimumSeparationMeters: Double? = nil
+    minimumSeparationMeters: Double? = nil,
+    unavailableReason: ((String) -> Void)? = nil,
+    physicalCPTCoordinates: [CLLocationCoordinate2D]? = nil,
+    physicalMinimumSeparationMeters: Double = 0,
+    legalCandidateCount: ((Int) -> Void)? = nil
   ) -> DQNCandidateEvaluation? {
     let nx = grid.nx
     let ny = grid.ny
@@ -73,22 +77,31 @@ enum DQNFeatureBuilder {
 
     // The default is one grid-cell diagonal, a sampling-resolution policy, not a geotechnical standard.
     let separation = minimumSeparationMeters ?? hypot(dx, dy)
-    guard separation.isFinite, separation >= 0, !cptCoordinates.isEmpty,
-          boundaryCoordinates.count >= 3 else { return nil }
+    let physicalCoordinates = physicalCPTCoordinates ?? cptCoordinates
+    guard physicalMinimumSeparationMeters.isFinite, physicalMinimumSeparationMeters>=0,
+          !physicalCoordinates.isEmpty,physicalCoordinates.allSatisfy({$0.latitude.isFinite && $0.longitude.isFinite && (-90...90).contains($0.latitude) && (-180...180).contains($0.longitude)}),
+          separation.isFinite, separation >= 0, !cptCoordinates.isEmpty,
+          boundaryCoordinates.count >= 3 else { unavailableReason?("DQN_INVALID_CANDIDATE_INPUTS"); return nil }
     // 2. Apply boundary and distance legality using original, unsnapped CPT coordinates.
     var legalCandidates: [(ix: Int, iy: Int)] = []
+    var physicallyPlaceableCandidates=0
     for ix in 0 ..< nx {
       for iy in 0 ..< ny {
         let coordinate = grid.coordinate(ix: ix, iy: iy)
         if validXY[ix][iy], !observedXY[ix][iy], grid.validXYMask[ix][iy],
            grid.contains(coordinate, in: boundaryCoordinates),
-           cptCoordinates.allSatisfy({ grid.distanceMeters(from: coordinate, to: $0) >= separation }) {
-          legalCandidates.append((ix, iy))
+           physicalCoordinates.allSatisfy({grid.distanceMeters(from:coordinate,to:$0) >= physicalMinimumSeparationMeters && grid.distanceMeters(from:coordinate,to:$0)>0}) {
+          physicallyPlaceableCandidates+=1
+          if cptCoordinates.allSatisfy({ grid.distanceMeters(from: coordinate, to: $0) >= separation }) {
+            legalCandidates.append((ix, iy))
+          }
         }
       }
     }
 
+    legalCandidateCount?(legalCandidates.count)
     guard !legalCandidates.isEmpty else {
+      unavailableReason?(physicallyPlaceableCandidates==0 ? "DQN_NO_CANDIDATES_WITHIN_PHYSICAL_CONSTRAINTS" : "DQN_NO_LEGAL_CANDIDATES")
       return nil
     }
 
@@ -274,7 +287,7 @@ enum DQNFeatureBuilder {
     }
 
     // 5. Run DQN V4.6-A CoreML inference
-    guard let scoring = runDQNCoreML(featureRows: allFeatureRows) else { return nil }
+    guard let scoring = runDQNCoreML(featureRows: allFeatureRows) else { unavailableReason?("DQN_INFERENCE_UNAVAILABLE"); return nil }
     let qScores = scoring.values
 
     // Select the actual global argmax; ties use deterministic grid ordering.
@@ -304,6 +317,37 @@ enum DQNFeatureBuilder {
       deepSoilType: meta.deepSoil,
       lateralIcDifference: meta.lateralDiffIc
     )
+  }
+
+  static func recommendWithAdaptiveSpacing(
+    reconstruction:SchemaGANReconstructionOutput, grid:CPTGridConfig,
+    cptCoordinates:[CLLocationCoordinate2D], physicalCPTCoordinates:[CLLocationCoordinate2D],
+    boundaryCoordinates:[CLLocationCoordinate2D], normalMinimumM:Double, physicalMinimumM:Double,
+    allowRelaxation:Bool, unavailableReason:((String)->Void)?=nil,
+    spacingEvidence:((CPTCandidateSpacing)->Void)?=nil
+  ) -> DQNCandidateEvaluation? {
+    guard normalMinimumM.isFinite,normalMinimumM>=0,physicalMinimumM.isFinite,physicalMinimumM>0 else {
+      unavailableReason?("DQN_INVALID_CANDIDATE_INPUTS");return nil
+    }
+    var minimum=max(normalMinimumM,physicalMinimumM)
+    var evidence=CPTCandidateSpacing(normalMinimumM:normalMinimumM,physicalMinimumM:physicalMinimumM,
+      attemptedMinimumM:[],legalCandidateCounts:[],usedMinimumM:minimum)
+    while true {
+      var reason="DQN_RECOMMENDATION_UNAVAILABLE",count=0
+      let result=recommendNextCandidate(reconstruction:reconstruction,grid:grid,cptCoordinates:cptCoordinates,
+        boundaryCoordinates:boundaryCoordinates,minimumSeparationMeters:minimum,unavailableReason:{reason=$0},
+        physicalCPTCoordinates:physicalCPTCoordinates,physicalMinimumSeparationMeters:physicalMinimumM,
+        legalCandidateCount:{count=$0})
+      evidence.attemptedMinimumM.append(minimum);evidence.legalCandidateCounts.append(count);evidence.usedMinimumM=minimum
+      if let result {spacingEvidence?(evidence);return result}
+      guard allowRelaxation,reason=="DQN_NO_LEGAL_CANDIDATES" else {
+        spacingEvidence?(evidence);unavailableReason?(reason);return nil
+      }
+      guard minimum>physicalMinimumM else {
+        spacingEvidence?(evidence);unavailableReason?("DQN_NO_CANDIDATES_AFTER_SPACING_RELAXATION");return nil
+      }
+      minimum=max(physicalMinimumM,minimum*0.8)
+    }
   }
 
   private static func runDQNCoreML(featureRows: [[Float]]) -> (values: [Double], source: String)? {

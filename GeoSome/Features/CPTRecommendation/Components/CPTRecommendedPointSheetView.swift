@@ -32,31 +32,44 @@ struct CPTRecommendedPointSheetView: View {
     self.onCPTDataListTap = onCPTDataListTap
   }
 
-  private var isRecommendationActive: Bool {
-    recommendation.hasRecommendation && !recommendation.isSufficient
+  static let stopSheetDetent: PresentationDetent = .height(286)
+
+  static func isStopped(_ recommendation: CPTRecommendationResult) -> Bool {
+    guard let decision = recommendation.stratigraphicDecision else { return false }
+    // Consume the active Practical STOP dispatch; legacy sufficiency flags are not evidence.
+    return StratigraphicStop.dispatch(decision) { Optional<Bool>.none }.stop
   }
 
-  private var sheetTitle: String {
-    if recommendation.isSufficient {
-      return "Sufficiency Reached"
-    } else if recommendation.hasRecommendation {
-      return "Recommended Point"
-    } else {
-      return "Site Fully Covered"
-    }
+  private var isStopped: Bool { Self.isStopped(recommendation) }
+
+  private var isRecommendationActive: Bool {
+    recommendation.hasRecommendation && !isStopped
   }
 
   var body: some View {
-    ScrollView(.vertical, showsIndicators: false) {
-      VStack(alignment: .leading, spacing: 18) {
-        // Sheet Title
-        Text(sheetTitle)
-          .font(.title2.weight(.bold))
-          .foregroundStyle(Color.primary)
-          .accessibilityAddTraits(.isHeader)
+    if isStopped {
+      sheetContent
+        .frame(idealWidth: 445, maxWidth: 445)
+        .background(SheetWidthConfigurator(width: 445))
+        .presentationSizing(OneThirdScreenSheetSizing(width: 445))
+    } else {
+      sheetContent
+    }
+  }
 
-        // Top Card: Recommendation Coordinate & Run CPT Warning (or Sufficiency / Coverage Banner)
-        topRecommendationCard
+  private var sheetContent: some View {
+    ScrollView(.vertical, showsIndicators: false) {
+      VStack(alignment: .leading, spacing: isStopped ? 16 : 18) {
+        if isStopped || isRecommendationActive {
+          VStack(alignment: .leading, spacing: isStopped ? 10 : 18) {
+            Text("Recommended Point")
+              .font(isStopped ? .title3.weight(.bold) : .title2.weight(.bold))
+              .foregroundStyle(Color.primary)
+              .accessibilityAddTraits(.isHeader)
+
+            topRecommendationCard
+          }
+        }
 
         // Current Ground Certainty Metric Card
         if isRecommendationActive { metricsSection }
@@ -72,10 +85,11 @@ struct CPTRecommendedPointSheetView: View {
 
         // Bottom Navigation Card: CPT Data entered
         cptDataListCard
+          .padding(.top, isStopped ? 8 : 0)
       }
-      .padding(.horizontal, 20)
-      .padding(.top, 16)
-      .padding(.bottom, 24)
+      .padding(.horizontal, isStopped ? 14 : 20)
+      .padding(.top, isStopped ? 24 : 16)
+      .padding(.bottom, isStopped ? 14 : 24)
     }
     .scrollBounceBehavior(.basedOnSize)
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -85,89 +99,28 @@ struct CPTRecommendedPointSheetView: View {
 
   private var topRecommendationCard: some View {
     VStack(alignment: .leading, spacing: 14) {
-      if recommendation.isSufficient {
-        // Row 1: Green Checkmark Icon + Sufficient Status
-        HStack(spacing: 12) {
-          ZStack {
-            Circle()
-              .fill(Color.green)
-              .frame(width: 34, height: 34)
-
-            Image(systemName: "checkmark")
-              .font(.system(size: 14, weight: .bold))
-              .foregroundStyle(.white)
-          }
-          .accessibilityHidden(true)
-
-          VStack(alignment: .leading, spacing: 2) {
-            Text("CPT Investigation Status")
-              .font(.caption.weight(.medium))
-              .foregroundStyle(Color.secondary)
-
-            Text("Sufficient — No More CPT Needed")
-              .font(.subheadline.weight(.bold))
-              .foregroundStyle(Color.primary)
-          }
-
-          Spacer()
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("CPT Investigation Status: Sufficient, no more CPT needed")
-
-        Divider()
-
-        // Row 2: Sufficiency Banner
-        HStack(alignment: .top, spacing: 12) {
-          Image(systemName: "checkmark.seal.fill")
-            .font(.system(size: 20))
+      if isStopped {
+        HStack(alignment: .top, spacing: 10) {
+          Image(systemName: "checkmark.circle.fill")
+            .font(.body)
             .foregroundStyle(Color.green)
-            .padding(.top, 2)
+            .padding(.top, 1)
             .accessibilityHidden(true)
 
-          VStack(alignment: .leading, spacing: 4) {
-            Text("Stopping criterion reached (\(recommendation.consecutiveSufficientCount)/2)")
-              .font(.subheadline.weight(.bold))
+          VStack(alignment: .leading, spacing: 3) {
+            Text("CPT coverage is sufficient")
+              .font(.subheadline.weight(.semibold))
               .foregroundStyle(Color.primary)
 
-            Text("The model probability reached 0.95 across two consecutive CPT states. Field investigation decisions remain with the engineer.")
-              .font(.caption)
+            Text("Current CPT data meets the assessment requirements.")
+              .font(.footnote)
               .foregroundStyle(Color.secondary)
               .fixedSize(horizontal: false, vertical: true)
           }
-
-          Spacer()
+          Spacer(minLength: 0)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Stopping criterion reached. 3D subsurface reconstruction has met the sufficiency threshold.")
-      } else if !recommendation.hasRecommendation {
-        // Row 1: Green Checkmark Icon + Complete Status
-        HStack(spacing: 12) {
-          ZStack {
-            Circle()
-              .fill(Color.green)
-              .frame(width: 34, height: 34)
-
-            Image(systemName: "checkmark")
-              .font(.system(size: 14, weight: .bold))
-              .foregroundStyle(.white)
-          }
-          .accessibilityHidden(true)
-
-          VStack(alignment: .leading, spacing: 2) {
-            Text("CPT Investigation Status")
-              .font(.caption.weight(.medium))
-              .foregroundStyle(Color.secondary)
-
-            Text("Complete — Boundary Area Covered")
-              .font(.subheadline.weight(.bold))
-              .foregroundStyle(Color.primary)
-          }
-
-          Spacer()
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("CPT Investigation Status: Complete, boundary area covered")
-      } else {
+      } else if isRecommendationActive {
         // Row 1: Green X/Cross Icon + Coordinate
         HStack(spacing: 12) {
           ZStack {
@@ -223,15 +176,16 @@ struct CPTRecommendedPointSheetView: View {
         .accessibilityLabel("Warning: Run a CPT at this point. Nearby CPT data is limited, so the local soil profile is uncertain.")
       }
     }
-    .padding(16)
+    .padding(.horizontal, 16)
+    .padding(.vertical, isStopped ? 18 : 16)
     .background(
-      RoundedRectangle(cornerRadius: 18, style: .continuous)
+      RoundedRectangle(cornerRadius: isStopped ? 22 : 18, style: .continuous)
         .fill(Color(.secondarySystemGroupedBackground))
     )
     .overlay(
-      RoundedRectangle(cornerRadius: 18, style: .continuous)
+      RoundedRectangle(cornerRadius: isStopped ? 22 : 18, style: .continuous)
         .stroke(
-          Color.primary.opacity(contrast == .increased ? 0.35 : 0.08),
+          Color.primary.opacity(contrast == .increased ? 0.35 : (isStopped ? 0 : 0.08)),
           lineWidth: contrast == .increased ? 1.5 : 1
         )
     )
@@ -243,18 +197,18 @@ struct CPTRecommendedPointSheetView: View {
     }) {
       HStack(spacing: 8) {
         Image(systemName: "square.and.arrow.up")
-          .font(.body.weight(.semibold))
+          .font(isStopped ? .subheadline.weight(.semibold) : .body.weight(.semibold))
 
-        Text(isRecommendationActive ? "Upload Data CPT" : "Upload Additional CPT")
-          .font(.body.weight(.semibold))
+        Text("Upload CPT Data")
+          .font(isStopped ? .subheadline.weight(.semibold) : .body.weight(.semibold))
       }
       .foregroundStyle(Color.white)
       .frame(maxWidth: .infinity)
-      .frame(height: 50)
+      .frame(height: isStopped ? 48 : 50)
       .background(Color.blue, in: Capsule())
     }
     .buttonStyle(.plain)
-    .accessibilityLabel(isRecommendationActive ? "Upload Data CPT" : "Upload Additional CPT")
+    .accessibilityLabel("Upload CPT Data")
     .accessibilityHint("Opens sheet to upload additional CPT data")
   }
 
@@ -393,8 +347,8 @@ struct CPTRecommendedPointSheetView: View {
       onCPTDataListTap?()
     }) {
       HStack {
-        Text("CPT Data • \(cptPointsCount) entered")
-          .font(.subheadline.weight(.bold))
+        Text("\(Text("CPT Data").fontWeight(.semibold)) · \(cptPointsCount) entered")
+          .font(.subheadline)
           .foregroundStyle(Color.primary)
 
         Spacer()
@@ -406,13 +360,13 @@ struct CPTRecommendedPointSheetView: View {
       .padding(.horizontal, 16)
       .frame(height: 52)
       .background(
-        RoundedRectangle(cornerRadius: 16, style: .continuous)
+        RoundedRectangle(cornerRadius: isStopped ? 26 : 16, style: .continuous)
           .fill(Color(.secondarySystemGroupedBackground))
       )
       .overlay(
-        RoundedRectangle(cornerRadius: 16, style: .continuous)
+        RoundedRectangle(cornerRadius: isStopped ? 26 : 16, style: .continuous)
           .stroke(
-            Color.primary.opacity(contrast == .increased ? 0.35 : 0.08),
+            Color.primary.opacity(contrast == .increased ? 0.35 : (isStopped ? 0 : 0.08)),
             lineWidth: contrast == .increased ? 1.5 : 1
           )
       )

@@ -14,6 +14,8 @@ struct Project: Identifiable, Hashable, Codable, Sendable {
   var cptDistancePolicy: CPTDistancePolicy
   var cptRecommendationEvidence: [CPTRecommendationEvidence]
   var sufficiencyObservations: [CPTSufficiencyObservation]
+  var stratigraphicAcquisitions: [StratigraphicAcquisition] = []
+  var stratigraphicEvidence: StratigraphicEvidence? = nil
   var cptInitialObservation: CPTInitialObservationEvidence?
 
   private enum CodingKeys: String, CodingKey {
@@ -25,7 +27,7 @@ struct Project: Identifiable, Hashable, Codable, Sendable {
     case latestRecommendation
     case consecutiveSufficientCount
     case gridPolicy, cptDistancePolicy
-    case cptRecommendationEvidence, sufficiencyObservations, cptInitialObservation
+    case cptRecommendationEvidence, sufficiencyObservations, cptInitialObservation, stratigraphicEvidence, stratigraphicAcquisitions
   }
 
   init(
@@ -66,6 +68,8 @@ struct Project: Identifiable, Hashable, Codable, Sendable {
     cptDistancePolicy = try container.decodeIfPresent(CPTDistancePolicy.self, forKey: .cptDistancePolicy) ?? .legacyCellDiagonal
     cptRecommendationEvidence = try container.decodeIfPresent([CPTRecommendationEvidence].self, forKey: .cptRecommendationEvidence) ?? []
     sufficiencyObservations = try container.decodeIfPresent([CPTSufficiencyObservation].self, forKey: .sufficiencyObservations) ?? []
+    stratigraphicAcquisitions = (try? container.decodeIfPresent([StratigraphicAcquisition].self, forKey: .stratigraphicAcquisitions)) ?? []
+    stratigraphicEvidence = try? container.decodeIfPresent(StratigraphicEvidence.self, forKey: .stratigraphicEvidence)
     cptInitialObservation = try container.decodeIfPresent(CPTInitialObservationEvidence.self, forKey: .cptInitialObservation)
   }
 

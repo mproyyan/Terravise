@@ -209,9 +209,16 @@ final class ResultAnalysisViewModel {
   var shallowestBearingDepthText: String = "—"
   var deepestBearingDepthText: String = "—"
   var variationBearingDepthText: String = "—"
-  var relativeUncertaintyText: String = "Not available"
-  var highUncertaintyAreaPercentText: String = "Pending"
+  var relativeUncertaintyText: String = "—"
+  var highUncertaintyAreaPercentText: String = "—"
   var highUncertaintyDescription: String = "Bearing layer depth uncertainty is not yet validated for this project."
+
+  /// Sheet-only summary; selecting a point must not replace it with debug details.
+  var bearingUncertaintySummaryDescription: String {
+    bearingUncertaintyExperimentalInferenceReady
+      ? "Areas with higher uncertainty have less certain bearing-layer predictions."
+      : "Uncertainty is unavailable for the current bearing-layer prediction."
+  }
 
   // Bearing Layer Criteria & Slicing State
   var isBearingCriteriaCardExpanded: Bool = true
@@ -253,6 +260,21 @@ final class ResultAnalysisViewModel {
     project.cptPoints.count
   }
 
+  private static func currentSnapshot(_ source: Project, coordinates: [CLLocationCoordinate2D]) -> (Project, SubsurfaceVoxelVolume, QCFSInferenceResult?) {
+    var current=source
+    var reconstruction:SchemaGANReconstructionOutput?
+    var qcfs:QCFSInferenceResult?
+    if !source.cptPoints.isEmpty {
+      let result=CPTPipelineCoordinator.runPipeline(boundaryCoordinates:coordinates,cptPoints:source.cptPoints,
+        previousConsecutiveSufficientCount:0,gridPolicy:source.gridPolicy,distancePolicy:source.cptDistancePolicy,
+        assessmentProject:source,onEvaluation:{rec,output,_ in reconstruction=rec;qcfs=output})
+      current.latestRecommendation=result;current.stratigraphicEvidence=result.stratigraphicEvidence
+    } else {current.latestRecommendation=nil;current.stratigraphicEvidence=nil}
+    let volume=VoxelMeshSynthesizer.buildVolume(boundaryCoordinates:coordinates,cptPoints:source.cptPoints,
+      gridPolicy:source.gridPolicy,evaluatedReconstruction:reconstruction)
+    return (current,volume,qcfs)
+  }
+
   init(project: Project? = nil) {
     let resolvedProject = project ?? Project(
       name: "Project name",
@@ -270,18 +292,11 @@ final class ResultAnalysisViewModel {
       ? CPTRecommendationViewModel.defaultSamplePoints.map(\.coordinate)
       : resolvedProject.boundaryCoordinates
 
-    let builtVolume = VoxelMeshSynthesizer.buildVolume(
-      boundaryCoordinates: coords,
-      cptPoints: resolvedProject.cptPoints,
-      gridPolicy: resolvedProject.gridPolicy
-    )
-    self.volume = builtVolume
-    let initialQCFS = resolvedProject.cptPoints.isEmpty ? nil : CPTPipelineCoordinator.reconstructQCFS(
-      boundaryCoordinates: coords,
-      cptPoints: resolvedProject.cptPoints,
-      gridPolicy: resolvedProject.gridPolicy
-    )
-    self.qcfsResult = initialQCFS
+    let snapshot=Self.currentSnapshot(resolvedProject,coordinates:coords)
+    self.project=snapshot.0
+    let builtVolume=snapshot.1
+    self.volume=builtVolume
+    self.qcfsResult=snapshot.2
     self.bearingRuleEvaluation = nil
     self.slicingXMeters = Double(builtVolume.widthXM)
     self.slicingYMeters = Double(builtVolume.lengthZM)
@@ -296,10 +311,7 @@ final class ResultAnalysisViewModel {
       self.isBearingPopoverPresented = false
     }
 
-    if let rec = resolvedProject.latestRecommendation {
-      let siteUncertainty = Int(((1.0 - min(max(rec.predictedCoverage, 0.01), 0.99)) * 100.0).rounded())
-      self.predictionUncertaintyPercent = max(1, siteUncertainty)
-    }
+    self.predictionUncertaintyPercent=self.project.latestRecommendation?.predictionUncertaintyPercent ?? 100
     reevaluateBearingRule()
     updateGeotechnicalConcernsAndSummary()
   }
@@ -354,6 +366,7 @@ final class ResultAnalysisViewModel {
     guard let id, let projectViewModel else { return }
     if let found = projectViewModel.projects.first(where: { $0.id == id }) {
       updateProject(found)
+      projectViewModel.updateProject(project)
     }
   }
 
@@ -363,17 +376,11 @@ final class ResultAnalysisViewModel {
       ? CPTRecommendationViewModel.defaultSamplePoints.map(\.coordinate)
       : newProject.boundaryCoordinates
 
-    let builtVolume = VoxelMeshSynthesizer.buildVolume(
-      boundaryCoordinates: coords,
-      cptPoints: newProject.cptPoints,
-      gridPolicy: newProject.gridPolicy
-    )
-    volume = builtVolume
-    qcfsResult = newProject.cptPoints.isEmpty ? nil : CPTPipelineCoordinator.reconstructQCFS(
-      boundaryCoordinates: coords,
-      cptPoints: newProject.cptPoints,
-      gridPolicy: newProject.gridPolicy
-    )
+    let snapshot=Self.currentSnapshot(newProject,coordinates:coords)
+    project=snapshot.0
+    let builtVolume=snapshot.1
+    volume=builtVolume
+    qcfsResult=snapshot.2
     reevaluateBearingRule()
     slicingXMeters = Double(builtVolume.widthXM)
     slicingYMeters = Double(builtVolume.lengthZM)
@@ -387,10 +394,7 @@ final class ResultAnalysisViewModel {
     cameraController.configure(for: builtVolume, resetState: true)
     bearingCameraController.configureForBearingLayer(for: builtVolume, resetState: true)
 
-    if let rec = newProject.latestRecommendation {
-      let siteUncertainty = Int(((1.0 - min(max(rec.predictedCoverage, 0.01), 0.99)) * 100.0).rounded())
-      predictionUncertaintyPercent = max(1, siteUncertainty)
-    }
+    predictionUncertaintyPercent=project.latestRecommendation?.predictionUncertaintyPercent ?? 100
 
     if newProject.cptPoints.isEmpty {
       isSubsurfaceConditionsEmpty = true
@@ -1156,8 +1160,8 @@ final class ResultAnalysisViewModel {
 
   private func updateBearingSummaryMetrics() {
     bearingUncertaintyExperimentalInferenceReady = false
-    relativeUncertaintyText = "Not available"
-    highUncertaintyAreaPercentText = "Pending"
+    relativeUncertaintyText = "—"
+    highUncertaintyAreaPercentText = "—"
     bearingDepthErrorBoundText = "Not available"
     let output: BearingRuleOutput?
     switch bearingRuleEvaluation {
@@ -1182,8 +1186,8 @@ final class ResultAnalysisViewModel {
       let model = try BearingUncertaintyV3Model.load()
       let result = try BearingUncertaintyV3Service.evaluate(volume: volume, output: output,
         qcMinimum: coneResistanceQc, icMaximum: soilBehaviorIndexIc, thickness: minLayerThickness, model: model)
-      relativeUncertaintyText = String(format: "%.1f%% · Experimental", result.meanRiskPercent)
-      highUncertaintyAreaPercentText = String(format: "%.1f%% · Experimental", result.highRiskAreaPercent)
+      relativeUncertaintyText = String(format: "%.1f%%", result.meanRiskPercent)
+      highUncertaintyAreaPercentText = String(format: "%.1f%%", result.highRiskAreaPercent)
       if let depth = result.meanDepthM { bearingDepthErrorBoundText = String(format: "%.3f m", depth) }
       highUncertaintyDescription = "Experimental — GeoSyn. Rata-rata risiko pada seluruh kolom valid; area berisiko tinggi memakai ambang ≥20%. Bukan keamanan fondasi atau kepastian geologi."
       bearingUncertaintyExperimentalInferenceReady = true
