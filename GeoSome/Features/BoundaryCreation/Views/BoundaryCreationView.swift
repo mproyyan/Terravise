@@ -107,6 +107,7 @@ struct BoundaryCreationView: View {
     BoundaryMapContentLayer(
       cameraPosition: $viewModel.cameraPosition,
       points: viewModel.points,
+      pendingCoordinate: viewModel.pendingAddCoordinate,
       isSatelliteStyle: viewModel.isSatelliteStyle,
       onMapTap: { coordinate in
         viewModel.handleMapTap(at: coordinate)

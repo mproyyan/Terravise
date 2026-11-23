@@ -18,6 +18,9 @@ struct ResultSubsurfaceRealityView: View {
   @Binding var cameraZoom: Float
   @Binding var isProfilePopoverPresented: Bool
   @Binding var profilePopoverLocation: CGPoint?
+  @Binding var isSideLayerPopoverPresented: Bool
+  @Binding var sideLayerPopoverLocation: CGPoint?
+  var selectedSideSoilType: SoilLayerType? = nil
   var popoverTitle: String = "CPT Point-01"
   var popoverEasting: String = "702634 m E"
   var popoverNorthing: String = "9309747 m N"
@@ -27,6 +30,9 @@ struct ResultSubsurfaceRealityView: View {
   var popoverLayers: [SBTProfileLayerItem] = CPTPointProfilePopoverView.defaultLayers
   var onSelectVoxel: (SoilVoxel?) -> Void
   var onTapTopSurface: ((CGPoint, SIMD3<Float>, SoilVoxel?) -> Void)? = nil
+  var onTapSideLayer: ((CGPoint, SoilVoxel) -> Void)? = nil
+
+  @Environment(\.colorSchemeContrast) private var contrast
 
   @State private var lastBuiltSliceX: Int = -1
   @State private var lastBuiltSliceZ: Int = -1
@@ -50,6 +56,9 @@ struct ResultSubsurfaceRealityView: View {
     cameraZoom: Binding<Float>,
     isProfilePopoverPresented: Binding<Bool> = .constant(false),
     profilePopoverLocation: Binding<CGPoint?> = .constant(nil),
+    isSideLayerPopoverPresented: Binding<Bool> = .constant(false),
+    sideLayerPopoverLocation: Binding<CGPoint?> = .constant(nil),
+    selectedSideSoilType: SoilLayerType? = nil,
     popoverTitle: String = "CPT Point-01",
     popoverEasting: String = "702634 m E",
     popoverNorthing: String = "9309747 m N",
@@ -58,7 +67,8 @@ struct ResultSubsurfaceRealityView: View {
     popoverLongitude: String = "106.845321",
     popoverLayers: [SBTProfileLayerItem] = CPTPointProfilePopoverView.defaultLayers,
     onSelectVoxel: @escaping (SoilVoxel?) -> Void,
-    onTapTopSurface: ((CGPoint, SIMD3<Float>, SoilVoxel?) -> Void)? = nil
+    onTapTopSurface: ((CGPoint, SIMD3<Float>, SoilVoxel?) -> Void)? = nil,
+    onTapSideLayer: ((CGPoint, SoilVoxel) -> Void)? = nil
   ) {
     self.volume = volume
     self.maxSliceX = maxSliceX
@@ -74,6 +84,9 @@ struct ResultSubsurfaceRealityView: View {
     self._cameraZoom = cameraZoom
     self._isProfilePopoverPresented = isProfilePopoverPresented
     self._profilePopoverLocation = profilePopoverLocation
+    self._isSideLayerPopoverPresented = isSideLayerPopoverPresented
+    self._sideLayerPopoverLocation = sideLayerPopoverLocation
+    self.selectedSideSoilType = selectedSideSoilType
     self.popoverTitle = popoverTitle
     self.popoverEasting = popoverEasting
     self.popoverNorthing = popoverNorthing
@@ -83,6 +96,7 @@ struct ResultSubsurfaceRealityView: View {
     self.popoverLayers = popoverLayers
     self.onSelectVoxel = onSelectVoxel
     self.onTapTopSurface = onTapTopSurface
+    self.onTapSideLayer = onTapSideLayer
   }
 
   var body: some View {
@@ -340,12 +354,7 @@ struct ResultSubsurfaceRealityView: View {
             eastingText: popoverEasting,
             northingText: popoverNorthing,
             zoneText: popoverZone,
-            layers: popoverLayers,
-            onClose: {
-              withAnimation(.easeInOut(duration: 0.2)) {
-                isProfilePopoverPresented = false
-              }
-            }
+            layers: popoverLayers
           )
           .padding(18)
           .frame(width: popoverWidth)
@@ -370,6 +379,64 @@ struct ResultSubsurfaceRealityView: View {
             }
             .shadow(color: Color.black.opacity(0.18), radius: 18, x: 0, y: 6)
           }
+          .position(x: originX + popoverWidth * 0.5, y: clampedOriginY + popoverHeight * 0.5)
+          .transition(.scale(scale: 0.95).combined(with: .opacity))
+          .zIndex(100)
+        }
+
+        // Side Layer Soil Type Popover Overlay (compact card: legend color + soil type)
+        if isSideLayerPopoverPresented, let tapLoc = sideLayerPopoverLocation, let soilType = selectedSideSoilType {
+          let popoverWidth: CGFloat = min(220, proxy.size.width - 32)
+          let popoverHeight: CGFloat = 46
+          let arrowEdge: Edge = tapLoc.x >= (proxy.size.width * 0.45) ? .trailing : .leading
+
+          let originX: CGFloat = arrowEdge == .trailing
+            ? max(tapLoc.x - popoverWidth - 8, 16)
+            : min(tapLoc.x + 8, proxy.size.width - popoverWidth - 16)
+
+          let rawOriginY = tapLoc.y - (popoverHeight * 0.5)
+          let clampedOriginY = min(max(rawOriginY, 70), max(proxy.size.height - popoverHeight - 90, 70))
+          let localArrowY = min(max(tapLoc.y - clampedOriginY, 14), popoverHeight - 14)
+
+          HStack(spacing: 8) {
+            Circle()
+              .fill(Color(soilType.uiColor))
+              .frame(width: 12, height: 12)
+              .overlay(
+                Circle()
+                  .stroke(Color.primary.opacity(0.18), lineWidth: 1)
+              )
+
+            Text(soilType.displayName)
+              .font(.subheadline.weight(.semibold))
+              .foregroundStyle(Color.primary)
+              .lineLimit(2)
+              .fixedSize(horizontal: false, vertical: true)
+          }
+          .padding(.horizontal, 14)
+          .padding(.vertical, 10)
+          .frame(width: popoverWidth)
+          .background {
+            PopoverBubbleShape(
+              arrowEdge: arrowEdge,
+              arrowY: localArrowY,
+              cornerRadius: 14,
+              arrowWidth: 14,
+              arrowHeight: 8
+            )
+            .fill(Color(.systemBackground).opacity(0.96))
+            .overlay {
+              PopoverBubbleShape(
+                arrowEdge: arrowEdge,
+                arrowY: localArrowY,
+                cornerRadius: 14,
+                arrowWidth: 14,
+                arrowHeight: 8
+              )
+              .stroke(Color.primary.opacity(contrast == .increased ? 0.35 : 0.12), lineWidth: 1)
+            }
+          }
+          .shadow(color: Color.black.opacity(0.12), radius: 12, x: 0, y: 4)
           .position(x: originX + popoverWidth * 0.5, y: clampedOriginY + popoverHeight * 0.5)
           .transition(.scale(scale: 0.95).combined(with: .opacity))
           .zIndex(100)
@@ -404,7 +471,11 @@ struct ResultSubsurfaceRealityView: View {
        )
     {
       onSelectVoxel(hit.voxel)
-      onTapTopSurface?(screenPoint, hit.hitPoint, hit.voxel)
+      if hit.isTopSurface {
+        onTapTopSurface?(screenPoint, hit.hitPoint, hit.voxel)
+      } else {
+        onTapSideLayer?(screenPoint, hit.voxel)
+      }
     } else if let groundHit = cameraController.intersectGroundPlane(
       screenPoint: screenPoint,
       viewportSize: viewSize
@@ -424,9 +495,10 @@ struct ResultSubsurfaceRealityView: View {
         onSelectVoxel(voxel)
       }
       onTapTopSurface?(screenPoint, groundHit, voxel)
-    } else if isProfilePopoverPresented {
+    } else if isProfilePopoverPresented || isSideLayerPopoverPresented {
       withAnimation(.easeInOut(duration: 0.2)) {
         isProfilePopoverPresented = false
+        isSideLayerPopoverPresented = false
       }
     }
   }

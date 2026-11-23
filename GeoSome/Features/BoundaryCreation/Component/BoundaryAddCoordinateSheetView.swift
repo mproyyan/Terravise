@@ -184,7 +184,7 @@ struct BoundaryAddCoordinateSheetView: View {
     HStack(spacing: 12) {
       Text(title)
         .font(.body)
-        .foregroundStyle(Color.primary)
+        .foregroundStyle(Color.secondary)
         .lineLimit(1)
 
       Spacer(minLength: 8)
@@ -194,7 +194,7 @@ struct BoundaryAddCoordinateSheetView: View {
         .keyboardType(keyboardType)
         #endif
         .font(.body)
-        .foregroundStyle(Color.secondary)
+        .foregroundStyle(Color.primary)
         .multilineTextAlignment(.trailing)
         .autocorrectionDisabled()
         .textInputAutocapitalization(autocapitalization)

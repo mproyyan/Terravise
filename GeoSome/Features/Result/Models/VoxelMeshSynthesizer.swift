@@ -89,20 +89,15 @@ enum VoxelMeshSynthesizer {
   static let dimmedMaterialIndex: UInt32 = 9
 
   /// Builds the shared palette of materials corresponding to `SoilLayerType.allCases`.
-  /// Uses photo-macro textures tinted with `layer.uiColor` and physically-based roughness
-  /// with `meshDescriptor.materials = .perFace(...)` so the entire voxel volume renders in 1 draw call.
+  /// Uses clean, untextured `layer.uiColor` matching the legend swatches, with uniform diffuse matte roughness
+  /// and `meshDescriptor.materials = .perFace(...)` so the entire voxel volume renders in 1 draw call.
   /// Index `dimmedMaterialIndex` (9) is an untextured, translucent gray material for non-highlighted zones.
   @MainActor
   static func makeMaterialPalette() -> [SimpleMaterial] {
-    let textureManager = SoilTextureManager.shared
     var palette = SoilLayerType.allCases.map { layer in
       var material = SimpleMaterial()
-      if let tex = textureManager.texture(for: layer.textureCategory) {
-        material.color = .init(tint: layer.uiColor, texture: .init(tex))
-      } else {
-        material.color = .init(tint: layer.uiColor)
-      }
-      material.roughness = .init(floatLiteral: layer.typicalRoughness)
+      material.color = .init(tint: layer.uiColor)
+      material.roughness = .init(floatLiteral: 0.88)
       material.metallic = .init(floatLiteral: 0.0)
       material.faceCulling = .none // Double-sided so highlighted concern zones inside the volume are always visible
       return material
@@ -915,6 +910,108 @@ enum VoxelMeshSynthesizer {
     return try? MeshResource.generate(from: [descriptor])
   }
 
+  /// Clips the boundary polygon against the active slicing limits in metric coordinates
+  /// and returns the resulting coordinates in geographic `CLLocationCoordinate2D` for the minimap.
+  static func clippedPolygonCoordinates(
+    boundaryCoordinates: [CLLocationCoordinate2D],
+    volume: SubsurfaceVoxelVolume,
+    maxSliceX: Int,
+    maxSliceZ: Int
+  ) -> [CLLocationCoordinate2D] {
+    let clampedSliceX = min(max(maxSliceX, 0), volume.nx - 1)
+    let clampedSliceZ = min(max(maxSliceZ, 0), volume.nz - 1)
+
+    // If unsliced (full volume active), return the original boundary directly
+    if clampedSliceX >= volume.nx - 1 && clampedSliceZ >= volume.nz - 1 {
+      return boundaryCoordinates
+    }
+
+    var rawPolygon: [SIMD2<Float>] = []
+    let halfWidthM = volume.widthXM * 0.5
+    let halfLengthM = volume.lengthZM * 0.5
+
+    if volume.boundaryPolygonUV.count >= 3 {
+      rawPolygon = volume.boundaryPolygonUV.map { uv in
+        SIMD2<Float>(
+          (uv.x - 0.5) * volume.widthXM,
+          (uv.y - 0.5) * volume.lengthZM
+        )
+      }
+    } else {
+      rawPolygon = [
+        SIMD2<Float>(-halfWidthM, -halfLengthM),
+        SIMD2<Float>(halfWidthM, -halfLengthM),
+        SIMD2<Float>(halfWidthM, halfLengthM),
+        SIMD2<Float>(-halfWidthM, halfLengthM)
+      ]
+    }
+
+    rawPolygon = cleanPolygonVertices(rawPolygon)
+    guard rawPolygon.count >= 3 else { return boundaryCoordinates }
+
+    if polygonSignedArea(rawPolygon) < 0 {
+      rawPolygon.reverse()
+    }
+
+    let centerX = volume.centerX
+    let centerZ = volume.centerZ
+    let stepXM = volume.cellStepXM
+    let stepZM = volume.cellStepZM
+
+    let xCut = (Float(clampedSliceX) + 0.5 - centerX) * stepXM
+    let zCut = (Float(clampedSliceZ) + 0.5 - centerZ) * stepZM
+    let xMin = (-0.5 - centerX) * stepXM
+    let zMin = (-0.5 - centerZ) * stepZM
+
+    var clippedPoly = rawPolygon
+
+    // Clip X <= xCut
+    clippedPoly = clipPolygon(clippedPoly, inside: { $0.x <= xCut + 1e-4 }) { p1, p2 in
+      let denom = p2.x - p1.x
+      let t = abs(denom) > 1e-7 ? (xCut - p1.x) / denom : 0.0
+      return SIMD2<Float>(xCut, p1.y + t * (p2.y - p1.y))
+    }
+
+    // Clip Z <= zCut
+    clippedPoly = clipPolygon(clippedPoly, inside: { $0.y <= zCut + 1e-4 }) { p1, p2 in
+      let denom = p2.y - p1.y
+      let t = abs(denom) > 1e-7 ? (zCut - p1.y) / denom : 0.0
+      return SIMD2<Float>(p1.x + t * (p2.x - p1.x), zCut)
+    }
+
+    // Clip X >= xMin
+    clippedPoly = clipPolygon(clippedPoly, inside: { $0.x >= xMin - 1e-4 }) { p1, p2 in
+      let denom = p2.x - p1.x
+      let t = abs(denom) > 1e-7 ? (xMin - p1.x) / denom : 0.0
+      return SIMD2<Float>(xMin, p1.y + t * (p2.y - p1.y))
+    }
+
+    // Clip Z >= zMin
+    clippedPoly = clipPolygon(clippedPoly, inside: { $0.y >= zMin - 1e-4 }) { p1, p2 in
+      let denom = p2.y - p1.y
+      let t = abs(denom) > 1e-7 ? (zMin - p1.y) / denom : 0.0
+      return SIMD2<Float>(p1.x + t * (p2.x - p1.x), zMin)
+    }
+
+    clippedPoly = cleanPolygonVertices(clippedPoly)
+    guard clippedPoly.count >= 3 else { return boundaryCoordinates }
+
+    let minLat = volume.minLatitude
+    let maxLat = volume.maxLatitude
+    let minLon = volume.minLongitude
+    let maxLon = volume.maxLongitude
+    let widthM = Double(max(volume.widthXM, 1e-3))
+    let lengthM = Double(max(volume.lengthZM, 1e-3))
+
+    return clippedPoly.map { pt in
+      let u = (Double(pt.x) / widthM) + 0.5
+      let v = (Double(pt.y) / lengthM) + 0.5
+      let lon = minLon + u * (maxLon - minLon)
+      let lat = maxLat - v * (maxLat - minLat)
+      return CLLocationCoordinate2D(latitude: lat, longitude: lon)
+    }
+  }
+
   // MARK: - 2D Computational Geometry Helpers for Option 1 Visual Mesh Smoothing
 
   @inline(__always)
@@ -1164,10 +1261,11 @@ enum VoxelMeshSynthesizer {
       maxSliceX: maxSliceX,
       maxSliceZ: maxSliceZ
     ) {
+      let isTop = hit.metricPoint.y >= -0.2 && hit.voxel.coord.y == volume.ny - 1
       return (
         voxel: hit.voxel,
-        isTopSurface: hit.voxel.coord.y == volume.ny - 1,
-        hitPoint: SIMD3<Float>(hit.metricPoint.x, 0.0, hit.metricPoint.z)
+        isTopSurface: isTop,
+        hitPoint: hit.metricPoint
       )
     }
 

@@ -384,7 +384,7 @@ struct CPTUploadDataSheetView: View {
     HStack(spacing: 12) {
       Text(title)
         .font(.body)
-        .foregroundStyle(Color.primary)
+        .foregroundStyle(Color.secondary)
         .lineLimit(1)
 
       Spacer(minLength: 8)
@@ -394,7 +394,7 @@ struct CPTUploadDataSheetView: View {
         .keyboardType(.decimalPad)
         #endif
         .font(.body)
-        .foregroundStyle(Color.secondary)
+        .foregroundStyle(Color.primary)
         .multilineTextAlignment(.trailing)
         .autocorrectionDisabled()
         .textInputAutocapitalization(.never)
@@ -467,7 +467,7 @@ struct CPTUploadDataSheetView: View {
     HStack(spacing: 12) {
       Text(title)
         .font(.body)
-        .foregroundStyle(Color.primary)
+        .foregroundStyle(Color.secondary)
         .lineLimit(1)
 
       Spacer(minLength: 8)
@@ -477,7 +477,7 @@ struct CPTUploadDataSheetView: View {
         .keyboardType(keyboardType)
         #endif
         .font(.body)
-        .foregroundStyle(Color.secondary)
+        .foregroundStyle(Color.primary)
         .multilineTextAlignment(.trailing)
         .autocorrectionDisabled()
         .textInputAutocapitalization(autocapitalization)

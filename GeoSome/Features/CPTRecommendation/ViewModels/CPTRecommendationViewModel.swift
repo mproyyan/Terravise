@@ -50,6 +50,10 @@ final class CPTRecommendationViewModel {
     (recommendation.isSufficient || !recommendation.hasRecommendation) ? Self.sufficientSheetDetent : Self.recommendationSheetDetent
   }
 
+  var isRecommendationSheetCollapsed: Bool {
+    selectedSheetDetent == Self.collapsedSheetDetent
+  }
+
   var project: Project
   var cameraPosition: MapCameraPosition
   var isSatelliteStyle: Bool

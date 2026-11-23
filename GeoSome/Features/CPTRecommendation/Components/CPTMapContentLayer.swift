@@ -93,7 +93,8 @@ struct CPTMapContentLayer: View {
 
         // Recommended Point Annotation (Green Circle with X)
         if let recommendedCoordinate {
-          Annotation("Recommended Point", coordinate: recommendedCoordinate) {
+          let pointNumber = cptPoints.count + 1
+          Annotation("Recommendation Point \(pointNumber)", coordinate: recommendedCoordinate) {
             ZStack {
               Circle()
                 .fill(Color.green)
@@ -104,7 +105,7 @@ struct CPTMapContentLayer: View {
                 .font(.system(size: 13, weight: .bold))
                 .foregroundStyle(.white)
             }
-            .accessibilityLabel("Recommended CPT Point")
+            .accessibilityLabel("Recommendation Point \(pointNumber)")
           }
         }
       }

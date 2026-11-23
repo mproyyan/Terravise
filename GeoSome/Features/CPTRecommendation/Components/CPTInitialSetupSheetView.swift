@@ -249,7 +249,7 @@ struct CPTInitialSetupSheetView: View {
     HStack(spacing: 12) {
       Text(title)
         .font(.body)
-        .foregroundStyle(Color.primary)
+        .foregroundStyle(Color.secondary)
         .lineLimit(1)
 
       Spacer(minLength: 8)
@@ -259,7 +259,7 @@ struct CPTInitialSetupSheetView: View {
         .keyboardType(.decimalPad)
         #endif
         .font(.body)
-        .foregroundStyle(Color.secondary)
+        .foregroundStyle(Color.primary)
         .multilineTextAlignment(.trailing)
         .autocorrectionDisabled()
         .textInputAutocapitalization(.never)
@@ -333,25 +333,21 @@ struct CPTInitialSetupSheetView: View {
             onDeletePoint: onDeletePoint
           )
         } label: {
-          HStack {
+          HStack(spacing: 6) {
             Text("CPT List")
               .font(.headline.weight(.bold))
               .foregroundStyle(Color.primary)
 
-            Text("(\(points.count) \(points.count == 1 ? "point" : "points"))")
-              .font(.caption.weight(.medium))
+            Image(systemName: "chevron.right")
+              .font(.caption.weight(.bold))
               .foregroundStyle(Color.secondary)
 
             Spacer()
-
-            Image(systemName: "chevron.right")
-              .font(.caption.weight(.semibold))
-              .foregroundStyle(Color.secondary)
           }
           .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("View full CPT List, \(points.count) points")
+        .accessibilityLabel("View full CPT List")
       } else {
         HStack {
           Text("CPT List")
