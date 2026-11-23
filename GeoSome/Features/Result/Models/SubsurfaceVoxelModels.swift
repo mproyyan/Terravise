@@ -7,7 +7,7 @@ import UIKit
 /// - `x`: Easting grid index (1.0 m step)
 /// - `y`: Vertical layer/depth index from bottom (`0` = deepest bedrock) to top (`maxY` = surface `Y = 0`)
 /// - `z`: Northing grid index (1.0 m step)
-struct GridCoord: Hashable, Sendable {
+nonisolated struct GridCoord: Hashable, Sendable {
   let x: Int
   let y: Int
   let z: Int
@@ -21,7 +21,7 @@ struct ColumnCoord: Hashable, Sendable {
 
 /// Top-right mode switcher tabs on the Result Analysis screen.
 enum ResultAnalysisTab: String, CaseIterable, Identifiable, Sendable {
-  case threeDLayer = "3D Layer"
+  case threeDLayer = "Soil Interpolation"
   case bearingLayer = "Bearing Layer"
 
   var id: String { rawValue }
@@ -227,8 +227,15 @@ struct SubsurfaceVoxelVolume: Sendable {
   /// Center offsets used for centering the volume around the scene origin `(0, 0, 0)` with top plane at `Y = 0`.
   let centerX: Float
   let centerZ: Float
-  /// Local 3D positions of uploaded CPT boreholes on the top surface (`Y = 0`).
+  /// Local 3D positions of uploaded CPT boreholes on the top surface (`Y = 0`) in grid units (used by Bearing Layer).
   let cptSurfacePositions: [SIMD3<Float>]
+  /// True metric 3D positions (`1 unit = 1 meter`) of CPT boreholes on the top surface (`Y = 0`).
+  var cptMetricSurfacePositions: [SIMD3<Float>] = []
+  /// Geographic bounding box of the site polygon for continuous lat/lon unprojection.
+  var minLatitude: Double = -6.2430
+  var maxLatitude: Double = -6.2405
+  var minLongitude: Double = 106.8295
+  var maxLongitude: Double = 106.8330
   /// Normalized `[0, 1] x [0, 1]` UV coordinates of the user-drawn boundary polygon vertices (`u`: West->East, `v`: North->South).
   var boundaryPolygonUV: [SIMD2<Float>] = [
     SIMD2<Float>(0, 0),
@@ -238,6 +245,8 @@ struct SubsurfaceVoxelVolume: Sendable {
   ]
   /// Normalized `[0, 1] x [0, 1]` UV coordinates of CPT points inside the boundary polygon.
   var cptNormalizedUVs: [SIMD2<Float>] = []
+  /// True if at least one measured CPT sounding borehole is present in the volume.
+  var hasMeasuredCPTData: Bool = false
 
   @inline(__always)
   func flatIndex(x: Int, y: Int, z: Int) -> Int {
@@ -255,13 +264,216 @@ struct SubsurfaceVoxelVolume: Sendable {
     return flatMaterialGrid[(x * nz * ny) + (z * ny) + y]
   }
 
-  /// Converts a discrete grid coordinate `(x, y, z)` to local 3D world space where:
-  /// - Voxel half-extent is `0.5` on the 1.0 m grid.
-  /// - Top surface plane (`y == ny - 1` top face) lies exactly at `Y = 0`.
+  /// Converts a discrete grid coordinate `(x, y, z)` to grid-unit world space (used by Bearing Layer).
   func worldPosition(for coord: GridCoord) -> SIMD3<Float> {
     let wx = Float(coord.x) - centerX
     let wy = Float(coord.y) - Float(ny - 1) - 0.5
     let wz = Float(coord.z) - centerZ
     return SIMD3<Float>(wx, wy, wz)
+  }
+
+  /// Converts a discrete grid coordinate `(x, y, z)` to true metric 3D world space (`1 unit = 1 meter`),
+  /// centered horizontally at `(0, 0)` with top surface at `Y = 0` and bottom at `Y = -depthYM`.
+  func metricWorldPosition(for coord: GridCoord) -> SIMD3<Float> {
+    let wx = (Float(coord.x) - centerX) * cellStepXM
+    let wy = (Float(coord.y) - Float(ny - 1) - 0.5) * cellStepYM
+    let wz = (Float(coord.z) - centerZ) * cellStepZM
+    return SIMD3<Float>(wx, wy, wz)
+  }
+
+  /// Converts a metric horizontal location `(xM, zM)` (in meters from center) to continuous fractional
+  /// grid coordinates `(fx, fz)` in `[0, nx - 1] × [0, nz - 1]`.
+  func continuousGridCoordinates(forMetricX xM: Float, zM: Float) -> (fx: Float, fz: Float) {
+    let safeStepX = max(cellStepXM, 1e-4)
+    let safeStepZ = max(cellStepZM, 1e-4)
+    let rawFX = (xM / safeStepX) + centerX
+    let rawFZ = (zM / safeStepZ) + centerZ
+    let fx = min(max(rawFX, 0.0), Float(max(nx - 1, 0)))
+    let fz = min(max(rawFZ, 0.0), Float(max(nz - 1, 0)))
+    return (fx, fz)
+  }
+
+  /// Converts an exact metric location `(xM, zM)` on the `Y = 0` surface into geographic `(latitude, longitude)`.
+  func geographicCoordinate(forMetricX xM: Float, zM: Float) -> (latitude: Double, longitude: Double) {
+    let (fx, fz) = continuousGridCoordinates(forMetricX: xM, zM: zM)
+    let u = Double(fx) / Double(max(nx - 1, 1))
+    let v = Double(fz) / Double(max(nz - 1, 1))
+    let lon = minLongitude + u * (maxLongitude - minLongitude)
+    let lat = maxLatitude - v * (maxLatitude - minLatitude)
+    return (latitude: lat, longitude: lon)
+  }
+
+  /// Exact inverse of `geographicCoordinate(forMetricX:zM:)` in `Double` precision:
+  /// converts a geographic `(latitude, longitude)` into local metric coordinates `(xM, zM)` in meters
+  /// where `+X` is East and `+Z` is South (`-Z` is North).
+  func metricPoint(for coordinate: CLLocationCoordinate2D) -> SIMD2<Double> {
+    let lonSpan = max(maxLongitude - minLongitude, 1e-12)
+    let latSpan = max(maxLatitude - minLatitude, 1e-12)
+    let u = (coordinate.longitude - minLongitude) / lonSpan
+    let v = (maxLatitude - coordinate.latitude) / latSpan
+    let xM = (u - 0.5) * Double(widthXM)
+    let zM = (v - 0.5) * Double(lengthZM)
+    return SIMD2<Double>(xM, zM)
+  }
+
+  /// Returns `true` if the metric horizontal coordinate `(xM, zM)` lies strictly inside the drawn site
+  /// boundary polygon AND within an active, non-sliced 3D voxel column (`0 ... maxSliceX`, `0 ... maxSliceZ`).
+  func isMetricPointInsideActiveArea(
+    xM: Float,
+    zM: Float,
+    maxSliceX: Int? = nil,
+    maxSliceZ: Int? = nil
+  ) -> Bool {
+    let safeStepX = max(cellStepXM, 1e-4)
+    let safeStepZ = max(cellStepZM, 1e-4)
+    let rawFX = (xM / safeStepX) + centerX
+    let rawFZ = (zM / safeStepZ) + centerZ
+
+    let limitX = min(maxSliceX ?? (nx - 1), nx - 1)
+    let limitZ = min(maxSliceZ ?? (nz - 1), nz - 1)
+
+    guard rawFX >= -0.5, rawFX <= Float(limitX) + 0.5,
+          rawFZ >= -0.5, rawFZ <= Float(limitZ) + 0.5
+    else {
+      return false
+    }
+
+    let xGrid = min(max(Int(rawFX.rounded()), 0), nx - 1)
+    let zGrid = min(max(Int(rawFZ.rounded()), 0), nz - 1)
+    guard xGrid <= limitX,
+          zGrid <= limitZ,
+          voxels[GridCoord(x: xGrid, y: ny - 1, z: zGrid)] != nil
+    else {
+      return false
+    }
+
+    // Verify exact point-in-polygon against the user-drawn boundary in normalized UV space [0, 1]
+    if boundaryPolygonUV.count >= 3 {
+      let u = (xM / max(widthXM, 1e-4)) + 0.5
+      let v = (zM / max(lengthZM, 1e-4)) + 0.5
+      guard u >= 0.0, u <= 1.0, v >= 0.0, v <= 1.0 else {
+        return false
+      }
+      var inside = false
+      var j = boundaryPolygonUV.count - 1
+      for i in 0 ..< boundaryPolygonUV.count {
+        let xi = boundaryPolygonUV[i].x, yi = boundaryPolygonUV[i].y
+        let xj = boundaryPolygonUV[j].x, yj = boundaryPolygonUV[j].y
+        let denom = (yj - yi) == 0 ? 1e-7 : (yj - yi)
+        let intersect = ((yi > v) != (yj > v)) && (u < (xj - xi) * (v - yi) / denom + xi)
+        if intersect {
+          inside.toggle()
+        }
+        j = i
+      }
+      if !inside {
+        return false
+      }
+    }
+
+    return true
+  }
+
+  /// Bilinearly interpolates the continuous Robertson `Ic` value at exact metric coordinates `(metricX, metricZ)`
+  /// for a given vertical layer `iy` (`0` = deepest, `ny - 1` = surface).
+  func sampleBilinearIc(metricX: Float, metricZ: Float, iy: Int) -> Float? {
+    let clampedY = min(max(iy, 0), ny - 1)
+    let (fx, fz) = continuousGridCoordinates(forMetricX: metricX, zM: metricZ)
+
+    let x0 = min(max(Int(floor(fx)), 0), nx - 1)
+    let x1 = min(x0 + 1, nx - 1)
+    let tx = fx - Float(x0)
+
+    let z0 = min(max(Int(floor(fz)), 0), nz - 1)
+    let z1 = min(z0 + 1, nz - 1)
+    let tz = fz - Float(z0)
+
+    let corners: [(x: Int, z: Int, weight: Float)] = [
+      (x0, z0, (1.0 - tx) * (1.0 - tz)),
+      (x1, z0, tx * (1.0 - tz)),
+      (x0, z1, (1.0 - tx) * tz),
+      (x1, z1, tx * tz)
+    ]
+
+    var weightedSum: Float = 0.0
+    var weightTotal: Float = 0.0
+
+    for c in corners where c.weight > 0 {
+      if let v = voxels[GridCoord(x: c.x, y: clampedY, z: c.z)] {
+        weightedSum += c.weight * v.robertsonIc
+        weightTotal += c.weight
+      }
+    }
+
+    if weightTotal > 1e-5 {
+      return weightedSum / weightTotal
+    }
+
+    // Fallback to nearest active column if right on an irregular polygon boundary edge
+    let nearestX = min(max(Int(fx.rounded()), 0), nx - 1)
+    let nearestZ = min(max(Int(fz.rounded()), 0), nz - 1)
+    if let direct = voxels[GridCoord(x: nearestX, y: clampedY, z: nearestZ)] {
+      return direct.robertsonIc
+    }
+
+    // Expanding radius search for the closest active voxel at this depth layer
+    for r in 1...8 {
+      for dx in -r...r {
+        for dz in -r...r {
+          if abs(dx) != r && abs(dz) != r { continue }
+          let qx = nearestX + dx
+          let qz = nearestZ + dz
+          guard qx >= 0, qx < nx, qz >= 0, qz < nz else { continue }
+          if let v = voxels[GridCoord(x: qx, y: clampedY, z: qz)] {
+            return v.robertsonIc
+          }
+        }
+      }
+    }
+
+    return nil
+  }
+
+  /// Samples a continuous bilinearly + vertically interpolated Robertson `Ic` profile at `(metricX, metricZ)`.
+  /// Returns `(topDepthM, bottomDepthM, icValue, soilType)` slices across the full depth `depthYM`.
+  func sampleInterpolatedStratigraphy(
+    metricX: Float,
+    metricZ: Float,
+    verticalSubdivisions: Int = 40
+  ) -> [(topDepthM: Double, bottomDepthM: Double, ic: Float, soilType: SoilLayerType)] {
+    let steps = max(verticalSubdivisions, ny)
+    var rawLayerIcs: [Float] = []
+    rawLayerIcs.reserveCapacity(ny)
+
+    // Ordered from top surface (depthIndexFromTop = 0, iy = ny - 1) to bottom (iy = 0)
+    for depthIdx in 0 ..< ny {
+      let iy = (ny - 1) - depthIdx
+      if let ic = sampleBilinearIc(metricX: metricX, metricZ: metricZ, iy: iy) {
+        rawLayerIcs.append(ic)
+      }
+    }
+
+    guard !rawLayerIcs.isEmpty else { return [] }
+    let count = rawLayerIcs.count
+    let sliceStepM = Double(depthYM) / Double(steps)
+
+    var result: [(topDepthM: Double, bottomDepthM: Double, ic: Float, soilType: SoilLayerType)] = []
+    result.reserveCapacity(steps)
+
+    for s in 0 ..< steps {
+      let normDepth = (Double(s) + 0.5) / Double(steps)
+      let continuousLayerPos = Float(normDepth) * Float(max(count - 1, 0))
+      let i0 = min(max(Int(floor(continuousLayerPos)), 0), count - 1)
+      let i1 = min(i0 + 1, count - 1)
+      let ty = continuousLayerPos - Float(i0)
+
+      let interpolatedIc = rawLayerIcs[i0] * (1.0 - ty) + rawLayerIcs[i1] * ty
+      let soilType = SoilLayerType.fromRobertsonIc(Double(interpolatedIc), depthRatio: normDepth)
+      let topM = Double(s) * sliceStepM
+      let botM = Double(s + 1) * sliceStepM
+      result.append((topDepthM: topM, bottomDepthM: botM, ic: interpolatedIc, soilType: soilType))
+    }
+
+    return result
   }
 }

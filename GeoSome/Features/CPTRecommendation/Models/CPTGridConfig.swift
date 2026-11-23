@@ -1,6 +1,26 @@
 import CoreLocation
 import Foundation
 
+/// Persisted per project. Existing projects decode as legacy to preserve their grid and DQN results.
+enum CPTGridPolicy: String, Codable, Hashable, Sendable {
+  case legacyDynamic
+  case qcfsV3Enumerated
+}
+
+enum CPTDistancePolicy: String, Codable, Hashable, Sendable {
+  case legacyCellDiagonal
+  case sufficiencyV32SiteDiagonal
+
+  func minimumMeters(grid: CPTGridConfig) -> Double {
+    switch self {
+    case .legacyCellDiagonal: return hypot(grid.dxM, grid.dyM)
+    case .sufficiencyV32SiteDiagonal:
+      // Python accepts nearest + 1e-9 >= 0.10 * diagonal.
+      return max(0, 0.10 * hypot(Double(grid.nx - 1) * grid.dxM, Double(grid.ny - 1) * grid.dyM) - 1e-9)
+    }
+  }
+}
+
 struct CPTGridConfig: Sendable {
   let nx: Int
   let ny: Int
@@ -23,9 +43,47 @@ struct CPTGridConfig: Sendable {
   /// 2D boolean mask [nx][ny] indicating whether cell center (x, y) is inside the project boundary polygon.
   let validXYMask: [[Bool]]
 
+  /// Physical voxel centers are (ix*dxM, iy*dyM, iz*dzM) from the southwest
+  /// geographic origin; X increases east, Y north, and Z is depth downward.
+  var centerExtentXM: Double { Double(nx - 1) * dxM }
+  var centerExtentYM: Double { Double(ny - 1) * dyM }
+  var centerExtentDepthM: Double { Double(nz - 1) * dzM }
+
+  static let qcfsShapes: [(nx: Int, ny: Int, nz: Int)] = [
+    (24, 24, 12), (32, 32, 16), (40, 40, 24), (48, 32, 20)
+  ]
+
+  var isQCFSV3Shape: Bool {
+    Self.qcfsShapes.contains { $0.nx == nx && $0.ny == ny && $0.nz == nz }
+  }
+
+  func hasSamePhysicalGrid(as other: CPTGridConfig) -> Bool {
+    nx == other.nx && ny == other.ny && nz == other.nz &&
+    abs(dxM - other.dxM) < 1e-9 && abs(dyM - other.dyM) < 1e-9 && abs(dzM - other.dzM) < 1e-9 &&
+    abs(originLatitude - other.originLatitude) < 1e-12 &&
+    abs(originLongitude - other.originLongitude) < 1e-12 &&
+    validXYMask == other.validXYMask
+  }
+
+  /// Selects the enumerated model shape nearest the existing dynamic grid in
+  /// relative cell counts. This changes sampling density, not polygon, origin,
+  /// CPT coordinates, or depth data. Ties prefer fewer voxels.
+  static func qcfsShape(near nx: Int, _ ny: Int, _ nz: Int) -> (nx: Int, ny: Int, nz: Int) {
+    qcfsShapes.min { lhs, rhs in
+      func score(_ s: (nx: Int, ny: Int, nz: Int)) -> Double {
+        pow(log(Double(s.nx) / Double(nx)), 2) +
+        pow(log(Double(s.ny) / Double(ny)), 2) +
+        pow(log(Double(s.nz) / Double(nz)), 2)
+      }
+      let a = score(lhs), b = score(rhs)
+      return abs(a - b) > 1e-12 ? a < b : lhs.nx * lhs.ny * lhs.nz < rhs.nx * rhs.ny * rhs.nz
+    }!
+  }
+
   static func build(
     boundaryCoordinates: [CLLocationCoordinate2D],
-    cptPoints: [CPTPointEntry]
+    cptPoints: [CPTPointEntry],
+    policy: CPTGridPolicy = .legacyDynamic
   ) -> CPTGridConfig {
     let polygon = boundaryCoordinates.count >= 3
       ? boundaryCoordinates
@@ -71,9 +129,6 @@ struct CPTGridConfig: Sendable {
       ny = min(max(Int((Double(baseCells) / max(ratio, 0.25)).rounded()), 24), 36)
     }
 
-    let dxM = max(rawWidthM / Double(max(nx - 1, 1)), 1.0)
-    let dyM = max(rawHeightM / Double(max(ny - 1, 1)), 1.0)
-
     // Determine vertical grid (nz in 12...24, CoreML range is 8...32)
     let maxObservedDepth = cptPoints
       .flatMap(\.rows)
@@ -90,7 +145,17 @@ struct CPTGridConfig: Sendable {
       dzM = ceil(targetDepth / 20.0)
     }
     let rawNz = Int(ceil(targetDepth / dzM)) + 1
-    let nz = min(max(rawNz, 12), 24)
+    let legacyNz = min(max(rawNz, 12), 24)
+    let selected = policy == .qcfsV3Enumerated ? qcfsShape(near: nx, ny, legacyNz) : (nx, ny, legacyNz)
+    let finalNx = selected.0, finalNy = selected.1, nz = selected.2
+    // Keep the deepest measured CPT within the selected vertical center range.
+    let finalDzM = policy == .legacyDynamic ? dzM : max(dzM, targetDepth / Double(nz - 1))
+    let dxM = policy == .legacyDynamic
+      ? max(rawWidthM / Double(max(finalNx - 1, 1)), 1.0)
+      : max((maxLon - minLon) * mPerDegLon / Double(finalNx - 1), 1e-6)
+    let dyM = policy == .legacyDynamic
+      ? max(rawHeightM / Double(max(finalNy - 1, 1)), 1.0)
+      : max((maxLat - minLat) * mPerDegLat / Double(finalNy - 1), 1e-6)
 
     // Project polygon vertices to local meters
     let polyXY: [(x: Double, y: Double)] = polygon.map { coord in
@@ -106,14 +171,14 @@ struct CPTGridConfig: Sendable {
       let p2 = polyXY[(i + 1) % polyXY.count]
       shoelace += (p1.x * p2.y) - (p2.x * p1.y)
     }
-    let polygonAreaM2 = max(abs(shoelace) * 0.5, rawWidthM * rawHeightM * 0.5)
+    let polygonAreaM2 = abs(shoelace) * 0.5
 
     // Build 2D valid mask inside polygon
-    var mask2D = Array(repeating: Array(repeating: false, count: ny), count: nx)
+    var mask2D = Array(repeating: Array(repeating: false, count: finalNy), count: finalNx)
     var validCount = 0
-    for ix in 0 ..< nx {
+    for ix in 0 ..< finalNx {
       let x = Double(ix) * dxM
-      for iy in 0 ..< ny {
+      for iy in 0 ..< finalNy {
         let y = Double(iy) * dyM
         if isPointInPolygon(x: x, y: y, polygon: polyXY) {
           mask2D[ix][iy] = true
@@ -122,27 +187,18 @@ struct CPTGridConfig: Sendable {
       }
     }
 
-    // Fallback if polygon is very narrow ordegenerate
-    if validCount < 4 {
-      for ix in 0 ..< nx {
-        for iy in 0 ..< ny {
-          mask2D[ix][iy] = true
-        }
-      }
-    }
-
-    let extentX = Double(nx) * dxM
-    let extentY = Double(ny) * dyM
+    let extentX = Double(finalNx) * dxM
+    let extentY = Double(finalNy) * dyM
     let diagonal = hypot(extentX, extentY)
     let aspect = max(extentX, extentY) / max(min(extentX, extentY), 1.0)
 
     return CPTGridConfig(
-      nx: nx,
-      ny: ny,
+      nx: finalNx,
+      ny: finalNy,
       nz: nz,
       dxM: dxM,
       dyM: dyM,
-      dzM: dzM,
+      dzM: finalDzM,
       originLatitude: minLat,
       originLongitude: minLon,
       metersPerDegreeLat: mPerDegLat,
@@ -187,12 +243,45 @@ struct CPTGridConfig: Sendable {
     return hypot(p1.x - p2.x, p1.y - p2.y)
   }
 
+  func hasValidBoundary(_ boundary: [CLLocationCoordinate2D]) -> Bool {
+    guard boundary.count>=3, boundary.allSatisfy({$0.latitude.isFinite && $0.longitude.isFinite}) else { return false }
+    let p=boundary.map{xyMeters(for:$0)},n=boundary.count
+    func cross(_ a:(x:Double,y:Double),_ b:(x:Double,y:Double),_ c:(x:Double,y:Double)) -> Double { (b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x) }
+    for i in 0..<n {
+      let a=p[i],b=p[(i+1)%n]
+      if a.x==b.x && a.y==b.y { return false }
+      for j in (i+1)..<n {
+        if j==i+1 || (i==0 && j==n-1) { continue }
+        let c=p[j],d=p[(j+1)%n]
+        if cross(a,b,c)*cross(a,b,d)<=0 && cross(c,d,a)*cross(c,d,b)<=0 &&
+          max(min(a.x,b.x),min(c.x,d.x))<=min(max(a.x,b.x),max(c.x,d.x)) &&
+          max(min(a.y,b.y),min(c.y,d.y))<=min(max(a.y,b.y),max(c.y,d.y)) { return false }
+      }
+    }
+    return siteAreaM2>0
+  }
+
+  func contains(_ coordinate: CLLocationCoordinate2D, in boundary: [CLLocationCoordinate2D]) -> Bool {
+    guard boundary.count >= 3 else { return false }
+    let point = xyMeters(for: coordinate)
+    let polygon = boundary.map { xyMeters(for: $0) }
+    return Self.isPointInPolygon(x: point.x, y: point.y, polygon: polygon)
+  }
+
   private static func isPointInPolygon(
     x: Double,
     y: Double,
     polygon: [(x: Double, y: Double)]
   ) -> Bool {
     guard polygon.count >= 3 else { return true }
+    let scale = max(1.0, polygon.flatMap { [abs($0.x),abs($0.y)] }.max() ?? 1)
+    let eps = 1e-10 * scale
+    for i in polygon.indices {
+      let a = polygon[i], b = polygon[(i+1)%polygon.count]
+      let length = hypot(b.x-a.x,b.y-a.y)
+      if length > 0 && abs((x-a.x)*(b.y-a.y)-(y-a.y)*(b.x-a.x)) <= eps*length &&
+        x >= min(a.x,b.x)-eps && x <= max(a.x,b.x)+eps && y >= min(a.y,b.y)-eps && y <= max(a.y,b.y)+eps { return true }
+    }
     var inside = false
     var j = polygon.count - 1
     for i in 0 ..< polygon.count {

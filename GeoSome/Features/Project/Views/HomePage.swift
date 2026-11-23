@@ -2,7 +2,6 @@ import SwiftUI
 
 struct HomePage: View {
   @Environment(AppRouter.self) private var router
-  @Environment(\.colorScheme) private var colorScheme
   @Environment(\.colorSchemeContrast) private var contrast
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -10,8 +9,9 @@ struct HomePage: View {
   @State private var captionCenter = AccessibilityCaptionCenter.shared
   @AccessibilityFocusState private var isStartButtonFocused: Bool
 
-  @ScaledMetric(relativeTo: .largeTitle) private var logoWidth: CGFloat = 52
-  @ScaledMetric(relativeTo: .largeTitle) private var logoHeight: CGFloat = 48
+  @ScaledMetric(relativeTo: .largeTitle) private var logoWidth: CGFloat = 100
+  @ScaledMetric(relativeTo: .largeTitle) private var logoHeight: CGFloat = 100
+  @ScaledMetric(relativeTo: .largeTitle) private var titleFontSize: CGFloat = 44
 
   init(viewModel: ProjectViewModel? = nil) {
     _viewModel = State(initialValue: viewModel ?? ProjectViewModel())
@@ -30,24 +30,27 @@ struct HomePage: View {
     GeometryReader { geometry in
       ZStack(alignment: .top) {
         // Fullscreen Hero Background
-        heroBackgroundPlaceholder
+        TopographyBackground(
+          darkOverlayOpacity: contrast == .increased ? 0.75 : 0.7,
+          alignment: .center
+        )
 
         // Hero Content placed in the upper portion above the sheet resting line
         ScrollView(.vertical, showsIndicators: false) {
           VStack(spacing: 16) {
             Spacer(minLength: dynamicTypeSize.isAccessibilitySize ? 12 : 24)
 
-            logoPlaceholder
+            logoMark
 
             VStack(spacing: 8) {
               Text("Terravise")
-                .font(.largeTitle.weight(.bold))
+                .font(.system(size: titleFontSize, weight: .bold))
                 .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
                 .accessibilityAddTraits(.isHeader)
 
               Text("Plan your site investigation with data-driven CPT recommendations.")
-                .font(.subheadline)
+                .font(.title3)
                 .foregroundStyle(contrast == .increased ? .white : .white.opacity(0.92))
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
@@ -56,7 +59,10 @@ struct HomePage: View {
 
             StartProjectButton(action: {
               viewModel.dismissProjectSheet()
-              router.navigate(to: .boundaryCreation)
+              Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(220))
+                router.navigate(to: .boundaryCreation)
+              }
             })
             .accessibilityFocused($isStartButtonFocused)
             .padding(.top, 4)
@@ -96,7 +102,22 @@ struct HomePage: View {
               viewModel.selectProject(project)
               viewModel.dismissProjectSheet()
               captionCenter.announce("Opened project \(project.name).")
-              router.navigate(to: .projectDetail(id: project.id))
+              Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(220))
+                router.navigate(to: .projectDetail(id: project.id))
+              }
+            },
+            onRenameProject: { project, newName in
+              withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
+                viewModel.renameProject(id: project.id, newName: newName)
+              }
+              captionCenter.announce("Renamed project to \(newName).")
+            },
+            onDeleteProject: { project in
+              withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) {
+                viewModel.deleteProject(id: project.id)
+              }
+              captionCenter.announce("Deleted project \(project.name).")
             }
           )
           .presentationPlacement(.center)
@@ -131,83 +152,14 @@ struct HomePage: View {
     }
   }
 
-  // MARK: - Placeholders
+  // MARK: - Branding
 
-  private var heroBackgroundPlaceholder: some View {
-    ZStack {
-      LinearGradient(
-        colors: heroGradientColors,
-        startPoint: .topLeading,
-        endPoint: .bottomTrailing
-      )
-
-      Rectangle()
-        .fill(
-          RadialGradient(
-            colors: [
-              Color.white.opacity(contrast == .increased ? 0.04 : 0.08),
-              Color.black.opacity(contrast == .increased ? 0.6 : 0.45)
-            ],
-            center: .center,
-            startRadius: 40,
-            endRadius: 400
-          )
-        )
-    }
-    .accessibilityHidden(true)
-  }
-
-  private var heroGradientColors: [Color] {
-    if contrast == .increased {
-      return [
-        Color(red: 0.16, green: 0.12, blue: 0.10),
-        Color(red: 0.10, green: 0.08, blue: 0.06),
-        Color(red: 0.05, green: 0.04, blue: 0.03)
-      ]
-    }
-    if colorScheme == .dark {
-      return [
-        Color(red: 0.24, green: 0.19, blue: 0.16),
-        Color(red: 0.17, green: 0.13, blue: 0.11),
-        Color(red: 0.10, green: 0.08, blue: 0.07)
-      ]
-    }
-    return [
-      Color(red: 0.34, green: 0.26, blue: 0.22),
-      Color(red: 0.25, green: 0.19, blue: 0.15),
-      Color(red: 0.16, green: 0.12, blue: 0.10)
-    ]
-  }
-
-  private var logoPlaceholder: some View {
-    ZStack {
-      RoundedRectangle(cornerRadius: 14, style: .continuous)
-        .fill(
-          LinearGradient(
-            colors: [
-              Color.green.opacity(0.9),
-              Color.orange.opacity(0.85),
-              Color.blue.opacity(0.9)
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-          )
-        )
-        .frame(width: logoWidth, height: logoHeight)
-        .overlay(
-          RoundedRectangle(cornerRadius: 14, style: .continuous)
-            .stroke(
-              Color.white.opacity(contrast == .increased ? 0.8 : 0.2),
-              lineWidth: contrast == .increased ? 2 : 1
-            )
-        )
-        .shadow(color: Color.black.opacity(0.25), radius: 8, x: 0, y: 4)
-
-      Image(systemName: "square.3.layers.3d.down.right")
-        .font(.title2.weight(.semibold))
-        .foregroundStyle(.white)
-    }
-    .accessibilityHidden(true)
+  private var logoMark: some View {
+    Image("hero-mark")
+      .resizable()
+      .scaledToFit()
+      .frame(width: logoWidth, height: logoHeight)
+      .accessibilityHidden(true)
   }
 }
 

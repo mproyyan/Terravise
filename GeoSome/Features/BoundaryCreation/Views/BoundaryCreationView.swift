@@ -107,6 +107,7 @@ struct BoundaryCreationView: View {
     BoundaryMapContentLayer(
       cameraPosition: $viewModel.cameraPosition,
       points: viewModel.points,
+      pendingCoordinate: viewModel.pendingAddCoordinate,
       isSatelliteStyle: viewModel.isSatelliteStyle,
       onMapTap: { coordinate in
         viewModel.handleMapTap(at: coordinate)
@@ -192,7 +193,9 @@ struct BoundaryCreationView: View {
 
       case .addCoordinate:
         BoundaryAddCoordinateSheetView(
-          coordinateText: $viewModel.coordinateInputText,
+          zoneText: $viewModel.addZoneText,
+          eastingText: $viewModel.addEastingText,
+          northingText: $viewModel.addNorthingText,
           isDiscardConfirmationPresented: $viewModel.isDiscardConfirmationPresented,
           isInvalidCoordinateAlertPresented: $viewModel.isInvalidCoordinateAlertPresented,
           canSubmit: viewModel.canSubmitCoordinate,
@@ -209,7 +212,7 @@ struct BoundaryCreationView: View {
         .presentationPlacement(.leading)
         .presentationDetents(
           [
-            BoundaryCreationViewModel.defaultSheetDetent,
+            BoundaryCreationViewModel.editSheetDetent,
             .medium,
             .large
           ]
@@ -221,6 +224,7 @@ struct BoundaryCreationView: View {
       case let .editCoordinate(point):
         BoundaryEditCoordinateSheetView(
           pointTitle: viewModel.title(for: point),
+          coordinateText: $viewModel.editCoordinateText,
           latitudeText: $viewModel.editLatitudeText,
           longitudeText: $viewModel.editLongitudeText,
           isDeleteConfirmationPresented: $viewModel.isDeletePointAlertPresented,
@@ -276,6 +280,7 @@ struct BoundaryCreationView: View {
         canUndo: viewModel.canUndo,
         canRedo: viewModel.canRedo,
         canCreateProject: viewModel.canCreateProject,
+        isEditingExistingProject: editingProjectId != nil || viewModel.isEditingExistingProject,
         onBeginEditingName: {
           viewModel.beginEditingProjectName()
         },

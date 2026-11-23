@@ -1,0 +1,10 @@
+{
+  "status": "PYTHON_JSON_PARITY_PASS",
+  "fixtures": 288,
+  "max_difference": 4.440892098500626e-16,
+  "feature_count": 24,
+  "high_risk_threshold": 0.2,
+  "swift_parity_verified": false,
+  "model_training_performed": false,
+  "production_validated": false
+}

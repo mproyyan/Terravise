@@ -3,6 +3,9 @@ import SwiftUI
 struct ResultBearingDepthLegendView: View {
   var shallowestLimitText: String = "≤ 2.75m"
   var deepestLimitText: String = "≥ 4.75m"
+  var shallowestDepthM: Double?
+  var deepestDepthM: Double?
+  var activeDepthM: Double?
 
   @Environment(\.colorSchemeContrast) private var contrast
 
@@ -29,15 +32,28 @@ struct ResultBearingDepthLegendView: View {
       }
 
       // Center: Gradient Capsule Bar
-      Capsule()
-        .fill(
-          LinearGradient(
-            colors: Self.gradientColors,
-            startPoint: .leading,
-            endPoint: .trailing
+      ZStack(alignment: .leading) {
+        Capsule()
+          .fill(
+            LinearGradient(
+              colors: Self.gradientColors,
+              startPoint: .leading,
+              endPoint: .trailing
+            )
           )
-        )
-        .frame(width: 200, height: 16)
+          .frame(width: 200, height: 16)
+        if let shallowestDepthM, let deepestDepthM, let activeDepthM,
+           deepestDepthM > shallowestDepthM {
+          let fraction = min(max((activeDepthM - shallowestDepthM) / (deepestDepthM - shallowestDepthM), 0), 1)
+          Capsule()
+            .fill(Color.primary)
+            .frame(width: 3, height: 22)
+            .overlay(Capsule().stroke(Color(.systemBackground), lineWidth: 1))
+            .offset(x: CGFloat(fraction) * 197)
+            .accessibilityLabel(String(format: "Kedalaman aktif %.1f meter", activeDepthM))
+        }
+      }
+      .frame(width: 200, height: 16)
 
       // Right: Deepest
       VStack(alignment: .leading, spacing: 2) {

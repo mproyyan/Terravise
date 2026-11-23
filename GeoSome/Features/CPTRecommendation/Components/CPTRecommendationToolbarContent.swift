@@ -2,6 +2,7 @@ import SwiftUI
 
 struct CPTRecommendationToolbarContent: ToolbarContent {
   var projectName: String
+  var isAnalysis3DEnabled: Bool = true
   var onEditAreaTap: (() -> Void)?
   var onViewAnalysis3DTap: (() -> Void)?
 
@@ -10,10 +11,12 @@ struct CPTRecommendationToolbarContent: ToolbarContent {
 
   init(
     projectName: String,
+    isAnalysis3DEnabled: Bool = true,
     onEditAreaTap: (() -> Void)? = nil,
     onViewAnalysis3DTap: (() -> Void)? = nil
   ) {
     self.projectName = projectName
+    self.isAnalysis3DEnabled = isAnalysis3DEnabled
     self.onEditAreaTap = onEditAreaTap
     self.onViewAnalysis3DTap = onViewAnalysis3DTap
   }
@@ -66,23 +69,30 @@ struct CPTRecommendationToolbarContent: ToolbarContent {
 
         // View Analysis 3D Button
         Button(action: {
-          onViewAnalysis3DTap?()
+          if isAnalysis3DEnabled {
+            onViewAnalysis3DTap?()
+          }
         }) {
           HStack(spacing: 5) {
-            Text("View Analysis 3D")
+            Text("View Analysis")
               .font(.subheadline.weight(.semibold))
           }
-          .foregroundStyle(Color.white)
+          .foregroundStyle(isAnalysis3DEnabled ? Color.white : Color.secondary)
           .padding(.horizontal, 16)
           .frame(minHeight: controlHeight)
           .clipShape(Capsule())
-          .shadow(color: Color.black.opacity(0.06), radius: 4, x: 0, y: 1)
+          .shadow(color: Color.black.opacity(isAnalysis3DEnabled ? 0.06 : 0), radius: 4, x: 0, y: 1)
         }
         .frame(minWidth: 44, minHeight: 44)
-        .buttonStyle(.glass(.regular.tint(.blue)))
+        .buttonStyle(.glass(isAnalysis3DEnabled ? .regular.tint(.blue) : .regular))
         .buttonBorderShape(.automatic)
+        .disabled(!isAnalysis3DEnabled)
         .accessibilityLabel("View Analysis 3D")
-        .accessibilityHint("Opens the 3D analysis view for this site")
+        .accessibilityHint(
+          isAnalysis3DEnabled
+            ? "Opens the 3D analysis view for this site"
+            : "Upload at least one CPT point to enable 3D analysis"
+        )
         .accessibilityInputLabels(["View Analysis 3D", "Analysis 3D", "3D View"])
       }
     }

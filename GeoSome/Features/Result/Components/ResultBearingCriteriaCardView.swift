@@ -3,8 +3,10 @@ import SwiftUI
 struct ResultBearingCriteriaCardView: View {
   var cardWidth: CGFloat
   @Binding var isExpanded: Bool
+  @Binding var isMapOverlayVisible: Bool
   @Binding var coneResistanceQc: Double
   @Binding var soilBehaviorIndexIc: Double
+  var selectedIcText: String = "N/A"
   @Binding var minLayerThickness: Double
   var onResetCriteria: () -> Void
 
@@ -14,29 +16,33 @@ struct ResultBearingCriteriaCardView: View {
   init(
     cardWidth: CGFloat = 360,
     isExpanded: Binding<Bool>,
+    isMapOverlayVisible: Binding<Bool> = .constant(false),
     coneResistanceQc: Binding<Double>,
     soilBehaviorIndexIc: Binding<Double>,
+    selectedIcText: String = "N/A",
     minLayerThickness: Binding<Double>,
     onResetCriteria: @escaping () -> Void = {}
   ) {
     self.cardWidth = cardWidth
     self._isExpanded = isExpanded
+    self._isMapOverlayVisible = isMapOverlayVisible
     self._coneResistanceQc = coneResistanceQc
     self._soilBehaviorIndexIc = soilBehaviorIndexIc
+    self.selectedIcText = selectedIcText
     self._minLayerThickness = minLayerThickness
     self.onResetCriteria = onResetCriteria
   }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
-      // Header Row: "Identification Criteria" + Collapse/Expand Chevron
+      // Header Row: "Controls" + Collapse/Expand Chevron
       Button(action: {
         withAnimation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.82)) {
           isExpanded.toggle()
         }
       }) {
         HStack {
-          Text("Identification Criteria")
+          Text("Controls")
             .font(.headline.weight(.bold))
             .foregroundStyle(Color.primary)
 
@@ -57,6 +63,29 @@ struct ResultBearingCriteriaCardView: View {
 
       if isExpanded {
         VStack(alignment: .leading, spacing: 14) {
+          // Layer Section: Map Overlay Toggle
+          VStack(alignment: .leading, spacing: 8) {
+            Text("Layer")
+              .font(.subheadline.weight(.bold))
+              .foregroundStyle(Color.primary)
+              .accessibilityAddTraits(.isHeader)
+
+            HStack {
+              Text("Map Overlay")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(Color.secondary)
+
+              Spacer()
+
+              Toggle("", isOn: $isMapOverlayVisible)
+                .labelsHidden()
+                .tint(.green)
+                .accessibilityLabel("Map Overlay")
+            }
+          }
+
+          Divider()
+
           // Slicing Control Title
           Text("Slicing Control")
             .font(.subheadline.weight(.bold))
@@ -77,7 +106,13 @@ struct ResultBearingCriteriaCardView: View {
                 accessibilityLabel: "Cone Resistance qc"
               )
 
-              valuePill(text: String(format: "%.1f MPa", coneResistanceQc))
+              TypableValuePill(
+                prefix: "≥",
+                unit: "MPa",
+                value: $coneResistanceQc,
+                range: 5.0 ... 30.0,
+                format: "%.1f"
+              )
             }
           }
 
@@ -94,8 +129,17 @@ struct ResultBearingCriteriaCardView: View {
                 step: 0.05,
                 accessibilityLabel: "Soil Behavior Index Ic"
               )
+              .disabled(selectedIcText == "N/A")
 
-              valuePill(text: String(format: "%.2f", soilBehaviorIndexIc))
+              TypableValuePill(
+                prefix: "≤",
+                unit: "",
+                value: $soilBehaviorIndexIc,
+                range: 1.0 ... 3.0,
+                format: "%.2f",
+                isDisabled: selectedIcText == "N/A",
+                disabledText: selectedIcText
+              )
             }
           }
 
@@ -113,7 +157,13 @@ struct ResultBearingCriteriaCardView: View {
                 accessibilityLabel: "Minimum Layer Thickness"
               )
 
-              valuePill(text: String(format: "%.1f m", minLayerThickness))
+              TypableValuePill(
+                prefix: "≥",
+                unit: "m",
+                value: $minLayerThickness,
+                range: 0.2 ... 3.0,
+                format: "%.1f"
+              )
             }
           }
 
@@ -177,28 +227,12 @@ struct ResultBearingCriteriaCardView: View {
     }
   }
 
-  private func valuePill(text: String) -> some View {
-    Text(text)
-      .font(.subheadline.weight(.medium))
-      .monospacedDigit()
-      .foregroundStyle(Color.primary)
-      .frame(minWidth: 72)
-      .padding(.horizontal, 10)
-      .padding(.vertical, 7)
-      .background(
-        RoundedRectangle(cornerRadius: 14, style: .continuous)
-          .fill(Color(.tertiarySystemFill))
-      )
-      .accessibilityHidden(true)
-  }
-
   private var resetCriteriaButton: some View {
     Button(action: onResetCriteria) {
       HStack(spacing: 6) {
         Image(systemName: "arrow.counterclockwise")
           .font(.footnote.weight(.semibold))
         Text("Reset Criteria")
-          .font(.subheadline.weight(.semibold))
       }
       .foregroundStyle(Color.blue)
       .frame(maxWidth: .infinity)
@@ -212,6 +246,143 @@ struct ResultBearingCriteriaCardView: View {
     .padding(.top, 4)
     .accessibilityLabel("Reset Criteria")
     .accessibilityHint("Resets identification criteria values to their defaults")
+  }
+}
+
+// MARK: - Typable Value Pill
+
+private struct TypableValuePill: View {
+  var prefix: String = ""
+  var unit: String = ""
+  @Binding var value: Double
+  var range: ClosedRange<Double>
+  var format: String
+  var isDisabled: Bool = false
+  var disabledText: String? = nil
+
+  @State private var text: String
+  @FocusState private var isFocused: Bool
+  @Environment(\.colorSchemeContrast) private var contrast
+
+  init(
+    prefix: String = "",
+    unit: String = "",
+    value: Binding<Double>,
+    range: ClosedRange<Double>,
+    format: String,
+    isDisabled: Bool = false,
+    disabledText: String? = nil
+  ) {
+    self.prefix = prefix
+    self.unit = unit
+    self._value = value
+    self.range = range
+    self.format = format
+    self.isDisabled = isDisabled
+    self.disabledText = disabledText
+    self._text = State(initialValue: String(format: format, value.wrappedValue))
+  }
+
+  var body: some View {
+    HStack(spacing: 3) {
+      if isDisabled, let disabledText {
+        Text(disabledText)
+          .font(.subheadline.weight(.medium))
+          .monospacedDigit()
+          .foregroundStyle(Color.secondary)
+      } else {
+        if !prefix.isEmpty {
+          Text(prefix)
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(Color.secondary)
+        }
+
+        TextField("", text: $text)
+          .font(.subheadline.weight(.semibold))
+          .monospacedDigit()
+          .foregroundStyle(Color.primary)
+          .multilineTextAlignment(.trailing)
+          #if canImport(UIKit)
+          .keyboardType(.decimalPad)
+          #endif
+          .autocorrectionDisabled()
+          .textInputAutocapitalization(.never)
+          .focused($isFocused)
+          .frame(minWidth: format.contains(".2") ? 36 : 28)
+          .onChange(of: text) { _, newText in
+            guard isFocused else { return }
+            let sanitized = newText.replacingOccurrences(of: ",", with: ".")
+            if let parsed = Double(sanitized) {
+              let clamped = min(max(parsed, range.lowerBound), range.upperBound)
+              value = clamped
+            }
+          }
+          .onSubmit {
+            commitText()
+            isFocused = false
+          }
+
+        if !unit.isEmpty {
+          Text(unit)
+            .font(.footnote.weight(.medium))
+            .foregroundStyle(Color.secondary)
+        }
+      }
+    }
+    .padding(.horizontal, 10)
+    .padding(.vertical, 6)
+    .frame(minWidth: 86)
+    .background(
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .fill(Color(.tertiarySystemFill))
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .stroke(
+          isFocused ? Color.blue : Color.primary.opacity(contrast == .increased ? 0.35 : 0.08),
+          lineWidth: isFocused ? 1.5 : (contrast == .increased ? 1.5 : 1)
+        )
+    )
+    .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    .onTapGesture {
+      if !isDisabled {
+        isFocused = true
+      }
+    }
+    .animation(.easeInOut(duration: 0.15), value: isFocused)
+    .onChange(of: value) { _, newValue in
+      if !isFocused {
+        text = String(format: format, newValue)
+      }
+    }
+    .onChange(of: isFocused) { _, focused in
+      if !focused {
+        commitText()
+      }
+    }
+    .toolbar {
+      ToolbarItemGroup(placement: .keyboard) {
+        Spacer()
+        Button("Done") {
+          commitText()
+          isFocused = false
+        }
+        .font(.subheadline.weight(.semibold))
+      }
+    }
+    .disabled(isDisabled)
+    .accessibilityElement(children: .combine)
+  }
+
+  private func commitText() {
+    let sanitized = text.replacingOccurrences(of: ",", with: ".")
+    if let parsed = Double(sanitized) {
+      let clamped = min(max(parsed, range.lowerBound), range.upperBound)
+      value = clamped
+      text = String(format: format, clamped)
+    } else {
+      text = String(format: format, value)
+    }
   }
 }
 

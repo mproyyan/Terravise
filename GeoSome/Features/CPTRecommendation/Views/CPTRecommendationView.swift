@@ -30,53 +30,109 @@ struct CPTRecommendationView: View {
     return false
   }
 
-  private var activeSheetBinding: Binding<ActiveCPTSheet?> {
+  private var sheetPresentedBinding: Binding<Bool> {
     Binding(
       get: {
-        guard isCurrentDestination, viewModel.isSheetPresented else { return nil }
-        if viewModel.isUploadSheetPresented {
-          return .uploadData
-        }
-        if viewModel.isCPTListPresented {
-          return .cptDataList
-        }
-        return viewModel.hasUploadedCPTData ? .recommendedPoint : .emptyState
+        isCurrentDestination && viewModel.isSheetPresented
       },
       set: { newValue in
-        switch newValue {
-        case .emptyState:
-          viewModel.isUploadSheetPresented = false
-          viewModel.isCPTListPresented = false
-          viewModel.isSheetPresented = true
-        case .uploadData:
-          viewModel.isUploadSheetPresented = true
-          viewModel.isCPTListPresented = false
-          viewModel.isSheetPresented = true
-        case .recommendedPoint:
-          viewModel.isUploadSheetPresented = false
-          viewModel.isCPTListPresented = false
-          viewModel.isSheetPresented = true
-        case .cptDataList:
-          viewModel.isUploadSheetPresented = false
-          viewModel.isCPTListPresented = true
-          viewModel.isSheetPresented = true
-        case nil:
-          if viewModel.isUploadSheetPresented || viewModel.isCPTListPresented {
-            viewModel.isUploadSheetPresented = false
-            viewModel.isCPTListPresented = false
-            viewModel.isSheetPresented = false
-            Task { @MainActor in
-              try? await Task.sleep(for: .milliseconds(100))
-              if isCurrentDestination {
-                viewModel.presentInitialSheet()
-              }
-            }
+        if !newValue {
+          if viewModel.isUploadSheetPresented {
+            viewModel.dismissUploadSheet()
+          } else if viewModel.isCPTListPresented {
+            viewModel.dismissCPTDataList()
+          } else if viewModel.isInitialSetupPresented {
+            viewModel.dismissInitialSetupSheet()
           } else {
             viewModel.isSheetPresented = false
           }
+        } else {
+          viewModel.isSheetPresented = true
         }
       }
     )
+  }
+
+  private var activeSheetDestination: ActiveCPTSheet {
+    if viewModel.isUploadSheetPresented {
+      return .uploadData
+    }
+    if viewModel.isCPTListPresented {
+      return .cptDataList
+    }
+    if !viewModel.hasUploadedCPTData && viewModel.isInitialSetupPresented {
+      return .initialSetup
+    }
+    return viewModel.hasUploadedCPTData ? .recommendedPoint : .emptyState
+  }
+
+  private var isPracticalStop: Bool {
+    CPTRecommendedPointSheetView.isStopped(viewModel.recommendation)
+  }
+
+  // Map only the recommended STOP presentation; existing upload/list detents stay intact.
+  private var activeSheetDetentBinding: Binding<PresentationDetent> {
+    Binding(
+      get: {
+        if activeSheetDestination == .recommendedPoint, isPracticalStop,
+           viewModel.selectedSheetDetent == CPTRecommendationViewModel.sufficientSheetDetent {
+          return CPTRecommendedPointSheetView.stopSheetDetent
+        }
+        return viewModel.selectedSheetDetent
+      },
+      set: { detent in
+        viewModel.selectedSheetDetent = detent == CPTRecommendedPointSheetView.stopSheetDetent
+          ? CPTRecommendationViewModel.sufficientSheetDetent : detent
+      }
+    )
+  }
+
+  private var activeSheetDetents: Set<PresentationDetent> {
+    switch activeSheetDestination {
+    case .emptyState:
+      return [
+        CPTRecommendationViewModel.collapsedSheetDetent,
+        CPTRecommendationViewModel.defaultSheetDetent,
+        viewModel.recommendation.isSufficient
+          ? CPTRecommendationViewModel.sufficientSheetDetent
+          : CPTRecommendationViewModel.populatedSheetDetent,
+        .medium,
+        .large
+      ]
+    case .initialSetup:
+      return [
+        CPTRecommendationViewModel.cptDataListSheetDetent,
+        .large
+      ]
+    case .recommendedPoint:
+      return [
+        CPTRecommendationViewModel.collapsedSheetDetent,
+        CPTRecommendationViewModel.populatedSheetDetent,
+        isPracticalStop ? CPTRecommendedPointSheetView.stopSheetDetent : CPTRecommendationViewModel.sufficientSheetDetent,
+        CPTRecommendationViewModel.recommendationSheetDetent,
+        .large
+      ]
+    case .uploadData:
+      return [
+        .medium,
+        CPTRecommendationViewModel.uploadSheetDetent,
+        .large
+      ]
+    case .cptDataList:
+      return [
+        CPTRecommendationViewModel.cptDataListSheetDetent,
+        .large
+      ]
+    }
+  }
+
+  private var isInteractiveSheetDismissDisabled: Bool {
+    switch activeSheetDestination {
+    case .emptyState, .recommendedPoint:
+      return true
+    case .initialSetup, .uploadData, .cptDataList:
+      return false
+    }
   }
 
   var body: some View {
@@ -128,110 +184,104 @@ struct CPTRecommendationView: View {
       .padding(.bottom, 28)
     }
     // Native Sheet with .presentationPlacement(.leading)
-    .sheet(item: activeSheetBinding) { destination in
-      switch destination {
-      case .emptyState:
-        CPTEmptyStateSheetView(
-          onUploadTap: {
-            viewModel.uploadCPTData()
-          }
-        )
-        .presentationPlacement(.leading)
-        .presentationDetents(
-          [
-            CPTRecommendationViewModel.collapsedSheetDetent,
-            CPTRecommendationViewModel.defaultSheetDetent,
-            CPTRecommendationViewModel.populatedSheetDetent,
-            .medium,
-            .large
-          ],
-          selection: $viewModel.selectedSheetDetent
-        )
-        .presentationDragIndicator(.visible)
-        .presentationBackgroundInteraction(.enabled)
-        .presentationContentInteraction(.scrolls)
-        .interactiveDismissDisabled()
+    .sheet(isPresented: sheetPresentedBinding) {
+      Group {
+        switch activeSheetDestination {
+        case .emptyState:
+          CPTEmptyStateSheetView(
+            onUploadTap: {
+              viewModel.presentInitialSetupSheet()
+            }
+          )
 
-      case .recommendedPoint:
-        CPTRecommendedPointSheetView(
-          recommendation: viewModel.recommendation,
-          cptPointsCount: max(viewModel.cptPoints.count, 1),
-          onUploadTap: {
-            viewModel.uploadCPTData()
-          },
-          onSeeSupportingDataTap: {
-            viewModel.seeSupportingData()
-          },
-          onCPTDataListTap: {
-            viewModel.openCPTDataList()
-          }
-        )
-        .presentationPlacement(.leading)
-        .presentationDetents(
-          [
-            CPTRecommendationViewModel.collapsedSheetDetent,
-            CPTRecommendationViewModel.populatedSheetDetent,
-            CPTRecommendationViewModel.recommendationSheetDetent,
-            .large
-          ],
-          selection: $viewModel.selectedSheetDetent
-        )
-        .presentationDragIndicator(.visible)
-        .presentationBackgroundInteraction(.enabled)
-        .presentationContentInteraction(.scrolls)
-        .interactiveDismissDisabled()
+        case .initialSetup:
+          CPTInitialSetupSheetView(
+            selectedCPTType: $viewModel.selectedCPTType,
+            points: viewModel.cptPoints,
+            equipmentParameters: $viewModel.uploadEquipmentParameters,
+            onCloseTap: {
+              viewModel.dismissInitialSetupSheet()
+            },
+            onConfirmTap: {
+              viewModel.finalizeInitialCPTSetup()
+            },
+            onAddCPTTap: {
+              viewModel.presentUploadSheet()
+            },
+            onDeletePoint: { id in
+              viewModel.deleteInitialCPTPoint(id: id)
+            }
+          )
 
-      case .uploadData:
-        CPTUploadDataSheetView(
-          selectedCPTType: $viewModel.selectedCPTType,
-          coordinatesText: $viewModel.uploadCoordinatesText,
-          uploadedFile: $viewModel.uploadedCPTFile,
-          parsedRows: $viewModel.uploadParsedRows,
-          onCloseTap: {
-            viewModel.dismissUploadSheet()
-          },
-          onSubmitTap: {
-            viewModel.submitCPTUpload()
-          }
-        )
-        .presentationPlacement(.leading)
-        .presentationDetents(
-          [
-            .medium,
-            CPTRecommendationViewModel.uploadSheetDetent,
-            .large
-          ],
-          selection: $viewModel.selectedSheetDetent
-        )
-        .presentationDragIndicator(.visible)
-        .presentationBackgroundInteraction(.enabled)
-        .presentationContentInteraction(.scrolls)
+        case .recommendedPoint:
+          CPTRecommendedPointSheetView(
+            recommendation: viewModel.recommendation,
+            cptPointsCount: viewModel.cptPoints.count,
+            isCollapsed: viewModel.isRecommendationSheetCollapsed,
+            onUploadTap: {
+              viewModel.uploadCPTData()
+            },
+            onCPTDataListTap: {
+              viewModel.openCPTDataList()
+            }
+          )
 
-      case .cptDataList:
-        CPTDataListSheetView(
-          points: viewModel.cptPoints,
-          onCloseTap: {
-            viewModel.dismissCPTDataList()
-          },
-          onDeletePoint: { id in
-            viewModel.deleteCPTPoint(id: id)
+        case .uploadData:
+          CPTUploadDataSheetView(
+            selectedCPTType: $viewModel.selectedCPTType,
+            zoneText: $viewModel.uploadZoneText,
+            eastingText: $viewModel.uploadEastingText,
+            northingText: $viewModel.uploadNorthingText,
+            uploadedFile: $viewModel.uploadedCPTFile,
+            parsedRows: $viewModel.uploadParsedRows,
+            validationError: $viewModel.uploadValidationError,
+            equipmentParameters: $viewModel.uploadEquipmentParameters,
+            showCPTTypeSelection: viewModel.hasUploadedCPTData,
+            onCloseTap: {
+              viewModel.dismissUploadSheet()
+            },
+            onSubmitTap: {
+              viewModel.submitCPTUpload()
+            }
+          )
+
+        case .cptDataList:
+          CPTDataListSheetView(
+            points: viewModel.cptPoints,
+            onCloseTap: {
+              viewModel.dismissCPTDataList()
+            },
+            onDeletePoint: { id in
+              viewModel.deleteCPTPoint(id: id)
+            }
+          )
+        }
+      }
+      .presentationPlacement(.leading)
+      .presentationDetents(
+        activeSheetDetents,
+        selection: activeSheetDetentBinding
+      )
+      .presentationDragIndicator(.visible)
+      .presentationBackgroundInteraction(.enabled)
+      .presentationContentInteraction(
+        (activeSheetDestination == .recommendedPoint && viewModel.isRecommendationSheetCollapsed)
+          ? .resizes
+          : .scrolls
+      )
+      .interactiveDismissDisabled(isInteractiveSheetDismissDisabled)
+      .onTapGesture {
+        if activeSheetDestination == .recommendedPoint && viewModel.isRecommendationSheetCollapsed {
+          withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) {
+            viewModel.selectedSheetDetent = viewModel.targetRecommendationSheetDetent
           }
-        )
-        .presentationPlacement(.leading)
-        .presentationDetents(
-          [
-            CPTRecommendationViewModel.cptDataListSheetDetent,
-            .large
-          ]
-        )
-        .presentationDragIndicator(.visible)
-        .presentationBackgroundInteraction(.enabled)
-        .presentationContentInteraction(.scrolls)
+        }
       }
     }
     .toolbar {
       CPTRecommendationToolbarContent(
         projectName: viewModel.project.name,
+        isAnalysis3DEnabled: viewModel.hasUploadedCPTData && !viewModel.cptPoints.isEmpty,
         onEditAreaTap: {
           viewModel.editArea()
           viewModel.dismissSheet()
@@ -250,6 +300,11 @@ struct CPTRecommendationView: View {
     .ignoresSafeArea(.keyboard)
     .task {
       viewModel.projectViewModel = projectViewModel
+      // Allow the previous centered HomePage sheet dismissal and NavigationStack push
+      // transition to start before running synchronous CoreML pipeline inference.
+      try? await Task.sleep(for: .milliseconds(120))
+      guard !Task.isCancelled else { return }
+
       if let projectId {
         viewModel.resolveProject(with: projectId, from: projectViewModel)
       } else if let selected = projectViewModel?.selectedProject {

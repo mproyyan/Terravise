@@ -24,11 +24,19 @@ enum CPTType: String, CaseIterable, Identifiable, Codable, Sendable {
   var requiredColumns: [String] {
     switch self {
     case .electrical:
-      ["depth_(m)", "qc_mpa(mPa)", "fs_kpa(kPa)"]
+      ["depth_(m)", "qc_(MPa)", "fs_(kPa)"]
     case .cptmBicone:
       ["depth_(cm)", "Cw_(kg/cm2)", "Tw_(kg/cm2)"]
     case .cptu:
-      ["depth_(m)", "qc_mpa(mPa)", "fs_kpa(kPa)", "u2_kpa(kPa)"]
+      ["depth_(m)", "qc_(MPa)", "fs_(kPa)", "u2_(kPa)"]
+    }
+  }
+
+  var nameIdentifier: String {
+    switch self {
+    case .electrical: "electrical"
+    case .cptmBicone: "bicone"
+    case .cptu: "piezocone"
     }
   }
 }
@@ -61,19 +69,36 @@ struct CPTUploadedFile: Identifiable, Hashable, Codable, Sendable {
   var byteSize: Int64
   var rowCount: Int
   var matchedColumns: [String]
+  var isDemo: Bool = false
+
+  private enum CodingKeys: String, CodingKey {
+    case id, name, byteSize, rowCount, matchedColumns, isDemo
+  }
+
+  init(from decoder: Decoder) throws {
+    let values = try decoder.container(keyedBy: CodingKeys.self)
+    id = try values.decode(UUID.self, forKey: .id)
+    name = try values.decode(String.self, forKey: .name)
+    byteSize = try values.decode(Int64.self, forKey: .byteSize)
+    rowCount = try values.decode(Int.self, forKey: .rowCount)
+    matchedColumns = try values.decode([String].self, forKey: .matchedColumns)
+    isDemo = try values.decodeIfPresent(Bool.self, forKey: .isDemo) ?? false
+  }
 
   init(
     id: UUID = UUID(),
     name: String,
     byteSize: Int64 = 24 * 1024,
     rowCount: Int = 52,
-    matchedColumns: [String] = ["depth_(m)", "qc_mpa(mPa)", "fs_kpa(kPa)", "u2_kpa(kPa)"]
+    matchedColumns: [String] = ["depth_(m)", "qc_(MPa)", "fs_(kPa)", "u2_(kPa)"],
+    isDemo: Bool = false
   ) {
     self.id = id
     self.name = name
     self.byteSize = byteSize
     self.rowCount = rowCount
     self.matchedColumns = matchedColumns
+    self.isDemo = isDemo
   }
 
   var formattedSize: String {
@@ -267,6 +292,7 @@ struct CPTPointEntry: Identifiable, Hashable, Codable, Sendable {
   var file: CPTUploadedFile
   var rows: [CPTRowData]
   var uploadedAt: Date
+  var equipmentParameters: CPTEquipmentParameters?
 
   private enum CodingKeys: String, CodingKey {
     case id
@@ -276,6 +302,7 @@ struct CPTPointEntry: Identifiable, Hashable, Codable, Sendable {
     case file
     case rows
     case uploadedAt
+    case equipmentParameters
   }
 
   init(
@@ -283,8 +310,9 @@ struct CPTPointEntry: Identifiable, Hashable, Codable, Sendable {
     type: CPTType = .electrical,
     coordinate: CLLocationCoordinate2D,
     file: CPTUploadedFile,
-    rows: [CPTRowData] = CPTRowData.sampleRows,
-    uploadedAt: Date = Date()
+    rows: [CPTRowData] = [],
+    uploadedAt: Date = Date(),
+    equipmentParameters: CPTEquipmentParameters? = nil
   ) {
     self.id = id
     self.type = type
@@ -292,6 +320,7 @@ struct CPTPointEntry: Identifiable, Hashable, Codable, Sendable {
     self.file = file
     self.rows = rows
     self.uploadedAt = uploadedAt
+    self.equipmentParameters = equipmentParameters
   }
 
   init(from decoder: Decoder) throws {
@@ -304,6 +333,7 @@ struct CPTPointEntry: Identifiable, Hashable, Codable, Sendable {
     file = try container.decode(CPTUploadedFile.self, forKey: .file)
     rows = try container.decode([CPTRowData].self, forKey: .rows)
     uploadedAt = try container.decodeIfPresent(Date.self, forKey: .uploadedAt) ?? Date()
+    equipmentParameters = try container.decodeIfPresent(CPTEquipmentParameters.self, forKey: .equipmentParameters)
   }
 
   func encode(to encoder: Encoder) throws {
@@ -315,10 +345,31 @@ struct CPTPointEntry: Identifiable, Hashable, Codable, Sendable {
     try container.encode(file, forKey: .file)
     try container.encode(rows, forKey: .rows)
     try container.encode(uploadedAt, forKey: .uploadedAt)
+    try container.encodeIfPresent(equipmentParameters, forKey: .equipmentParameters)
+  }
+
+  var resolvedEquipmentParameters: CPTEquipmentParameters {
+    equipmentParameters ?? CPTEquipmentParameters()
   }
 
   var formattedCoordinate: String {
-    String(format: "%.6f, %.6f", coordinate.latitude, coordinate.longitude)
+    UTMCoordinateConverter.formatAsUTM(coordinate)
+  }
+
+  var utmCoordinate: UTMCoordinate {
+    UTMCoordinateConverter.coordinateToUTM(coordinate)
+  }
+
+  var formattedEasting: String {
+    "\(Int(utmCoordinate.easting.rounded())) m E"
+  }
+
+  var formattedNorthing: String {
+    "\(Int(utmCoordinate.northing.rounded())) m N"
+  }
+
+  var formattedZone: String {
+    utmCoordinate.zoneIdentifier
   }
 
   var formattedLatitude: String {
@@ -338,6 +389,15 @@ struct CPTPointEntry: Identifiable, Hashable, Codable, Sendable {
   }
 }
 
+struct CPTCandidateSpacing: Codable, Hashable, Sendable {
+  var normalMinimumM: Double
+  var physicalMinimumM: Double
+  var attemptedMinimumM: [Double]
+  var legalCandidateCounts: [Int]
+  var usedMinimumM: Double
+  var relaxed: Bool { usedMinimumM < normalMinimumM }
+}
+
 struct CPTRecommendationResult: Hashable, Codable, Sendable {
   var coordinate: CLLocationCoordinate2D
   var rmse: Double
@@ -353,6 +413,36 @@ struct CPTRecommendationResult: Hashable, Codable, Sendable {
   var sufficiencyProbability: Double
   var consecutiveSufficientCount: Int
   var isSufficient: Bool
+  var hasRecommendation: Bool
+  var reconstructionSource: String
+  var recommendationSource: String
+  var assessmentSource: String
+  var stratigraphicDecision: StratigraphicDecision? = nil
+  var stratigraphicEvidence: StratigraphicEvidence? = nil
+  var qcfsInferenceSource: String
+  var candidateSpacing: CPTCandidateSpacing? = nil
+
+  var predictionUncertaintyPercent: Int {
+    guard predictedCoverage.isFinite else { return 100 }
+    return max(1,Int(((1-min(max(predictedCoverage,0.01),0.99))*100).rounded()))
+  }
+  var recommendationAvailabilityExplanation: String {
+    if isSufficient { return "Exploratory STOP criteria are met; no further point is requested." }
+    switch recommendationSource {
+    case "DQN_NO_CANDIDATES_WITHIN_PHYSICAL_CONSTRAINTS":
+      return "CONTINUE: no valid unobserved grid location satisfies the boundary and physical constraints. Spacing relaxation cannot establish a permitted location or investigation sufficiency."
+    case "DQN_NO_CANDIDATES_AFTER_SPACING_RELAXATION":
+      return "CONTINUE: no valid grid location satisfies the remaining physical and boundary constraints after spacing relaxation. This does not establish sufficiency."
+    case "DQN_NO_LEGAL_CANDIDATES":
+      return "CONTINUE: no grid location satisfies the existing boundary and separation constraints. This does not establish sufficiency."
+    case "DQN_INFERENCE_UNAVAILABLE":
+      return "CONTINUE: DQN inference is unavailable. This does not establish sufficiency."
+    case "DQN_INVALID_CANDIDATE_INPUTS":
+      return "CONTINUE: candidate inputs are invalid. This does not establish sufficiency."
+    default:
+      return "CONTINUE: no CPT recommendation is available. This does not establish sufficiency."
+    }
+  }
 
   private enum CodingKeys: String, CodingKey {
     case latitude
@@ -366,17 +456,18 @@ struct CPTRecommendationResult: Hashable, Codable, Sendable {
     case deepSoilType
     case lateralIcDifference
     case qValue
-    case predictedCoverage
+    case predictedCoverage, candidateSpacing
     case sufficiencyProbability
     case consecutiveSufficientCount
-    case isSufficient
+    case isSufficient, hasRecommendation
+    case reconstructionSource, recommendationSource, assessmentSource, qcfsInferenceSource, stratigraphicDecision, stratigraphicEvidence
   }
 
   init(
     coordinate: CLLocationCoordinate2D = CLLocationCoordinate2D(latitude: -6.2418, longitude: 106.8315),
     rmse: Double = 0.0064,
     confidenceLevel: Int = 90,
-    spotName: String = "Spot B",
+    spotName: String = "Spot 2",
     nearestCPTDistance: Double = 16.2,
     nearbyCountWithin4m: Int = 0,
     shallowSoilType: String = "sand",
@@ -386,7 +477,12 @@ struct CPTRecommendationResult: Hashable, Codable, Sendable {
     predictedCoverage: Double = 0.90,
     sufficiencyProbability: Double = 0.0,
     consecutiveSufficientCount: Int = 0,
-    isSufficient: Bool = false
+    isSufficient: Bool = false,
+    hasRecommendation: Bool = true,
+    reconstructionSource: String = "Belum dievaluasi",
+    recommendationSource: String = "Belum dievaluasi",
+    assessmentSource: String = "Belum dievaluasi",
+    qcfsInferenceSource: String = "Belum dievaluasi"
   ) {
     self.coordinate = coordinate
     self.rmse = rmse
@@ -402,6 +498,11 @@ struct CPTRecommendationResult: Hashable, Codable, Sendable {
     self.sufficiencyProbability = sufficiencyProbability
     self.consecutiveSufficientCount = consecutiveSufficientCount
     self.isSufficient = isSufficient
+    self.hasRecommendation = hasRecommendation
+    self.reconstructionSource = reconstructionSource
+    self.recommendationSource = recommendationSource
+    self.assessmentSource = assessmentSource
+    self.qcfsInferenceSource = qcfsInferenceSource
   }
 
   init(from decoder: Decoder) throws {
@@ -411,17 +512,26 @@ struct CPTRecommendationResult: Hashable, Codable, Sendable {
     coordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
     rmse = try container.decode(Double.self, forKey: .rmse)
     confidenceLevel = try container.decode(Int.self, forKey: .confidenceLevel)
-    spotName = try container.decodeIfPresent(String.self, forKey: .spotName) ?? "Spot B"
+    let rawSpotName = try container.decodeIfPresent(String.self, forKey: .spotName) ?? "Spot 2"
+    spotName = Self.normalizeSpotName(rawSpotName)
     nearestCPTDistance = try container.decodeIfPresent(Double.self, forKey: .nearestCPTDistance) ?? 16.2
     nearbyCountWithin4m = try container.decodeIfPresent(Int.self, forKey: .nearbyCountWithin4m) ?? 0
     shallowSoilType = try container.decodeIfPresent(String.self, forKey: .shallowSoilType) ?? "sand"
     deepSoilType = try container.decodeIfPresent(String.self, forKey: .deepSoilType) ?? "soft clay"
     lateralIcDifference = try container.decodeIfPresent(Double.self, forKey: .lateralIcDifference) ?? 0.15
     qValue = try container.decodeIfPresent(Double.self, forKey: .qValue) ?? 0.0
+    candidateSpacing = try container.decodeIfPresent(CPTCandidateSpacing.self, forKey: .candidateSpacing)
     predictedCoverage = try container.decodeIfPresent(Double.self, forKey: .predictedCoverage) ?? 0.90
     sufficiencyProbability = try container.decodeIfPresent(Double.self, forKey: .sufficiencyProbability) ?? 0.0
     consecutiveSufficientCount = try container.decodeIfPresent(Int.self, forKey: .consecutiveSufficientCount) ?? 0
     isSufficient = try container.decodeIfPresent(Bool.self, forKey: .isSufficient) ?? false
+    hasRecommendation = try container.decodeIfPresent(Bool.self, forKey: .hasRecommendation) ?? true
+    reconstructionSource = try container.decodeIfPresent(String.self, forKey: .reconstructionSource) ?? "Riwayat lama; sumber tidak tercatat"
+    recommendationSource = try container.decodeIfPresent(String.self, forKey: .recommendationSource) ?? "Riwayat lama; sumber tidak tercatat"
+    assessmentSource = try container.decodeIfPresent(String.self, forKey: .assessmentSource) ?? "Riwayat lama; sumber tidak tercatat"
+    stratigraphicDecision = try? container.decodeIfPresent(StratigraphicDecision.self, forKey: .stratigraphicDecision)
+    stratigraphicEvidence = try? container.decodeIfPresent(StratigraphicEvidence.self, forKey: .stratigraphicEvidence)
+    qcfsInferenceSource = try container.decodeIfPresent(String.self, forKey: .qcfsInferenceSource) ?? "Riwayat lama; QC-FS belum dievaluasi"
   }
 
   func encode(to encoder: Encoder) throws {
@@ -437,14 +547,40 @@ struct CPTRecommendationResult: Hashable, Codable, Sendable {
     try container.encode(deepSoilType, forKey: .deepSoilType)
     try container.encode(lateralIcDifference, forKey: .lateralIcDifference)
     try container.encode(qValue, forKey: .qValue)
+    try container.encodeIfPresent(candidateSpacing, forKey: .candidateSpacing)
     try container.encode(predictedCoverage, forKey: .predictedCoverage)
     try container.encode(sufficiencyProbability, forKey: .sufficiencyProbability)
     try container.encode(consecutiveSufficientCount, forKey: .consecutiveSufficientCount)
     try container.encode(isSufficient, forKey: .isSufficient)
+    try container.encode(hasRecommendation, forKey: .hasRecommendation)
+    try container.encode(reconstructionSource, forKey: .reconstructionSource)
+    try container.encode(recommendationSource, forKey: .recommendationSource)
+    try container.encode(assessmentSource, forKey: .assessmentSource)
+    try container.encode(qcfsInferenceSource, forKey: .qcfsInferenceSource)
+    try container.encodeIfPresent(stratigraphicDecision, forKey: .stratigraphicDecision)
+    try container.encodeIfPresent(stratigraphicEvidence, forKey: .stratigraphicEvidence)
   }
 
   var formattedCoordinate: String {
-    String(format: "%.6f, %.6f", coordinate.latitude, coordinate.longitude)
+    hasRecommendation ? UTMCoordinateConverter.formatAsUTM(coordinate) : "—"
+  }
+
+  /// Converts legacy letter labels ("Spot A", "Spot B", "Spot #2") into numeric labels ("Spot 1", "Spot 2").
+  static func normalizeSpotName(_ raw: String) -> String {
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    if trimmed.hasPrefix("Spot #") {
+      let suffix = trimmed.dropFirst("Spot #".count)
+      if let num = Int(suffix) {
+        return "Spot \(num)"
+      }
+    }
+    if trimmed.hasPrefix("Spot "), trimmed.count == 6, let char = trimmed.last, char.isASCII, char.isUppercase {
+      let letters = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+      if let idx = letters.firstIndex(of: char) {
+        return "Spot \(idx + 1)"
+      }
+    }
+    return trimmed
   }
 
   func hash(into hasher: inout Hasher) {
@@ -452,8 +588,19 @@ struct CPTRecommendationResult: Hashable, Codable, Sendable {
     hasher.combine(coordinate.longitude)
     hasher.combine(rmse)
     hasher.combine(confidenceLevel)
+    hasher.combine(candidateSpacing)
+    hasher.combine(predictedCoverage)
+    hasher.combine(assessmentSource)
+    hasher.combine(recommendationSource)
     hasher.combine(isSufficient)
+    hasher.combine(hasRecommendation)
     hasher.combine(spotName)
+    hasher.combine(stratigraphicDecision)
+    hasher.combine(stratigraphicEvidence?.frame.stateID)
+    hasher.combine(stratigraphicEvidence?.frame.count)
+    hasher.combine(stratigraphicEvidence?.implementationID)
+    hasher.combine(stratigraphicEvidence?.contextID)
+    hasher.combine(stratigraphicEvidence?.cptStateID)
   }
 
   static func == (lhs: CPTRecommendationResult, rhs: CPTRecommendationResult) -> Bool {
@@ -461,7 +608,18 @@ struct CPTRecommendationResult: Hashable, Codable, Sendable {
       lhs.coordinate.longitude == rhs.coordinate.longitude &&
       lhs.rmse == rhs.rmse &&
       lhs.confidenceLevel == rhs.confidenceLevel &&
+      lhs.candidateSpacing == rhs.candidateSpacing &&
+      lhs.predictedCoverage == rhs.predictedCoverage &&
+      lhs.assessmentSource == rhs.assessmentSource &&
+      lhs.recommendationSource == rhs.recommendationSource &&
       lhs.isSufficient == rhs.isSufficient &&
-      lhs.spotName == rhs.spotName
+      lhs.hasRecommendation == rhs.hasRecommendation &&
+      lhs.spotName == rhs.spotName &&
+      lhs.stratigraphicDecision == rhs.stratigraphicDecision &&
+      lhs.stratigraphicEvidence?.frame.stateID == rhs.stratigraphicEvidence?.frame.stateID &&
+      lhs.stratigraphicEvidence?.frame.count == rhs.stratigraphicEvidence?.frame.count &&
+      lhs.stratigraphicEvidence?.implementationID == rhs.stratigraphicEvidence?.implementationID &&
+      lhs.stratigraphicEvidence?.contextID == rhs.stratigraphicEvidence?.contextID &&
+      lhs.stratigraphicEvidence?.cptStateID == rhs.stratigraphicEvidence?.cptStateID
   }
 }

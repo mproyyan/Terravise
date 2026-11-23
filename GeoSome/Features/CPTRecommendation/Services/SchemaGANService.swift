@@ -2,6 +2,8 @@ import CoreML
 import Foundation
 
 struct SchemaGANReconstructionOutput: Sendable {
+  let grid: CPTGridConfig
+  let inferenceSource: String
   /// Reconstructed physical Robertson Ic volume [nx][ny][nz]
   let reconstructedIc: [[[Double]]]
   /// Observed physical Ic volume [nx][ny][nz]
@@ -15,6 +17,9 @@ struct SchemaGANReconstructionOutput: Sendable {
 }
 
 enum SchemaGANService {
+#if SCHEMAGAN_PARITY_HARNESS
+  static var parityInput: [Float] = []
+#endif
   static let normalizationMean: Double = 2.7903323310879604
   static let normalizationStd: Double = 0.7723778445702414
 
@@ -43,6 +48,8 @@ enum SchemaGANService {
     var sitesXY: [(ix: Int, iy: Int)] = []
 
     for point in cptPoints {
+      let sourceRows = point.rows
+      guard !sourceRows.isEmpty else { continue }
       let rawIdx = grid.gridIndices(for: point.coordinate)
       let (ix, iy) = resolveUniqueCell(
         preferredX: rawIdx.ix,
@@ -56,7 +63,6 @@ enum SchemaGANService {
       validXY[ix][iy] = true
       sitesXY.append((ix, iy))
 
-      let sourceRows = point.rows.isEmpty ? CPTRowData.sampleRows : point.rows
       let sortedRows = sourceRows.sorted { $0.depth < $1.depth }
       let depths = sortedRows.map(\.depth)
       let icValues = sortedRows.map { $0.ic(for: point.type) }
@@ -195,6 +201,7 @@ enum SchemaGANService {
       count: nx
     )
 
+    var inferenceSource = "IDW fallback"
     if let coreMLPred = runCoreMLInference(
       nx: nx,
       ny: ny,
@@ -208,6 +215,7 @@ enum SchemaGANService {
       logDz: logDz
     ) {
       physicalPrediction = coreMLPred
+      inferenceSource = "SchemaGAN V4.2 Flexible Core ML"
     } else {
       for ix in 0 ..< nx {
         for iy in 0 ..< ny {
@@ -228,6 +236,8 @@ enum SchemaGANService {
     }
 
     return SchemaGANReconstructionOutput(
+      grid: grid,
+      inferenceSource: inferenceSource,
       reconstructedIc: physicalPrediction,
       observedIc: observedIc,
       observedMask: observedMask,
@@ -278,6 +288,15 @@ enum SchemaGANService {
       }
     }
 
+#if SCHEMAGAN_PARITY_HARNESS
+    parityInput = (0 ..< 7).flatMap { channel in
+      (0 ..< nz).flatMap { z in
+        (0 ..< ny).flatMap { y in
+          (0 ..< nx).map { x in ptr[channel * strides[1] + z * strides[2] + y * strides[3] + x * strides[4]] }
+        }
+      }
+    }
+#endif
     let config = MLModelConfiguration()
     config.computeUnits = .all
     guard
@@ -306,7 +325,8 @@ enum SchemaGANService {
           let idx = iz * zStride + iy * yStride + ix * xStride
           let normVal = Double(outPtr[idx])
           let val = normVal * normalizationStd + normalizationMean
-          physical[ix][iy][iz] = val.isFinite ? val : normalizationMean
+          guard val.isFinite else { return nil }
+          physical[ix][iy][iz] = val
         }
       }
     }

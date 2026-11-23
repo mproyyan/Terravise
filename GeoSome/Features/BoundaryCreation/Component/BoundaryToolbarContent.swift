@@ -5,6 +5,7 @@ struct BoundaryToolbarContent: ToolbarContent {
   var canUndo: Bool
   var canRedo: Bool
   var canCreateProject: Bool
+  var isEditingExistingProject: Bool
   var onBeginEditingName: (() -> Void)?
   var onFinishEditingName: (() -> Void)?
   var onResetAnchorTap: (() -> Void)?
@@ -21,6 +22,7 @@ struct BoundaryToolbarContent: ToolbarContent {
     canUndo: Bool = false,
     canRedo: Bool = false,
     canCreateProject: Bool = true,
+    isEditingExistingProject: Bool = false,
     onBeginEditingName: (() -> Void)? = nil,
     onFinishEditingName: (() -> Void)? = nil,
     onResetAnchorTap: (() -> Void)? = nil,
@@ -32,6 +34,7 @@ struct BoundaryToolbarContent: ToolbarContent {
     self.canUndo = canUndo
     self.canRedo = canRedo
     self.canCreateProject = canCreateProject
+    self.isEditingExistingProject = isEditingExistingProject
     self.onBeginEditingName = onBeginEditingName
     self.onFinishEditingName = onFinishEditingName
     self.onResetAnchorTap = onResetAnchorTap
@@ -133,7 +136,7 @@ struct BoundaryToolbarContent: ToolbarContent {
               Image(systemName: "exclamationmark.circle")
                 .font(.caption.weight(.semibold))
             }
-            Text("Create Project")
+            Text(isEditingExistingProject ? "Save Changes" : "Create Project")
               .font(.subheadline.weight(.semibold))
           }
           .foregroundStyle(canCreateProject ? Color.white : Color.primary.opacity(disabledOpacity))
@@ -146,14 +149,18 @@ struct BoundaryToolbarContent: ToolbarContent {
         .disabled(!canCreateProject)
         .buttonStyle(.glass(canCreateProject ? .regular.tint(.blue) : .regular))
         .buttonBorderShape(.automatic)
-        .accessibilityLabel("Create Project")
+        .accessibilityLabel(isEditingExistingProject ? "Save Changes" : "Create Project")
         .accessibilityValue(canCreateProject ? "Ready" : "Requires at least 3 boundary points")
         .accessibilityHint(
           canCreateProject
-            ? "Saves the project with the current boundary points"
-            : "Add at least 3 boundary points to enable creating a project"
+            ? (isEditingExistingProject ? "Saves the changes to the project boundary" : "Saves the project with the current boundary points")
+            : "Add at least 3 boundary points to enable saving"
         )
-        .accessibilityInputLabels(["Create Project", "Create", "Save Project"])
+        .accessibilityInputLabels(
+          isEditingExistingProject
+            ? ["Save Changes", "Save", "Save Project"]
+            : ["Create Project", "Create", "Save Project"]
+        )
       }
     }
     .sharedBackgroundVisibility(.hidden)

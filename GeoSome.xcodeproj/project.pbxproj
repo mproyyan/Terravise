@@ -24,79 +24,6 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
-				"Model Script (soon will be deleted)/docs/IOS_INTEGRATION.md",
-				"Model Script (soon will be deleted)/DQN_V4_5/DQN_V4_5_Extended.mlpackage",
-				"Model Script (soon will be deleted)/DQN_V4_5/DQN_V4_5_Extended.pt",
-				"Model Script (soon will be deleted)/DQN_V4_5/feature_manifest.json",
-				"Model Script (soon will be deleted)/model_export/DQN_V4_6_A_iOS/deployment_manifest.json",
-				"Model Script (soon will be deleted)/model_export/DQN_V4_6_A_iOS/DQN_V4_6_A_contract.json",
-				"Model Script (soon will be deleted)/model_export/DQN_V4_6_A_iOS/DQN_V4_6_A_parity.json",
-				"Model Script (soon will be deleted)/model_export/DQN_V4_6_A_iOS/DQN_V4_6_A.mlpackage",
-				"Model Script (soon will be deleted)/model_export/SufficiencyGate_V2_1/acceptance_report.json",
-				"Model Script (soon will be deleted)/model_export/SufficiencyGate_V2_1/gate_v2_classifier.joblib",
-				"Model Script (soon will be deleted)/model_export/SufficiencyGate_V2_1/gate_v2_platt.joblib",
-				"Model Script (soon will be deleted)/model_export/SufficiencyGate_V2_1/gate_v21_final.json",
-				"Model Script (soon will be deleted)/model_export/SufficiencyGate_V2_1/gate_v21_swift_parameters.json",
-				"Model Script (soon will be deleted)/model_export/SufficiencyGate_V2_1/manifest_sha256.json",
-				"Model Script (soon will be deleted)/model_export/SufficiencyGate_V2_1/model_metadata.json",
-				"Model Script (soon will be deleted)/model_export/Uncertainty_V3_1_iOS/deployment_manifest.json",
-				"Model Script (soon will be deleted)/model_export/Uncertainty_V3_1_iOS/SufficiencyV3_1.json",
-				"Model Script (soon will be deleted)/model_export/Uncertainty_V3_1_iOS/UncertaintyV3.json",
-				"Model Script (soon will be deleted)/README.md",
-				"Model Script (soon will be deleted)/Research/Hard_Layer_QC/README.md",
-				"Model Script (soon will be deleted)/Research/Hard_Layer_QC/results/criterion_sensitivity.csv",
-				"Model Script (soon will be deleted)/Research/Hard_Layer_QC/scripts/analyze_hard_layer_cpt.py",
-				"Model Script (soon will be deleted)/Research/Hard_Layer_QC/scripts/build_multiscale_pilot.py",
-				"Model Script (soon will be deleted)/Research/Hard_Layer_QC/scripts/build_qc_reconstruction_pilot.py",
-				"Model Script (soon will be deleted)/SchemaGAN_V4_2/normalization.json",
-				"Model Script (soon will be deleted)/SchemaGAN_V4_2/SchemaGAN_V4_2_Flexible.mlpackage",
-				"Model Script (soon will be deleted)/SchemaGAN_V4_2/SchemaGAN_V4_2.pt",
-				"Model Script (soon will be deleted)/Source_Code/dataset_generator/build_geosyn3d_dataset.py",
-				"Model Script (soon will be deleted)/Source_Code/dataset_generator/build_geosyn3d_pilot.py",
-				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45_selected/__init__.py",
-				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45_selected/adapter.py",
-				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45_selected/agent.py",
-				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45_selected/baselines.py",
-				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45_selected/evaluate_final_test.py",
-				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45_selected/features.py",
-				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45_selected/geological_features.py",
-				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45_selected/runner.py",
-				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45_selected/service.py",
-				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45_selected/simulator.py",
-				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45/__init__.py",
-				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45/adapter.py",
-				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45/agent.py",
-				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45/audit_information_gain_extended.py",
-				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45/audit_information_gain.py",
-				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45/audit_information_gain.py.bak",
-				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45/baselines.py",
-				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45/evaluate_ablation.py",
-				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45/evaluate_extended_comparison.py",
-				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45/evaluate_final_test.py",
-				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45/evaluate_flexibility.py",
-				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45/evaluate_fresh_validation.py",
-				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45/evaluate_v45_comparison.py",
-				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45/features_before_fix.py.bak",
-				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45/features.py",
-				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45/geological_features.py",
-				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45/runner.py",
-				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45/service.py",
-				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45/simulator.py",
-				"Model Script (soon will be deleted)/Source_Code/dqn3d/v45/validation_v43.py",
-				"Model Script (soon will be deleted)/Source_Code/dqn3d/v46/features.py",
-				"Model Script (soon will be deleted)/Source_Code/schemagan_v42/evaluate_v4_final.py",
-				"Model Script (soon will be deleted)/Source_Code/schemagan_v42/flexible_cpt_preprocessing.py",
-				"Model Script (soon will be deleted)/Source_Code/schemagan_v42/test_flexible_cpt_v42_v4b.py",
-				"Model Script (soon will be deleted)/Source_Code/schemagan_v42/train_sgan_v42_full.py",
-				"Model Script (soon will be deleted)/Source_Code/train_sgan_v42.py",
-				"Model Script (soon will be deleted)/Source_Code/uncertainty_v2/export_json.py",
-				"Model Script (soon will be deleted)/Source_Code/uncertainty_v2/generate_3d_map.py",
-				"Model Script (soon will be deleted)/Source_Code/uncertainty_v2/prepare_dataset.py",
-				"Model Script (soon will be deleted)/Source_Code/uncertainty_v2/train_evaluate.py",
-				"Model Script (soon will be deleted)/Uncertainty_V2/model_metadata.json",
-				"Model Script (soon will be deleted)/Uncertainty_V2/parity_report.json",
-				"Model Script (soon will be deleted)/Uncertainty_V2/uncertainty_v2_quantile.joblib",
-				"Model Script (soon will be deleted)/Uncertainty_V2/uncertainty_v2_trees.json",
 			);
 			target = A60BFC1A3091A38700D1BA6E /* GeoSome */;
 		};
@@ -151,6 +78,7 @@
 				A60BFC173091A38700D1BA6E /* Sources */,
 				A60BFC183091A38700D1BA6E /* Frameworks */,
 				A60BFC193091A38700D1BA6E /* Resources */,
+				A1C077110000000000000001 /* ShellScript */,
 			);
 			buildRules = (
 			);
@@ -206,6 +134,48 @@
 			);
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		A1C077110000000000000001 /* ShellScript */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			inputPaths = (
+				"$(SRCROOT)/Scripts/build_parity_attestation.py",
+				"$(SRCROOT)/GeoSome/Features/CPTRecommendation/ViewModels/CPTRecommendationViewModel.swift",
+				"$(SRCROOT)/GeoSome/Features/Project/Models/Project.swift",
+				"$(SRCROOT)/GeoSome/Features/BoundaryCreation/ViewModels/BoundaryCreationViewModel.swift",
+				"$(SRCROOT)/GeoSome/Features/CPTRecommendation/Services/StratigraphicStop.swift",
+				"$(SRCROOT)/GeoSome/Features/CPTRecommendation/Services/StratigraphicHistory.swift",
+				"$(SRCROOT)/GeoSome/Features/CPTRecommendation/Services/StratigraphicService.swift",
+				"$(SRCROOT)/GeoSome/Features/CPTRecommendation/Services/CPTPipelineCoordinator.swift",
+				"$(SRCROOT)/GeoSome/Features/CPTRecommendation/Services/DQNFeatureBuilder.swift",
+				"$(SRCROOT)/GeoSome/Features/CPTRecommendation/Resources/StratigraphicStopConfig.json",
+				"$(SRCROOT)/GeoSome/Features/CPTRecommendation/Resources/StratigraphicStopContract.md",
+				"$(SRCROOT)/GeoSome/Features/Result/ViewModels/ResultAnalysisViewModel.swift",
+				"$(SRCROOT)/GeoSome/Features/Result/Models/VoxelMeshSynthesizer.swift",
+				"$(SRCROOT)/Tests/PipelineParity/parity_manifest.json",
+				"$(SRCROOT)/Tests/PipelineParity/attested_fixture.json",
+				"$(SRCROOT)/GeoSome/Features/CPTRecommendation/Services/SchemaGANService.swift",
+				"$(SRCROOT)/GeoSome/Features/CPTRecommendation/Services/UncertaintySufficiencyService.swift",
+				"$(SRCROOT)/GeoSome/Features/CPTRecommendation/Models/CPTGridConfig.swift",
+				"$(SRCROOT)/GeoSome/Features/CPTRecommendation/Models/CPTData.swift",
+				"$(SRCROOT)/GeoSome/Features/CPTRecommendation/Resources/UncertaintyV3.json",
+				"$(SRCROOT)/GeoSome/Features/CPTRecommendation/Resources/SufficiencyV3_2.json",
+				"$(SRCROOT)/GeoSome/Features/CPTRecommendation/Resources/SufficiencyV32FeatureParity.json",
+				"$(SRCROOT)/GeoSome/Features/CPTRecommendation/Resources/SchemaGAN_V4_2_Flexible.mlpackage/Manifest.json",
+				"$(SRCROOT)/GeoSome/Features/CPTRecommendation/Resources/SchemaGAN_V4_2_Flexible.mlpackage/Data/com.apple.CoreML/model.mlmodel",
+				"$(SRCROOT)/GeoSome/Features/CPTRecommendation/Resources/SchemaGAN_V4_2_Flexible.mlpackage/Data/com.apple.CoreML/weights/weight.bin",
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/CPTParityAttestation.json",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/StratigraphicImplementationIdentity.json",
+			);
+			shellPath = /bin/sh;
+			shellScript = (
+				"python3 \"${SRCROOT}/Scripts/build_parity_attestation.py\"",
+			);
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		A60BFC173091A38700D1BA6E /* Sources */ = {
@@ -340,12 +310,12 @@
 		A60BFC273091A38800D1BA6E /* Debug configuration for PBXNativeTarget "GeoSome" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = Terravise;
+				ASSETCATALOG_COMPILER_APPICON_NAME = "fix-icon";
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = L6M39L4GV8;
+				DEVELOPMENT_TEAM = 46PB5JVBMV;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = GeoSome/Info.plist;
@@ -364,24 +334,28 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.sondir;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 2;
 			};
 			name = Debug;
 		};
 		A60BFC283091A38800D1BA6E /* Release configuration for PBXNativeTarget "GeoSome" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = Terravise;
+				ASSETCATALOG_COMPILER_APPICON_NAME = "fix-icon";
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = L6M39L4GV8;
+				DEVELOPMENT_TEAM = 46PB5JVBMV;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = GeoSome/Info.plist;
@@ -400,12 +374,16 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.sondir;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 2;
 			};
 			name = Release;
 		};

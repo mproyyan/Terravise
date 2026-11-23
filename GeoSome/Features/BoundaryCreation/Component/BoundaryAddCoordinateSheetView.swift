@@ -1,8 +1,13 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 struct BoundaryAddCoordinateSheetView: View {
   @Environment(\.dismiss) private var dismiss
-  @Binding var coordinateText: String
+  @Binding var zoneText: String
+  @Binding var eastingText: String
+  @Binding var northingText: String
   @Binding var isDiscardConfirmationPresented: Bool
   @Binding var isInvalidCoordinateAlertPresented: Bool
   var canSubmit: Bool?
@@ -10,12 +15,13 @@ struct BoundaryAddCoordinateSheetView: View {
   var onDiscardConfirm: (() -> Void)?
   var onSubmitTap: (() -> Void)?
 
-  @FocusState private var isInputFocused: Bool
   @Environment(\.colorSchemeContrast) private var contrast
   @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
 
   init(
-    coordinateText: Binding<String> = .constant(""),
+    zoneText: Binding<String> = .constant("48S"),
+    eastingText: Binding<String> = .constant(""),
+    northingText: Binding<String> = .constant(""),
     isDiscardConfirmationPresented: Binding<Bool> = .constant(false),
     isInvalidCoordinateAlertPresented: Binding<Bool> = .constant(false),
     canSubmit: Bool? = nil,
@@ -23,7 +29,9 @@ struct BoundaryAddCoordinateSheetView: View {
     onDiscardConfirm: (() -> Void)? = nil,
     onSubmitTap: (() -> Void)? = nil
   ) {
-    _coordinateText = coordinateText
+    _zoneText = zoneText
+    _eastingText = eastingText
+    _northingText = northingText
     _isDiscardConfirmationPresented = isDiscardConfirmationPresented
     _isInvalidCoordinateAlertPresented = isInvalidCoordinateAlertPresented
     self.canSubmit = canSubmit
@@ -33,65 +41,72 @@ struct BoundaryAddCoordinateSheetView: View {
   }
 
   private var isSubmitEnabled: Bool {
-    canSubmit ?? !coordinateText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    canSubmit ?? (
+      !zoneText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+      !eastingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+      !northingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    )
+  }
+
+  private var hasInput: Bool {
+    !eastingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+    !northingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 
   var body: some View {
     NavigationStack {
-      VStack(alignment: .leading, spacing: 10) {
-        Text("Coordinate")
-          .font(.headline)
-          .foregroundStyle(.primary)
+      VStack(alignment: .leading, spacing: 14) {
+        Text("Coordinates")
+          .font(.headline.weight(.bold))
+          .foregroundStyle(Color.primary)
           .accessibilityAddTraits(.isHeader)
 
-        if differentiateWithoutColor {
-          Label("Format: latitude, longitude (one pair per line)", systemImage: "info.circle")
-            .font(.caption)
-            .foregroundStyle(contrast == .increased ? .primary : .secondary)
-            .fixedSize(horizontal: false, vertical: true)
-        }
+        VStack(spacing: 0) {
+          coordinateRow(
+            title: "Zone",
+            placeholder: "48S",
+            text: $zoneText,
+            keyboardType: .default,
+            autocapitalization: .characters
+          )
 
-        ZStack(alignment: .topLeading) {
-          if coordinateText.isEmpty {
-            Text("e.g., -6.215432, 106.845321")
-              .font(.body)
-              .foregroundStyle(contrast == .increased ? .primary : .secondary)
-              .padding(.horizontal, 5)
-              .padding(.vertical, 8)
-              .allowsHitTesting(false)
-              .accessibilityHidden(true)
-          }
+          Divider().padding(.horizontal, 16)
 
-          TextEditor(text: $coordinateText)
-            .font(.body)
-            .foregroundStyle(.primary)
-            .focused($isInputFocused)
-            .scrollContentBackground(.hidden)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .accessibilityLabel("Coordinate input")
-            .accessibilityHint("Enter latitude and longitude separated by a comma, one pair per line")
+          coordinateRow(
+            title: "Easting (m)",
+            placeholder: "702634",
+            text: $eastingText,
+            keyboardType: .decimalPad,
+            autocapitalization: .never
+          )
+
+          Divider().padding(.horizontal, 16)
+
+          coordinateRow(
+            title: "Northing (m)",
+            placeholder: "9309747",
+            text: $northingText,
+            keyboardType: .decimalPad,
+            autocapitalization: .never
+          )
         }
-        .padding(.horizontal, 11)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(
-          RoundedRectangle(cornerRadius: 22, style: .continuous)
+          RoundedRectangle(cornerRadius: 16, style: .continuous)
             .fill(Color(.secondarySystemGroupedBackground))
         )
         .overlay(
-          RoundedRectangle(cornerRadius: 22, style: .continuous)
+          RoundedRectangle(cornerRadius: 16, style: .continuous)
             .stroke(
-              Color.primary.opacity(contrast == .increased ? 0.45 : 0.14),
+              Color.primary.opacity(contrast == .increased ? 0.35 : 0.08),
               lineWidth: contrast == .increased ? 1.5 : 1
             )
         )
-        .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .onTapGesture {
-          isInputFocused = true
-        }
+        .accessibilityHint("Enter UTM zone, easting, and northing coordinates")
+
+        Spacer()
       }
       .padding(.horizontal, 20)
-      .padding(.top, 8)
+      .padding(.top, 16)
       .padding(.bottom, 20)
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
       .navigationTitle("Add Coordinate")
@@ -101,7 +116,7 @@ struct BoundaryAddCoordinateSheetView: View {
           Button(role: .close) {
             if let onCloseTap {
               onCloseTap()
-            } else if !coordinateText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            } else if hasInput {
               isDiscardConfirmationPresented = true
             } else {
               dismiss()
@@ -115,17 +130,14 @@ struct BoundaryAddCoordinateSheetView: View {
           Button(role: .confirm) {
             if let onSubmitTap {
               onSubmitTap()
-            } else if BoundaryCreationViewModel.isValidCoordinateInput(coordinateText) {
-              coordinateText = ""
-              dismiss()
             } else {
-              isInvalidCoordinateAlertPresented = true
+              dismiss()
             }
           }
           .keyboardShortcut(nil)
           .disabled(!isSubmitEnabled)
-          .accessibilityLabel("Add Coordinates")
-          .accessibilityHint("Saves the entered boundary coordinates")
+          .accessibilityLabel("Add Coordinate")
+          .accessibilityHint("Saves the entered boundary coordinate")
         }
       }
       .alert(
@@ -141,7 +153,8 @@ struct BoundaryAddCoordinateSheetView: View {
           if let onDiscardConfirm {
             onDiscardConfirm()
           } else {
-            coordinateText = ""
+            eastingText = ""
+            northingText = ""
             dismiss()
           }
         }
@@ -156,15 +169,47 @@ struct BoundaryAddCoordinateSheetView: View {
           isInvalidCoordinateAlertPresented = false
         }
       } message: {
-        Text("Please enter valid latitude and longitude pairs (e.g., -6.215432, 106.845321), one per line.")
+        Text("Please enter a valid UTM coordinate (e.g., Zone 48S, Easting 702634, Northing 9309747).")
       }
     }
+  }
+
+  private func coordinateRow(
+    title: String,
+    placeholder: String,
+    text: Binding<String>,
+    keyboardType: UIKeyboardType = .decimalPad,
+    autocapitalization: TextInputAutocapitalization = .never
+  ) -> some View {
+    HStack(spacing: 12) {
+      Text(title)
+        .font(.body)
+        .foregroundStyle(Color.secondary)
+        .lineLimit(1)
+
+      Spacer(minLength: 8)
+
+      TextField(placeholder, text: text)
+        #if canImport(UIKit)
+        .keyboardType(keyboardType)
+        #endif
+        .font(.body)
+        .foregroundStyle(Color.primary)
+        .multilineTextAlignment(.trailing)
+        .autocorrectionDisabled()
+        .textInputAutocapitalization(autocapitalization)
+        .frame(maxWidth: 130)
+    }
+    .padding(.horizontal, 16)
+    .frame(height: 52)
   }
 }
 
 #Preview("Stacked Sheet") {
   @Previewable @State var isAddSheetPresented = true
-  @Previewable @State var coordinateText = ""
+  @Previewable @State var zone = "48S"
+  @Previewable @State var easting = ""
+  @Previewable @State var northing = ""
   @Previewable @State var isDiscardPresented = false
   @Previewable @State var isInvalidAlertPresented = false
 
@@ -181,15 +226,17 @@ struct BoundaryAddCoordinateSheetView: View {
       .presentationBackgroundInteraction(.enabled)
       .sheet(isPresented: $isAddSheetPresented) {
         BoundaryAddCoordinateSheetView(
-          coordinateText: $coordinateText,
+          zoneText: $zone,
+          eastingText: $easting,
+          northingText: $northing,
           isDiscardConfirmationPresented: $isDiscardPresented,
           isInvalidCoordinateAlertPresented: $isInvalidAlertPresented
         )
         .presentationPlacement(.leading)
-        .presentationDetents([BoundaryCreationViewModel.defaultSheetDetent, .medium, .large])
+        .presentationDetents([BoundaryCreationViewModel.editSheetDetent, .medium, .large])
         .presentationDragIndicator(.visible)
         .presentationBackgroundInteraction(.enabled)
-        .interactiveDismissDisabled(!coordinateText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        .interactiveDismissDisabled(!easting.isEmpty || !northing.isEmpty)
       }
     }
 }

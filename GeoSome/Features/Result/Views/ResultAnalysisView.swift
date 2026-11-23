@@ -5,6 +5,7 @@ struct ResultAnalysisView: View {
   @Environment(AppRouter.self) private var router
   @Environment(ProjectViewModel.self) private var projectViewModel: ProjectViewModel?
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.colorSchemeContrast) private var contrast
 
   @State private var viewModel: ResultAnalysisViewModel
   @State private var captionCenter = AccessibilityCaptionCenter.shared
@@ -60,12 +61,22 @@ struct ResultAnalysisView: View {
             maxSliceZ: viewModel.maxSliceZIndex,
             selectedVoxel: viewModel.selectedVoxel,
             selectedPipePosition3D: viewModel.selectedPipePosition3D,
+            isHardSoilVisible: viewModel.isHardSoilVisible,
+            // selectedConcernID: viewModel.selectedConcernID,
+            // isolatedVoxels: viewModel.activeConcernVoxels,
+            cameraController: viewModel.cameraController,
             cameraYaw: $viewModel.cameraYaw,
             cameraPitch: $viewModel.cameraPitch,
             cameraZoom: $viewModel.cameraZoom,
             isProfilePopoverPresented: $viewModel.isProfilePopoverPresented,
             profilePopoverLocation: $viewModel.profilePopoverLocation,
+            isSideLayerPopoverPresented: $viewModel.isSideLayerPopoverPresented,
+            sideLayerPopoverLocation: $viewModel.sideLayerPopoverLocation,
+            selectedSideSoilType: viewModel.selectedSideSoilType,
             popoverTitle: viewModel.selectedCPTPointTitle,
+            popoverEasting: viewModel.selectedCPTPointEasting,
+            popoverNorthing: viewModel.selectedCPTPointNorthing,
+            popoverZone: viewModel.selectedCPTPointZone,
             popoverLatitude: viewModel.selectedCPTPointLatitude,
             popoverLongitude: viewModel.selectedCPTPointLongitude,
             popoverLayers: viewModel.selectedPopoverLayers,
@@ -78,40 +89,54 @@ struct ResultAnalysisView: View {
               withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
                 viewModel.handleTopSurfaceTap(at: screenPoint, local3DPoint: hit3D, voxel: voxel)
               }
+            },
+            onTapSideLayer: { screenPoint, voxel in
+              withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
+                viewModel.handleSideLayerTap(at: screenPoint, voxel: voxel)
+              }
             }
           )
           .ignoresSafeArea()
 
         case .bearingLayer:
-          // RealityKit Flat 3D Surface Depth Map ("Permukaan yang disorot dari atas")
-          ResultBearingSurfaceRealityView(
-            volume: viewModel.volume,
-            cameraYaw: $viewModel.bearingCameraYaw,
-            cameraPitch: $viewModel.bearingCameraPitch,
-            cameraZoom: $viewModel.bearingCameraZoom,
-            isBearingPopoverPresented: $viewModel.isBearingPopoverPresented,
-            bearingPopoverLocation: $viewModel.bearingPopoverLocation,
-            bearingPopoverTitle: viewModel.selectedBearingTitle,
-            bearingPopoverDepthText: viewModel.selectedBearingDepthText,
-            bearingPopoverNorthingText: viewModel.selectedBearingNorthingText,
-            bearingPopoverEastingText: viewModel.selectedBearingEastingText,
-            isBearingCompared: viewModel.isBearingCompared,
-            comparedPoints: viewModel.comparedBearingPoints,
-            onAddToCompare: {
-              withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) {
-                viewModel.addCurrentBearingToCompare()
+          if viewModel.hasBearingLayer {
+            // RealityKit Flat 3D Surface Depth Map ("Permukaan yang disorot dari atas")
+            ResultBearingSurfaceRealityView(
+              volume: viewModel.volume,
+              bearingOutput: viewModel.bearingRuleOutput,
+              bearingRevision: viewModel.bearingRenderRevision,
+              measuredCPTCount: viewModel.project.cptPoints.count,
+              selectedCell: viewModel.selectedBearingCell,
+              isMapOverlayVisible: viewModel.isBearingMapOverlayVisible,
+              cameraController: viewModel.bearingCameraController,
+              cameraYaw: $viewModel.bearingCameraYaw,
+              cameraPitch: $viewModel.bearingCameraPitch,
+              cameraZoom: $viewModel.bearingCameraZoom,
+              isBearingPopoverPresented: $viewModel.isBearingPopoverPresented,
+              bearingPopoverLocation: $viewModel.bearingPopoverLocation,
+              bearingPopoverTitle: viewModel.selectedBearingTitle,
+              bearingPopoverDepthText: viewModel.selectedBearingDepthText,
+              bearingPopoverNorthingText: viewModel.selectedBearingNorthingText,
+              bearingPopoverEastingText: viewModel.selectedBearingEastingText,
+              isBearingCompared: viewModel.isBearingCompared,
+              comparedPoints: viewModel.comparedBearingPoints,
+              onAddToCompare: {
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) {
+                  viewModel.addCurrentBearingToCompare()
+                }
+              },
+              onTapBearingSurface: { screenPoint, voxel, xGrid, zGrid in
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
+                  viewModel.handleBearingLayerTap(at: screenPoint, voxel: voxel, gridX: xGrid, gridZ: zGrid)
+                }
+              },
+              onSelectBearingVoxel: { bearingVoxel in
+                viewModel.selectedBearingVoxel = bearingVoxel
               }
-            },
-            onTapBearingSurface: { screenPoint, voxel, xGrid, zGrid in
-              withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
-                viewModel.handleBearingLayerTap(at: screenPoint, voxel: voxel, gridX: xGrid, gridZ: zGrid)
-              }
-            },
-            onSelectBearingVoxel: { bearingVoxel in
-              viewModel.selectedBearingVoxel = bearingVoxel
-            }
-          )
-          .ignoresSafeArea()
+            )
+            .ignoresSafeArea()
+            .transition(reduceMotion ? .opacity : .opacity)
+          }
         }
       }
       // Top Caption Banner for Accessibility
@@ -128,44 +153,70 @@ struct ResultAnalysisView: View {
       }
       // Top-Trailing: Depth Legend (Bearing Layer)
       .overlay(alignment: .topTrailing) {
-        if viewModel.selectedTab == .bearingLayer {
+        if viewModel.selectedTab == .bearingLayer && viewModel.hasBearingLayer {
           ResultBearingDepthLegendView(
-            shallowestLimitText: "≤ 2.75m",
-            deepestLimitText: "≥ 4.75m"
+            shallowestLimitText: viewModel.shallowestBearingDepthText,
+            deepestLimitText: viewModel.deepestBearingDepthText,
+            shallowestDepthM: viewModel.bearingRuleOutput?.summary.shallowestTopDepthM,
+            deepestDepthM: viewModel.bearingRuleOutput?.summary.deepestBottomDepthM,
+            activeDepthM: viewModel.selectedBearingTopDepthM
           )
           .padding(.trailing, 20)
           .padding(.top, 16)
           .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
         }
       }
+      // Center: Empty State Card when No Bearing Layer Meets Criteria
+      .overlay(alignment: .center) {
+        if viewModel.selectedTab == .bearingLayer && !viewModel.hasBearingLayer {
+          noBearingLayerCard
+            .transition(reduceMotion ? .opacity : .scale(scale: 0.95).combined(with: .opacity))
+        }
+      }
       // Bottom-Trailing: Slicing Card (3D Layer) or Criteria Card (Bearing Layer)
       .overlay(alignment: .bottomTrailing) {
+        let maxFloatingCardHeight = max(proxy.size.height - proxy.safeAreaInsets.top - 52, 280)
+
         switch viewModel.selectedTab {
         case .threeDLayer:
           ResultLayerSlicingCardView(
             cardWidth: oneThirdSheetWidth,
+            maxCardHeight: maxFloatingCardHeight,
             isExpanded: $viewModel.isSlicingCardExpanded,
             isHardSoilVisible: $viewModel.isHardSoilVisible,
-            concerns: viewModel.geotechnicalConcerns,
-            isGeotechnicalConcernsEmpty: viewModel.isGeotechnicalConcernsEmpty,
-            selectedConcernID: viewModel.selectedConcernID,
-            onSelectConcern: { concern in
+            volume: viewModel.volume,
+            boundaryCoordinates: viewModel.activeBoundaryCoordinates,
+            cptPoints: viewModel.project.cptPoints,
+            cameraController: viewModel.cameraController,
+            virtualCPTPosition3D: viewModel.selectedPipePosition3D,
+            onTapCreateVirtualCPT: {
               withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
-                viewModel.selectConcern(concern)
+                viewModel.createVirtualCPTAtMinimapCenter()
               }
             },
+            // concerns: viewModel.geotechnicalConcerns,
+            // isGeotechnicalConcernsEmpty: viewModel.isGeotechnicalConcernsEmpty,
+            // selectedConcernID: viewModel.selectedConcernID,
+            // onSelectConcern: { concern in
+            //   withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
+            //     viewModel.selectConcern(concern)
+            //   }
+            // },
             slicingXMeters: $viewModel.slicingXMeters,
             slicingYMeters: $viewModel.slicingYMeters,
             minXMeters: viewModel.minSlicingXMeters,
             maxXMeters: viewModel.maxSlicingXMeters,
             minYMeters: viewModel.minSlicingYMeters,
             maxYMeters: viewModel.maxSlicingYMeters,
+            maxSliceX: viewModel.maxSliceXIndex,
+            maxSliceZ: viewModel.maxSliceZIndex,
             onResetView: {
               withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) {
                 viewModel.resetView()
               }
             }
           )
+          .padding(.top, 16)
           .padding(.trailing, 20)
           .padding(.bottom, 20)
           .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -174,8 +225,10 @@ struct ResultAnalysisView: View {
           ResultBearingCriteriaCardView(
             cardWidth: oneThirdSheetWidth,
             isExpanded: $viewModel.isBearingCriteriaCardExpanded,
+            isMapOverlayVisible: $viewModel.isBearingMapOverlayVisible,
             coneResistanceQc: $viewModel.coneResistanceQc,
             soilBehaviorIndexIc: $viewModel.soilBehaviorIndexIc,
+            selectedIcText: viewModel.bearingIcThresholdText,
             minLayerThickness: $viewModel.minLayerThickness,
             onResetCriteria: {
               withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) {
@@ -195,11 +248,13 @@ struct ResultAnalysisView: View {
           case .threeDLayer:
             ResultLeftPlaceholderSheetView(
               groundConditionsSummary: viewModel.groundConditionsSummary,
-              concerns: viewModel.geotechnicalConcerns,
+              // concerns: viewModel.geotechnicalConcerns,
               isSubsurfaceConditionsEmpty: viewModel.isSubsurfaceConditionsEmpty,
-              isGeotechnicalConcernsEmpty: viewModel.isGeotechnicalConcernsEmpty,
+              // isGeotechnicalConcernsEmpty: viewModel.isGeotechnicalConcernsEmpty,
+              legendItems: viewModel.activeLegendItems,
               predictionUncertaintyPercent: viewModel.predictionUncertaintyPercent,
-              cptPointsCount: viewModel.displayedCPTPointsCount
+              cptPointsCount: viewModel.displayedCPTPointsCount,
+              isCollapsed: viewModel.isLeftSheetCollapsed
             )
           case .bearingLayer:
             if viewModel.isCompareDataSheetActive {
@@ -221,9 +276,13 @@ struct ResultAnalysisView: View {
                 shallowestDepthText: viewModel.shallowestBearingDepthText,
                 deepestDepthText: viewModel.deepestBearingDepthText,
                 variationDepthText: viewModel.variationBearingDepthText,
-                relativeUncertaintyText: viewModel.relativeUncertaintyText,
+                // Use the current Bearing evaluation, not depth error or CPT coverage.
+                relativeUncertaintyText: viewModel.bearingUncertaintyExperimentalInferenceReady
+                  ? viewModel.relativeUncertaintyText : nil,
                 highUncertaintyAreaPercentText: viewModel.highUncertaintyAreaPercentText,
-                highUncertaintyDescription: viewModel.highUncertaintyDescription
+                highUncertaintyDescription: nil,
+                hasBearingLayer: viewModel.hasBearingLayer,
+                isCollapsed: viewModel.isLeftSheetCollapsed
               )
             }
           }
@@ -245,8 +304,15 @@ struct ResultAnalysisView: View {
         )
         .presentationDragIndicator(.visible)
         .presentationBackgroundInteraction(.enabled)
-        .presentationContentInteraction(.scrolls)
+        .presentationContentInteraction(viewModel.isLeftSheetCollapsed ? .resizes : .scrolls)
         .interactiveDismissDisabled()
+        .onTapGesture {
+          if viewModel.isLeftSheetCollapsed {
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) {
+              viewModel.selectedSheetDetent = ResultAnalysisViewModel.defaultSheetDetent
+            }
+          }
+        }
       }
     }
     .toolbar {
@@ -275,9 +341,55 @@ struct ResultAnalysisView: View {
         viewModel.presentLeftSheetIfNeeded()
       }
     }
+    .onChange(of: viewModel.coneResistanceQc) { _, _ in viewModel.reevaluateBearingRule() }
+    .onChange(of: viewModel.soilBehaviorIndexIc) { _, _ in viewModel.reevaluateBearingRule() }
+    .onChange(of: viewModel.minLayerThickness) { _, _ in viewModel.reevaluateBearingRule() }
+    .onChange(of: projectViewModel?.projects.first(where: { $0.id == (projectId ?? viewModel.project.id) })) { _, updated in
+      guard let updated, updated != viewModel.project else { return }
+      viewModel.updateProject(updated)
+    }
     .onDisappear {
       viewModel.dismissLeftSheet()
     }
+  }
+
+  // MARK: - Empty State Card
+
+  @ViewBuilder
+  private var noBearingLayerCard: some View {
+    VStack(spacing: 14) {
+      Image(systemName: "square.3.layers.3d.slash")
+        .font(.system(size: 38, weight: .regular))
+        .foregroundStyle(Color.secondary)
+
+      VStack(spacing: 6) {
+        Text("No Bearing Layer")
+          .font(.headline.weight(.bold))
+          .foregroundStyle(Color.primary)
+
+        Text("No soil strata meet the current identification criteria.")
+          .font(.subheadline)
+          .foregroundStyle(Color.secondary)
+          .multilineTextAlignment(.center)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+    }
+    .padding(.horizontal, 28)
+    .padding(.vertical, 24)
+    .frame(maxWidth: 320)
+    .background(
+      RoundedRectangle(cornerRadius: 22, style: .continuous)
+        .fill(Color(.secondarySystemGroupedBackground).opacity(0.95))
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: 22, style: .continuous)
+        .stroke(
+          Color.primary.opacity(contrast == .increased ? 0.35 : 0.08),
+          lineWidth: contrast == .increased ? 1.5 : 1
+        )
+    )
+    .shadow(color: Color.black.opacity(0.12), radius: 20, x: 0, y: 8)
+    .accessibilityElement(children: .combine)
   }
 }
 

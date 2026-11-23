@@ -2,6 +2,7 @@ import SwiftUI
 
 struct CPTDataListSheetView: View {
   var points: [CPTPointEntry]
+  var isPushed: Bool = false
   var onCloseTap: (() -> Void)?
   var onDeletePoint: ((CPTPointEntry.ID) -> Void)?
 
@@ -9,50 +10,64 @@ struct CPTDataListSheetView: View {
 
   init(
     points: [CPTPointEntry] = [],
+    isPushed: Bool = false,
     onCloseTap: (() -> Void)? = nil,
     onDeletePoint: ((CPTPointEntry.ID) -> Void)? = nil
   ) {
     self.points = points
+    self.isPushed = isPushed
     self.onCloseTap = onCloseTap
     self.onDeletePoint = onDeletePoint
   }
 
   var body: some View {
-    NavigationStack {
-      ScrollView(.vertical, showsIndicators: false) {
-        VStack(spacing: 12) {
-          ForEach(Array(points.enumerated()), id: \.element.id) { index, point in
-            NavigationLink {
-              CPTPointDetailSheetView(
-                pointTitle: "CPT Point \(index + 1)",
-                point: point,
-                onDeletePoint: {
-                  onDeletePoint?(point.id)
-                }
-              )
-            } label: {
-              pointCard(point: point, index: index)
+    if isPushed {
+      contentView
+    } else {
+      NavigationStack {
+        contentView
+          .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+              Button(role: .close) {
+                onCloseTap?()
+              }
+              .accessibilityLabel("Close")
+              .accessibilityHint("Closes CPT data list")
             }
-            .buttonStyle(.plain)
           }
-        }
-        .padding(.horizontal, 20)
-        .padding(.top, 14)
-        .padding(.bottom, 24)
-      }
-      .scrollBounceBehavior(.basedOnSize)
-      .navigationTitle("Data CPT")
-      .navigationBarTitleDisplayMode(.inline)
-      .toolbar {
-        ToolbarItem(placement: .cancellationAction) {
-          Button(role: .close) {
-            onCloseTap?()
-          }
-          .accessibilityLabel("Close")
-          .accessibilityHint("Closes CPT data list")
-        }
       }
     }
+  }
+
+  private var contentView: some View {
+    ScrollView(.vertical, showsIndicators: false) {
+      VStack(spacing: 12) {
+        ForEach(Array(points.enumerated()), id: \.element.id) { index, point in
+          NavigationLink {
+            CPTPointDetailSheetView(
+              pointTitle: "CPT Point \(index + 1)",
+              point: point,
+              onDeletePoint: {
+                onDeletePoint?(point.id)
+              }
+            )
+          } label: {
+            pointCard(point: point, index: index)
+          }
+          .buttonStyle(.plain)
+        }
+      }
+      .padding(.horizontal, 20)
+      .padding(.top, 14)
+      .padding(.bottom, 24)
+    }
+    .scrollBounceBehavior(.basedOnSize)
+    .scrollContentBackground(.hidden)
+    #if canImport(UIKit)
+    .background(ClearBackgroundView())
+    #endif
+    .navigationTitle("Data CPT")
+    .navigationBarTitleDisplayMode(.inline)
   }
 
   private func pointCard(point: CPTPointEntry, index: Int) -> some View {
@@ -70,7 +85,7 @@ struct CPTDataListSheetView: View {
       .accessibilityHidden(true)
 
       // Point Info
-      VStack(alignment: .leading, spacing: 2) {
+      VStack(alignment: .leading, spacing: 3) {
         Text("CPT Point \(index + 1)")
           .font(.caption.weight(.medium))
           .foregroundStyle(Color.secondary)
@@ -78,6 +93,10 @@ struct CPTDataListSheetView: View {
         Text(point.formattedCoordinate)
           .font(.subheadline.weight(.bold))
           .foregroundStyle(Color.primary)
+
+        Text("\(point.file.name) • \(point.rows.count) rows")
+          .font(.caption2)
+          .foregroundStyle(Color.secondary)
       }
 
       Spacer()
@@ -101,7 +120,7 @@ struct CPTDataListSheetView: View {
     )
     .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     .accessibilityElement(children: .combine)
-    .accessibilityLabel("CPT Point \(index + 1), coordinates \(point.formattedCoordinate)")
+    .accessibilityLabel("CPT Point \(index + 1), file \(point.file.name), coordinates \(point.formattedCoordinate)")
     .accessibilityHint("Double tap to view detailed CPT data")
   }
 }

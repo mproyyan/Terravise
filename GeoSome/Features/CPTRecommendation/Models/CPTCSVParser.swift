@@ -3,6 +3,7 @@ import Foundation
 struct CPTCSVParseResult: Sendable {
   let rows: [CPTRowData]
   let matchedRequiredColumns: [String]
+  var error: String? = nil
 }
 
 enum CPTCSVParser {
@@ -11,10 +12,23 @@ enum CPTCSVParser {
     cptType: CPTType,
     equipment: CPTEquipmentParameters = CPTEquipmentParameters()
   ) -> CPTCSVParseResult {
+    let ext = url.pathExtension.lowercased()
+    guard ext == "csv" || ext == "xlsx" else {
+      return CPTCSVParseResult(rows: [], matchedRequiredColumns: [],
+                               error: "Format .\(ext) belum didukung. Ekspor data sebagai CSV atau Excel (.xlsx).")
+    }
+
+    if ext == "xlsx" {
+      if let data = try? Data(contentsOf: url),
+         let csvText = CPTXLSXCodec.extractCSVText(from: data) {
+        return parse(text: csvText, cptType: cptType, equipment: equipment)
+      }
+    }
+
     guard let rawText = (try? String(contentsOf: url, encoding: .utf8))
       ?? (try? String(contentsOf: url, encoding: .ascii))
     else {
-      return CPTCSVParseResult(rows: [], matchedRequiredColumns: [])
+      return CPTCSVParseResult(rows: [], matchedRequiredColumns: [], error: "File tidak dapat dibaca.")
     }
     return parse(text: rawText, cptType: cptType, equipment: equipment)
   }
@@ -31,7 +45,7 @@ enum CPTCSVParser {
       .filter { !$0.isEmpty }
 
     guard let headerLine = rawLines.first else {
-      return CPTCSVParseResult(rows: [], matchedRequiredColumns: [])
+      return CPTCSVParseResult(rows: [], matchedRequiredColumns: [], error: "CSV kosong.")
     }
 
     let delimiter: Character = headerLine.contains(";") && !headerLine.contains(",") ? ";" : ","
@@ -49,24 +63,25 @@ enum CPTCSVParser {
     var icIndex: Int?
 
     for (idx, header) in headers.enumerated() {
+      let normalized = header.replacingOccurrences(of: " ", with: "")
       if depthIndex == nil,
-         header == "depth_(m)" || header == "depth_m" || header == "depth" || header == "z" || header.hasPrefix("depth")
+         normalized == "depth_(m)" || normalized == "depth_m" || normalized == "depth(m)" || normalized == "depth" || normalized == "z"
       {
         depthIndex = idx
       } else if qcIndex == nil,
-                header == "qc_mpa(mpa)" || header == "qc_mpa" || header == "qc" || header == "tip" || header.hasPrefix("qc")
+                normalized == "qc_(mpa)" || normalized == "qc(mpa)" || normalized == "qc_mpa(mpa)" || normalized == "qc_mpa" || normalized == "qc" || normalized == "tip"
       {
         qcIndex = idx
       } else if fsIndex == nil,
-                header == "fs_kpa(kpa)" || header == "fs_kpa" || header == "fs" || header == "sleeve" || header.hasPrefix("fs")
+                normalized == "fs_(kpa)" || normalized == "fs(kpa)" || normalized == "fs_kpa(kpa)" || normalized == "fs_kpa" || normalized == "fs" || normalized == "sleeve"
       {
         fsIndex = idx
       } else if u2Index == nil,
-                header == "u2_kpa(kpa)" || header == "u2_kpa" || header == "u2" || header.hasPrefix("u2") || header.contains("pore")
+                normalized == "u2_(kpa)" || normalized == "u2(kpa)" || normalized == "u2_kpa(kpa)" || normalized == "u2_kpa" || normalized == "u2" || normalized == "pore_pressure_kpa"
       {
         u2Index = idx
       } else if icIndex == nil,
-                header == "ic" || header == "robertson_ic"
+                normalized == "ic" || normalized == "robertson_ic"
       {
         icIndex = idx
       }
@@ -77,24 +92,29 @@ enum CPTCSVParser {
       matchedColumns.append("depth_(m)")
     }
     if qcIndex != nil {
-      matchedColumns.append("qc_mpa(mPa)")
+      matchedColumns.append("qc_(MPa)")
     }
     if fsIndex != nil {
-      matchedColumns.append("fs_kpa(kPa)")
+      matchedColumns.append("fs_(kPa)")
     }
     if u2Index != nil {
-      matchedColumns.append("u2_kpa(kPa)")
+      matchedColumns.append("u2_(kPa)")
     }
 
-    guard let dIdx = depthIndex, let qIdx = qcIndex else {
-      return CPTCSVParseResult(rows: [], matchedRequiredColumns: matchedColumns)
+    guard let dIdx = depthIndex, let qIdx = qcIndex, let fIdx = fsIndex,
+          cptType != .cptu || u2Index != nil else {
+      return CPTCSVParseResult(rows: [], matchedRequiredColumns: matchedColumns,
+                               error: "Kolom wajib tidak lengkap: \(cptType.requiredColumns.joined(separator: ", ")).")
     }
 
     var parsedByDepth: [Int: CPTRowData] = [:]
 
-    for line in rawLines.dropFirst() {
+    for (offset, line) in rawLines.dropFirst().enumerated() {
       let fields = splitCSVRow(line, delimiter: delimiter)
-      guard dIdx < fields.count, qIdx < fields.count else { continue }
+      guard dIdx < fields.count, qIdx < fields.count, fIdx < fields.count else {
+        return CPTCSVParseResult(rows: [], matchedRequiredColumns: matchedColumns,
+                                 error: "Baris \(offset + 2): jumlah kolom tidak lengkap.")
+      }
 
       guard
         let depth = parseDouble(fields[dIdx]),
@@ -104,15 +124,27 @@ enum CPTCSVParser {
         depth >= 0,
         qc >= 0
       else {
-        continue
+        return CPTCSVParseResult(rows: [], matchedRequiredColumns: matchedColumns,
+                                 error: "Baris \(offset + 2): depth (m) atau qc (MPa) tidak valid.")
       }
 
-      let fs: Double = {
-        if let fIdx = fsIndex, fIdx < fields.count, let val = parseDouble(fields[fIdx]), val.isFinite {
-          return max(val, 0.0)
+      guard let fs = parseDouble(fields[fIdx]), fs.isFinite, fs >= 0 else {
+        return CPTCSVParseResult(rows: [], matchedRequiredColumns: matchedColumns,
+                                 error: "Baris \(offset + 2): fs (kPa) tidak valid.")
+      }
+      if cptType == .cptu {
+        guard let uIdx = u2Index, uIdx < fields.count,
+              let u2 = parseDouble(fields[uIdx]), u2.isFinite else {
+          return CPTCSVParseResult(rows: [], matchedRequiredColumns: matchedColumns,
+                                   error: "Baris \(offset + 2): u2 (kPa) tidak valid.")
         }
-        return 0.0
-      }()
+      }
+      if let iIdx = icIndex {
+        guard iIdx < fields.count, let ic = parseDouble(fields[iIdx]), ic.isFinite, ic > 0 else {
+          return CPTCSVParseResult(rows: [], matchedRequiredColumns: matchedColumns,
+                                   error: "Baris \(offset + 2): Ic tidak valid.")
+        }
+      }
 
       let u2: Double? = {
         guard cptType == .cptu else { return nil }
@@ -143,7 +175,8 @@ enum CPTCSVParser {
     }
 
     let sortedRows = parsedByDepth.values.sorted { $0.depth < $1.depth }
-    return CPTCSVParseResult(rows: sortedRows, matchedRequiredColumns: matchedColumns)
+    return CPTCSVParseResult(rows: sortedRows, matchedRequiredColumns: matchedColumns,
+                             error: sortedRows.isEmpty ? "CSV tidak memiliki data CPT." : nil)
   }
 
   private static func parseBiconeCSV(
@@ -160,15 +193,15 @@ enum CPTCSVParser {
     for (idx, header) in headers.enumerated() {
       let normalized = header.replacingOccurrences(of: " ", with: "")
       if depthCmIndex == nil,
-         normalized == "depth_(cm)" || normalized == "depth_cm" || normalized == "depth(cm)" || normalized.hasPrefix("depth")
+         normalized == "depth_(cm)" || normalized == "depth_cm" || normalized == "depth(cm)"
       {
         depthCmIndex = idx
       } else if cwIndex == nil,
-                normalized == "cw_(kg/cm2)" || normalized == "cw(kg/cm2)" || normalized == "cw" || normalized.hasPrefix("cw")
+                normalized == "cw_(kg/cm2)" || normalized == "cw(kg/cm2)" || normalized == "cw"
       {
         cwIndex = idx
       } else if twIndex == nil,
-                normalized == "tw_(kg/cm2)" || normalized == "tw(kg/cm2)" || normalized == "tw" || normalized.hasPrefix("tw")
+                normalized == "tw_(kg/cm2)" || normalized == "tw(kg/cm2)" || normalized == "tw"
       {
         twIndex = idx
       } else if icIndex == nil,
@@ -189,8 +222,9 @@ enum CPTCSVParser {
       matchedColumns.append("Tw_(kg/cm2)")
     }
 
-    guard let dIdx = depthCmIndex, let cIdx = cwIndex else {
-      return CPTCSVParseResult(rows: [], matchedRequiredColumns: matchedColumns)
+    guard let dIdx = depthCmIndex, let cIdx = cwIndex, let tIdx = twIndex else {
+      return CPTCSVParseResult(rows: [], matchedRequiredColumns: matchedColumns,
+                               error: "Kolom wajib tidak lengkap: \(CPTType.cptmBicone.requiredColumns.joined(separator: ", ")).")
     }
 
     let dpi = max(equipment.pistonDiameterCm, 0.1)
@@ -203,9 +237,12 @@ enum CPTCSVParser {
 
     var parsedByDepth: [Int: CPTRowData] = [:]
 
-    for line in rawLines.dropFirst() {
+    for (offset, line) in rawLines.dropFirst().enumerated() {
       let fields = splitCSVRow(line, delimiter: delimiter)
-      guard dIdx < fields.count, cIdx < fields.count else { continue }
+      guard dIdx < fields.count, cIdx < fields.count, tIdx < fields.count else {
+        return CPTCSVParseResult(rows: [], matchedRequiredColumns: matchedColumns,
+                                 error: "Baris \(offset + 2): jumlah kolom tidak lengkap.")
+      }
 
       guard
         let depthCm = parseDouble(fields[dIdx]),
@@ -215,15 +252,20 @@ enum CPTCSVParser {
         depthCm >= 0,
         cwKgCm2 >= 0
       else {
-        continue
+        return CPTCSVParseResult(rows: [], matchedRequiredColumns: matchedColumns,
+                                 error: "Baris \(offset + 2): depth atau Cw tidak valid.")
       }
 
-      let twKgCm2: Double = {
-        if let tIdx = twIndex, tIdx < fields.count, let val = parseDouble(fields[tIdx]), val.isFinite {
-          return max(val, 0.0)
+      guard let twKgCm2 = parseDouble(fields[tIdx]), twKgCm2.isFinite, twKgCm2 >= 0 else {
+        return CPTCSVParseResult(rows: [], matchedRequiredColumns: matchedColumns,
+                                 error: "Baris \(offset + 2): Tw tidak valid.")
+      }
+      if let iIdx = icIndex {
+        guard iIdx < fields.count, let ic = parseDouble(fields[iIdx]), ic.isFinite, ic > 0 else {
+          return CPTCSVParseResult(rows: [], matchedRequiredColumns: matchedColumns,
+                                   error: "Baris \(offset + 2): Ic tidak valid.")
         }
-        return cwKgCm2
-      }()
+      }
 
       let explicitIc: Double? = {
         if let iIdx = icIndex, iIdx < fields.count, let val = parseDouble(fields[iIdx]), val.isFinite, val > 0 {
@@ -252,7 +294,8 @@ enum CPTCSVParser {
     }
 
     let sortedRows = parsedByDepth.values.sorted { $0.depth < $1.depth }
-    return CPTCSVParseResult(rows: sortedRows, matchedRequiredColumns: matchedColumns)
+    return CPTCSVParseResult(rows: sortedRows, matchedRequiredColumns: matchedColumns,
+                             error: sortedRows.isEmpty ? "CSV tidak memiliki data CPT." : nil)
   }
 
   static func parseDouble(_ raw: String) -> Double? {

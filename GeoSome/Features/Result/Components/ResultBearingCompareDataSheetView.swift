@@ -42,18 +42,20 @@ struct ResultBearingCompareDataSheetView: View {
           .overlay(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
               .stroke(
-                Color.primary.opacity(contrast == .increased ? 0.25 : 0.05),
-                lineWidth: 1
+                Color.primary.opacity(contrast == .increased ? 0.35 : 0.08),
+                lineWidth: contrast == .increased ? 1.5 : 1
               )
           )
-          .shadow(color: Color.black.opacity(0.03), radius: 6, x: 0, y: 2)
           .padding(.horizontal, 18)
           .padding(.top, 14)
           .padding(.bottom, 24)
         }
       }
       .scrollBounceBehavior(.basedOnSize)
-      .background(Color(.systemGroupedBackground))
+      .scrollContentBackground(.hidden)
+      #if canImport(UIKit)
+      .background(ClearBackgroundView())
+      #endif
       .navigationTitle("Compare Data")
       .navigationBarTitleDisplayMode(.inline)
       .toolbar {

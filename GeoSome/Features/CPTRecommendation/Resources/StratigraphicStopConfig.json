@@ -1,0 +1,13 @@
+{
+  "configuration_id": "practical-dynamic-stop-research-1",
+  "scope": "EARLY_EXPLORATORY_INVESTIGATION_ONLY",
+  "thresholds": {
+    "spatial_support_p95_ratio_stop_max": 1.0,
+    "spatial_support_max_ratio_stop_max": 1.75,
+    "profile_mismatch_run_min_voxels": 2,
+    "predicted_coverage_min": 0.8,
+    "coverage_ic_tolerance": 0.15
+  },
+  "stable_genuine_transitions_required": 1,
+  "design_sufficiency_certification": false
+}

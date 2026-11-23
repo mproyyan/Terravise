@@ -1,70 +1,119 @@
+import CoreLocation
 import SwiftUI
 
 struct ResultLayerSlicingCardView: View {
   var cardWidth: CGFloat
+  var maxCardHeight: CGFloat
   @Binding var isExpanded: Bool
   @Binding var isHardSoilVisible: Bool
-  var concerns: [GeotechnicalConcernItem]
-  var isGeotechnicalConcernsEmpty: Bool
-  var selectedConcernID: String?
-  var onSelectConcern: ((GeotechnicalConcernItem) -> Void)?
+  var volume: SubsurfaceVoxelVolume?
+  var boundaryCoordinates: [CLLocationCoordinate2D]
+  var cptPoints: [CPTPointEntry]
+  var cameraController: SubsurfaceCameraController?
+  var virtualCPTPosition3D: SIMD3<Float>?
+  var onTapCreateVirtualCPT: (() -> Void)?
+  // var concerns: [GeotechnicalConcernItem]
+  // var isGeotechnicalConcernsEmpty: Bool
+  // var selectedConcernID: String?
+  // var onSelectConcern: ((GeotechnicalConcernItem) -> Void)?
   @Binding var slicingXMeters: Double
   @Binding var slicingYMeters: Double
   var minXMeters: Double
   var maxXMeters: Double
   var minYMeters: Double
   var maxYMeters: Double
+  var maxSliceX: Int? = nil
+  var maxSliceZ: Int? = nil
   var onResetView: () -> Void
 
   @Environment(\.colorSchemeContrast) private var contrast
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @State private var isMinimapInteracting: Bool = false
+
+  private var activeSliceX: Int {
+    if let maxSliceX { return maxSliceX }
+    guard let volume, maxXMeters > 0 else { return .max }
+    let ratio = min(max(slicingXMeters / maxXMeters, 0.05), 1.0)
+    return min(max(Int((ratio * Double(volume.nx - 1)).rounded()), 1), volume.nx - 1)
+  }
+
+  private var activeSliceZ: Int {
+    if let maxSliceZ { return maxSliceZ }
+    guard let volume, maxYMeters > 0 else { return .max }
+    let ratio = min(max(slicingYMeters / maxYMeters, 0.05), 1.0)
+    return min(max(Int((ratio * Double(volume.nz - 1)).rounded()), 1), volume.nz - 1)
+  }
 
   init(
     cardWidth: CGFloat = 360,
+    maxCardHeight: CGFloat = 580,
     isExpanded: Binding<Bool>,
     isHardSoilVisible: Binding<Bool> = .constant(true),
-    concerns: [GeotechnicalConcernItem] = ResultAnalysisViewModel.defaultConcerns,
-    isGeotechnicalConcernsEmpty: Bool = false,
-    selectedConcernID: String? = ResultAnalysisViewModel.defaultConcerns.first?.id,
-    onSelectConcern: ((GeotechnicalConcernItem) -> Void)? = nil,
+    volume: SubsurfaceVoxelVolume? = nil,
+    boundaryCoordinates: [CLLocationCoordinate2D] = [],
+    cptPoints: [CPTPointEntry] = [],
+    cameraController: SubsurfaceCameraController? = nil,
+    virtualCPTPosition3D: SIMD3<Float>? = nil,
+    onTapCreateVirtualCPT: (() -> Void)? = nil,
+    // concerns: [GeotechnicalConcernItem] = ResultAnalysisViewModel.defaultConcerns,
+    // isGeotechnicalConcernsEmpty: Bool = false,
+    // selectedConcernID: String? = nil,
+    // onSelectConcern: ((GeotechnicalConcernItem) -> Void)? = nil,
     slicingXMeters: Binding<Double>,
     slicingYMeters: Binding<Double>,
     minXMeters: Double = 2.0,
     maxXMeters: Double = 25.0,
     minYMeters: Double = 2.0,
     maxYMeters: Double = 25.0,
+    maxSliceX: Int? = nil,
+    maxSliceZ: Int? = nil,
     onResetView: @escaping () -> Void = {}
   ) {
     self.cardWidth = cardWidth
+    self.maxCardHeight = maxCardHeight
     self._isExpanded = isExpanded
     self._isHardSoilVisible = isHardSoilVisible
-    self.concerns = concerns
-    self.isGeotechnicalConcernsEmpty = isGeotechnicalConcernsEmpty
-    self.selectedConcernID = selectedConcernID
-    self.onSelectConcern = onSelectConcern
+    self.volume = volume
+    self.boundaryCoordinates = boundaryCoordinates
+    self.cptPoints = cptPoints
+    self.cameraController = cameraController
+    self.virtualCPTPosition3D = virtualCPTPosition3D
+    self.onTapCreateVirtualCPT = onTapCreateVirtualCPT
+    // self.concerns = concerns
+    // self.isGeotechnicalConcernsEmpty = isGeotechnicalConcernsEmpty
+    // self.selectedConcernID = selectedConcernID
+    // self.onSelectConcern = onSelectConcern
     self._slicingXMeters = slicingXMeters
     self._slicingYMeters = slicingYMeters
     self.minXMeters = minXMeters
     self.maxXMeters = maxXMeters
     self.minYMeters = minYMeters
     self.maxYMeters = maxYMeters
+    self.maxSliceX = maxSliceX
+    self.maxSliceZ = maxSliceZ
     self.onResetView = onResetView
   }
 
+  /*
   private var shouldShowConcerns: Bool {
     !isGeotechnicalConcernsEmpty && !concerns.isEmpty
   }
+  */
+
+  private var maxScrollableContentHeight: CGFloat {
+    min(max(maxCardHeight - 86, 220), 520)
+  }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 14) {
-      // Header Row: "Layer & Slicing" + Collapse/Expand Chevron
+    VStack(alignment: .leading, spacing: 12) {
+      // Header Row: "Controls" + Collapse/Expand Chevron (Pinned at Top)
       Button(action: {
         withAnimation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.82)) {
           isExpanded.toggle()
         }
       }) {
         HStack {
-          Text("Layer & Slicing")
+          Text("Controls")
             .font(.headline.weight(.bold))
             .foregroundStyle(Color.primary)
 
@@ -79,30 +128,18 @@ struct ResultLayerSlicingCardView: View {
       }
       .buttonStyle(.plain)
       .frame(minHeight: 36)
-      .accessibilityLabel("Layer and Slicing")
+      .accessibilityLabel("Controls")
       .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
-      .accessibilityHint("Double-tap to toggle slicing controls")
+      .accessibilityHint("Double-tap to toggle controls")
 
       if isExpanded {
-        VStack(alignment: .leading, spacing: 14) {
-          // 1. Layer Section
-          layerSection
-
-          Divider()
-
-          // 2. Potential Geotechnical Concerns Section (omitted if empty)
-          if shouldShowConcerns {
-            concernsSection
-
-            Divider()
-          }
-
-          // 3. Slicing Control Section
-          slicingControlSection
-
-          // 4. Reset View Button
-          resetViewButton
+        ScrollView(.vertical, showsIndicators: true) {
+          expandedSectionsContent
+            .padding(.trailing, 4)
         }
+        .scrollDisabled(isMinimapInteracting)
+        .scrollBounceBehavior(.basedOnSize)
+        .frame(maxHeight: maxScrollableContentHeight)
         .transition(.opacity.combined(with: .move(edge: .bottom)))
       }
     }
@@ -123,6 +160,50 @@ struct ResultLayerSlicingCardView: View {
     .shadow(color: Color.black.opacity(0.08), radius: 14, x: 0, y: 4)
   }
 
+  private var expandedSectionsContent: some View {
+    VStack(alignment: .leading, spacing: 14) {
+      // 0. Site Minimap Section (Very First Section in Layer & Slicing Sheet)
+      if let volume, let cameraController {
+        SubsurfaceMinimapView(
+          volume: volume,
+          boundaryCoordinates: boundaryCoordinates,
+          cptPoints: cptPoints,
+          cameraController: cameraController,
+          virtualCPTPosition3D: virtualCPTPosition3D,
+          maxSliceX: activeSliceX,
+          maxSliceZ: activeSliceZ,
+          isInteracting: $isMinimapInteracting,
+          onTapCreateVirtualCPT: onTapCreateVirtualCPT
+        )
+
+        Divider()
+      }
+
+      /*
+      // 1. Layer Section
+      layerSection
+
+      Divider()
+      */
+
+      /*
+      // 2. Potential Geotechnical Concerns Section (omitted if empty)
+      if shouldShowConcerns {
+        concernsSection
+
+        Divider()
+      }
+      */
+
+      // 3. Slicing Control Section
+      slicingControlSection
+
+      // 4. Reset View Button
+      resetViewButton
+    }
+  }
+
+  /*
   // MARK: - Layer Section
 
   private var layerSection: some View {
@@ -146,7 +227,9 @@ struct ResultLayerSlicingCardView: View {
       }
     }
   }
+  */
 
+  /*
   // MARK: - Potential Geotechnical Concerns Section
 
   private var concernsSection: some View {
@@ -215,6 +298,7 @@ struct ResultLayerSlicingCardView: View {
     .accessibilityHint("Double-tap to toggle highlight for this concern")
     .accessibilityAddTraits(isSelected ? .isSelected : [])
   }
+  */
 
   // MARK: - Slicing Control Section
 
@@ -325,12 +409,12 @@ struct ResultLayerSlicingCardView: View {
   }
 }
 
-#Preview("Expanded with Concerns") {
+#Preview("Expanded") {
   ResultLayerSlicingCardView(
     isExpanded: .constant(true),
     isHardSoilVisible: .constant(true),
-    concerns: ResultAnalysisViewModel.defaultConcerns,
-    selectedConcernID: ResultAnalysisViewModel.defaultConcerns.first?.id,
+    // concerns: ResultAnalysisViewModel.defaultConcerns,
+    // selectedConcernID: ResultAnalysisViewModel.defaultConcerns.first?.id,
     slicingXMeters: .constant(12.7),
     slicingYMeters: .constant(12.7)
   )
@@ -338,6 +422,7 @@ struct ResultLayerSlicingCardView: View {
   .background(Color(.systemGroupedBackground))
 }
 
+/*
 #Preview("No Concerns (Section Gone)") {
   ResultLayerSlicingCardView(
     isExpanded: .constant(true),
@@ -349,3 +434,4 @@ struct ResultLayerSlicingCardView: View {
   .padding()
   .background(Color(.systemGroupedBackground))
 }
+*/

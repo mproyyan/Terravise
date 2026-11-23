@@ -1,0 +1,14 @@
+#!/bin/bash
+set -euo pipefail
+root="$(cd "$(dirname "$0")/../.." && pwd)"; work="$(mktemp -d /tmp/cpt-production-ios.XXXXXX)"; trap 'rm -rf "$work"' EXIT
+app="$work/Replay.app"; mkdir -p "$app"
+source_app=$(find "$HOME/Library/Developer/Xcode/DerivedData" -path '*/Build/Products/Debug-iphonesimulator/GeoSome.app/CPTParityAttestation.json' -print -quit | xargs dirname)
+for f in CPTParityAttestation.json UncertaintyV3.json SufficiencyV3_2.json SufficiencyV32FeatureParity.json SchemaGAN_V4_2_Flexible.mlmodelc DQN_V4_6_A.mlmodelc QCFS_CNN_V3.mlmodelc; do cp -R "$source_app/$f" "$app/"; done
+cp "$root/Tests/PipelineParity/attested_fixture.json" "$app/fixture.json"
+schemas=$(find "$HOME/Library/Developer/Xcode/DerivedData" -path '*/Build/Intermediates.noindex/GeoSome.build/Debug-iphonesimulator/GeoSome.build/DerivedSources/CoreMLGenerated/SchemaGAN_V4_2_Flexible/SchemaGAN_V4_2_Flexible.swift' -print -quit)
+dqn=$(find "$HOME/Library/Developer/Xcode/DerivedData" -path '*/Build/Intermediates.noindex/GeoSome.build/Debug-iphonesimulator/GeoSome.build/DerivedSources/CoreMLGenerated/DQN_V4_6_A/DQN_V4_6_A.swift' -print -quit)
+files=(GeoSome/Features/CPTRecommendation/ViewModels/CPTRecommendationViewModel.swift GeoSome/Features/CPTRecommendation/Models/CPTData.swift GeoSome/Features/CPTRecommendation/Models/CPTGridConfig.swift GeoSome/Features/CPTRecommendation/Services/UTMCoordinateConverter.swift GeoSome/Features/CPTRecommendation/Services/SchemaGANService.swift GeoSome/Features/CPTRecommendation/Services/UncertaintySufficiencyService.swift GeoSome/Features/CPTRecommendation/Services/CPTSufficiencyHistory.swift GeoSome/Features/CPTRecommendation/Services/CPTSufficiencyDispatch.swift GeoSome/Features/CPTRecommendation/Services/CPTPipelineParityAttestation.swift GeoSome/Features/CPTRecommendation/Services/CPTPipelineCoordinator.swift GeoSome/Features/CPTRecommendation/Services/QCFSInferenceService.swift GeoSome/Features/CPTRecommendation/Services/DQNFeatureBuilder.swift GeoSome/Features/CPTRecommendation/Services/BearingRuleService.swift GeoSome/Features/CPTRecommendation/Services/BearingRuleEngine.swift GeoSome/Features/BoundaryCreation/Models/BoundaryPoint.swift GeoSome/Features/Project/Models/Project.swift GeoSome/Features/Project/ViewModels/ProjectViewModel.swift GeoSome/Accessibility/AccessibilitySupport.swift GeoSome/Navigation/AppRoute.swift)
+for i in "${!files[@]}"; do files[$i]="$root/${files[$i]}"; done
+sdk=$(DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcrun --sdk iphonesimulator --show-sdk-path)
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcrun --sdk iphonesimulator swiftc -parse-as-library -target arm64-apple-ios17.0-simulator -sdk "$sdk" "$root/Tests/CPTProductionReplay/main.swift" "${files[@]}" "$schemas" "$dqn" -o "$app/Replay"
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcrun simctl spawn booted "$app/Replay"

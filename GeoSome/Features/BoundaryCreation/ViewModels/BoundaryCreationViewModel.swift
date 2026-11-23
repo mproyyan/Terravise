@@ -21,12 +21,29 @@ final class BoundaryCreationViewModel {
   var isDiscardConfirmationPresented: Bool
   var isInvalidCoordinateAlertPresented: Bool
   var editingPoint: BoundaryPoint?
-  var editLatitudeText: String
-  var editLongitudeText: String
+  var editingOriginalCoordinate: CLLocationCoordinate2D?
+  var editCoordinateText: String {
+    didSet {
+      applyLiveEditCoordinatePreview()
+    }
+  }
+  var editLatitudeText: String {
+    didSet {
+      applyLiveEditCoordinatePreview()
+    }
+  }
+  var editLongitudeText: String {
+    didSet {
+      applyLiveEditCoordinatePreview()
+    }
+  }
   var isDeletePointAlertPresented: Bool
   var isEditDiscardConfirmationPresented: Bool
   var isEditInvalidCoordinateAlertPresented: Bool
   var coordinateInputText: String
+  var addZoneText: String = "48S"
+  var addEastingText: String = ""
+  var addNorthingText: String = ""
   var isTooltipVisible: Bool
 
   private struct EditorSnapshot: Equatable {
@@ -40,6 +57,10 @@ final class BoundaryCreationViewModel {
   private var redoStack: [EditorSnapshot] = []
   private var isEditingNameSession = false
   private var hasRecordedNameEditInSession = false
+
+  var isEditingExistingProject: Bool {
+    editingProject != nil
+  }
 
   var canUndo: Bool {
     !undoStack.isEmpty
@@ -90,22 +111,52 @@ final class BoundaryCreationViewModel {
   }
 
   var hasUnsavedCoordinateInput: Bool {
+    !addEastingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+    !addNorthingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
     !coordinateInputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 
   var canSubmitCoordinate: Bool {
-    hasUnsavedCoordinateInput
+    (!addZoneText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+     !addEastingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+     !addNorthingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) ||
+    !coordinateInputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  }
+
+  var pendingAddCoordinate: CLLocationCoordinate2D? {
+    guard isAddCoordinateSheetPresented else { return nil }
+    let zoneClean = addZoneText.trimmingCharacters(in: .whitespacesAndNewlines)
+    let eastingClean = addEastingText.trimmingCharacters(in: .whitespacesAndNewlines)
+    let northingClean = addNorthingText.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !zoneClean.isEmpty, !eastingClean.isEmpty, !northingClean.isEmpty {
+      if let coord = UTMCoordinateConverter.parseUTMComponents(
+        zoneText: zoneClean,
+        eastingText: eastingClean,
+        northingText: northingClean,
+        referenceCoordinate: points.first?.coordinate
+      ) {
+        return coord
+      }
+    }
+    return nil
   }
 
   var hasUnsavedEditCoordinateChanges: Bool {
     guard let editingPoint else { return false }
+    let trimmedCoord = editCoordinateText.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !trimmedCoord.isEmpty && trimmedCoord != editingPoint.formattedCoordinate {
+      return true
+    }
     let trimmedLat = editLatitudeText.trimmingCharacters(in: .whitespacesAndNewlines)
     let trimmedLon = editLongitudeText.trimmingCharacters(in: .whitespacesAndNewlines)
     return trimmedLat != editingPoint.formattedLatitude || trimmedLon != editingPoint.formattedLongitude
   }
 
   var canSubmitEditedCoordinate: Bool {
-    !editLatitudeText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+    if !editCoordinateText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      return true
+    }
+    return !editLatitudeText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
       !editLongitudeText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 
@@ -119,12 +170,16 @@ final class BoundaryCreationViewModel {
     isDiscardConfirmationPresented: Bool = false,
     isInvalidCoordinateAlertPresented: Bool = false,
     editingPoint: BoundaryPoint? = nil,
+    editCoordinateText: String = "",
     editLatitudeText: String = "",
     editLongitudeText: String = "",
     isDeletePointAlertPresented: Bool = false,
     isEditDiscardConfirmationPresented: Bool = false,
     isEditInvalidCoordinateAlertPresented: Bool = false,
     coordinateInputText: String = "",
+    addZoneText: String = "48S",
+    addEastingText: String = "",
+    addNorthingText: String = "",
     isTooltipVisible: Bool = false,
     points: [BoundaryPoint] = []
   ) {
@@ -137,12 +192,16 @@ final class BoundaryCreationViewModel {
     self.isDiscardConfirmationPresented = isDiscardConfirmationPresented
     self.isInvalidCoordinateAlertPresented = isInvalidCoordinateAlertPresented
     self.editingPoint = editingPoint
+    self.editCoordinateText = editCoordinateText
     self.editLatitudeText = editLatitudeText
     self.editLongitudeText = editLongitudeText
     self.isDeletePointAlertPresented = isDeletePointAlertPresented
     self.isEditDiscardConfirmationPresented = isEditDiscardConfirmationPresented
     self.isEditInvalidCoordinateAlertPresented = isEditInvalidCoordinateAlertPresented
     self.coordinateInputText = coordinateInputText
+    self.addZoneText = addZoneText
+    self.addEastingText = addEastingText
+    self.addNorthingText = addNorthingText
     self.isTooltipVisible = isTooltipVisible
     self.points = points
   }
@@ -163,7 +222,6 @@ final class BoundaryCreationViewModel {
 
   func handleMapTap(at coordinate: CLLocationCoordinate2D) {
     guard
-      !isAddCoordinateSheetPresented,
       editingPoint == nil,
       CLLocationCoordinate2DIsValid(coordinate)
     else {
@@ -203,6 +261,14 @@ final class BoundaryCreationViewModel {
   }
 
   func addCoordinate() {
+    if let first = points.first {
+      let utm = first.utmCoordinate
+      addZoneText = "\(utm.zone)\(utm.isSouthernHemisphere ? "S" : "N")"
+    } else {
+      addZoneText = "48S"
+    }
+    addEastingText = ""
+    addNorthingText = ""
     isAddCoordinateSheetPresented = true
   }
 
@@ -218,9 +284,11 @@ final class BoundaryCreationViewModel {
     isDeletePointAlertPresented = false
     isEditDiscardConfirmationPresented = false
     isEditInvalidCoordinateAlertPresented = false
+    editingOriginalCoordinate = currentPoint.coordinate
+    editingPoint = currentPoint
+    editCoordinateText = currentPoint.formattedCoordinate
     editLatitudeText = currentPoint.formattedLatitude
     editLongitudeText = currentPoint.formattedLongitude
-    editingPoint = currentPoint
   }
 
   func requestDismissEditCoordinateSheet() {
@@ -232,44 +300,94 @@ final class BoundaryCreationViewModel {
   }
 
   func confirmDiscardEditCoordinateChanges() {
+    revertLiveEditCoordinatePreview()
     dismissEditCoordinateSheet()
   }
 
   func dismissEditCoordinateSheet() {
+    revertLiveEditCoordinatePreview()
     isDeletePointAlertPresented = false
     isEditDiscardConfirmationPresented = false
     isEditInvalidCoordinateAlertPresented = false
+    editCoordinateText = ""
     editLatitudeText = ""
     editLongitudeText = ""
     editingPoint = nil
+    editingOriginalCoordinate = nil
   }
 
-  func submitEditedCoordinate() {
-    guard
-      let editingPoint,
-      let updatedCoordinate = Self.parseCoordinatePair(
+  func applyLiveEditCoordinatePreview() {
+    guard let editingPoint, let index = points.firstIndex(where: { $0.id == editingPoint.id }) else { return }
+    let trimmedCoord = editCoordinateText.trimmingCharacters(in: .whitespacesAndNewlines)
+    let parsed: CLLocationCoordinate2D?
+    if !trimmedCoord.isEmpty {
+      parsed = UTMCoordinateConverter.parseCoordinate(
+        from: trimmedCoord,
+        referenceCoordinate: editingOriginalCoordinate ?? editingPoint.coordinate
+      )
+    } else {
+      parsed = Self.parseCoordinatePair(
         latitudeText: editLatitudeText,
         longitudeText: editLongitudeText
       )
-    else {
+    }
+    if let parsed, CLLocationCoordinate2DIsValid(parsed) {
+      points[index].latitude = parsed.latitude
+      points[index].longitude = parsed.longitude
+    }
+  }
+
+  private func revertLiveEditCoordinatePreview() {
+    if let editingPoint, let original = editingOriginalCoordinate,
+       let index = points.firstIndex(where: { $0.id == editingPoint.id }) {
+      points[index].latitude = original.latitude
+      points[index].longitude = original.longitude
+    }
+  }
+
+  func submitEditedCoordinate() {
+    guard let editingPoint else { return }
+
+    let trimmedCoord = editCoordinateText.trimmingCharacters(in: .whitespacesAndNewlines)
+    let updatedCoordinate: CLLocationCoordinate2D?
+    if !trimmedCoord.isEmpty {
+      updatedCoordinate = UTMCoordinateConverter.parseCoordinate(
+        from: trimmedCoord,
+        referenceCoordinate: editingOriginalCoordinate ?? editingPoint.coordinate
+      )
+    } else {
+      updatedCoordinate = Self.parseCoordinatePair(
+        latitudeText: editLatitudeText,
+        longitudeText: editLongitudeText
+      )
+    }
+
+    guard let finalCoordinate = updatedCoordinate, CLLocationCoordinate2DIsValid(finalCoordinate) else {
       isEditInvalidCoordinateAlertPresented = true
       return
     }
 
     if let index = points.firstIndex(where: { $0.id == editingPoint.id }) {
       let hasChanged =
-        points[index].latitude != updatedCoordinate.latitude ||
-        points[index].longitude != updatedCoordinate.longitude
+        editingOriginalCoordinate?.latitude != finalCoordinate.latitude ||
+        editingOriginalCoordinate?.longitude != finalCoordinate.longitude
       if hasChanged {
-        recordUndoSnapshot()
-        points[index].latitude = updatedCoordinate.latitude
-        points[index].longitude = updatedCoordinate.longitude
+        if let original = editingOriginalCoordinate {
+          var originalPoints = points
+          originalPoints[index].latitude = original.latitude
+          originalPoints[index].longitude = original.longitude
+          undoStack.append(EditorSnapshot(projectName: projectName, points: originalPoints))
+          redoStack.removeAll()
+        }
+        points[index].latitude = finalCoordinate.latitude
+        points[index].longitude = finalCoordinate.longitude
         AccessibilityCaptionCenter.shared.announce(
           "Updated CPT Point \(index + 1) to \(points[index].formattedCoordinate)."
         )
       }
     }
 
+    editingOriginalCoordinate = nil
     dismissEditCoordinateSheet()
   }
 
@@ -281,9 +399,14 @@ final class BoundaryCreationViewModel {
     var deletedTitle = "CPT Point"
     if let editingPoint, let index = points.firstIndex(where: { $0.id == editingPoint.id }) {
       deletedTitle = "CPT Point \(index + 1)"
+      if let original = editingOriginalCoordinate {
+        points[index].latitude = original.latitude
+        points[index].longitude = original.longitude
+      }
       recordUndoSnapshot()
       points.remove(at: index)
     }
+    editingOriginalCoordinate = nil
     syncSheetDetentForPointCount()
     dismissEditCoordinateSheet()
     AccessibilityCaptionCenter.shared.announce(
@@ -322,11 +445,37 @@ final class BoundaryCreationViewModel {
   func dismissAddCoordinateSheet() {
     isDiscardConfirmationPresented = false
     isInvalidCoordinateAlertPresented = false
+    addEastingText = ""
+    addNorthingText = ""
     coordinateInputText = ""
     isAddCoordinateSheetPresented = false
   }
 
   func submitCoordinate() {
+    if !addEastingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+       !addNorthingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      guard let parsedCoord = UTMCoordinateConverter.parseUTMComponents(
+        zoneText: addZoneText,
+        eastingText: addEastingText,
+        northingText: addNorthingText,
+        referenceCoordinate: points.first?.coordinate
+      ) else {
+        isInvalidCoordinateAlertPresented = true
+        return
+      }
+
+      let newPoint = BoundaryPoint(coordinate: parsedCoord)
+      recordUndoSnapshot()
+      points.append(newPoint)
+      syncSheetDetentForPointCount()
+      focusOnCoordinates(points.map(\.coordinate))
+      dismissAddCoordinateSheet()
+      AccessibilityCaptionCenter.shared.announce(
+        "Added coordinate. Total \(boundaryPointsSummaryText)."
+      )
+      return
+    }
+
     guard let parsedPoints = Self.parseCoordinates(coordinateInputText) else {
       isInvalidCoordinateAlertPresented = true
       return
@@ -391,7 +540,7 @@ final class BoundaryCreationViewModel {
     result.reserveCapacity(lines.count)
 
     for line in lines {
-      guard let point = parseCoordinateLine(line) else {
+      guard let point = parseCoordinateLine(line, referenceCoordinate: result.first?.coordinate) else {
         return nil
       }
       result.append(point)
@@ -400,9 +549,17 @@ final class BoundaryCreationViewModel {
     return result
   }
 
-  private static func parseCoordinateLine(_ line: String) -> BoundaryPoint? {
+  private static func parseCoordinateLine(
+    _ line: String,
+    referenceCoordinate: CLLocationCoordinate2D? = nil
+  ) -> BoundaryPoint? {
     let trimmedLine = line.trimmingCharacters(in: .whitespaces)
     guard !trimmedLine.isEmpty else { return nil }
+
+    if let coord = UTMCoordinateConverter.parseCoordinate(from: trimmedLine, referenceCoordinate: referenceCoordinate),
+       CLLocationCoordinate2DIsValid(coord) {
+      return BoundaryPoint(latitude: coord.latitude, longitude: coord.longitude)
+    }
 
     let parts = trimmedLine.split(separator: ",", omittingEmptySubsequences: false)
     guard parts.count == 2,
@@ -585,14 +742,21 @@ final class BoundaryCreationViewModel {
 
     if var existing = editingProject {
       existing.name = finalName
+      if existing.boundaryPoints != points { existing.stratigraphicEvidence=nil }
       existing.boundaryPoints = points
+      existing.sufficiencyObservations = CPTSufficiencyHistory.retainValidPrefixes(existing.sufficiencyObservations,
+        projectID: existing.id, gridPolicy: existing.gridPolicy, distancePolicy: existing.cptDistancePolicy, boundary: points, points: existing.cptPoints)
       existing.lastEdited = Date()
       if !existing.cptPoints.isEmpty {
         let recomputed = CPTPipelineCoordinator.recomputeFromScratch(
           boundaryCoordinates: existing.boundaryCoordinates,
-          cptPoints: existing.cptPoints
+          cptPoints: existing.cptPoints,
+          gridPolicy: existing.gridPolicy,
+          distancePolicy: existing.cptDistancePolicy,
+          assessmentProject: existing
         )
         existing.latestRecommendation = recomputed
+        existing.stratigraphicEvidence=recomputed.stratigraphicEvidence
         existing.consecutiveSufficientCount = recomputed.consecutiveSufficientCount
       }
       return existing
@@ -601,7 +765,8 @@ final class BoundaryCreationViewModel {
     return Project(
       name: finalName,
       lastEdited: Date(),
-      boundaryPoints: points
+      boundaryPoints: points,
+      cptDistancePolicy: .sufficiencyV32SiteDiagonal
     )
   }
 
