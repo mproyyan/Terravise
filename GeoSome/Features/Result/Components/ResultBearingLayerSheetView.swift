@@ -4,35 +4,30 @@ struct ResultBearingLayerSheetView: View {
   var shallowestDepthText: String
   var deepestDepthText: String
   var variationDepthText: String
-  var relativeUncertaintyText: String
-  var depthErrorBoundText: String
+  var relativeUncertaintyText: String?
   var highUncertaintyAreaPercentText: String
-  var highUncertaintyDescription: String
-
+  var highUncertaintyDescription: String?
   @Environment(\.colorSchemeContrast) private var contrast
 
   init(
     shallowestDepthText: String = "—",
     deepestDepthText: String = "—",
     variationDepthText: String = "—",
-    relativeUncertaintyText: String = "Belum tersedia",
-    depthErrorBoundText: String = "Belum tersedia",
-    highUncertaintyAreaPercentText: String = "Belum dapat ditentukan",
-    highUncertaintyDescription: String =
-      "Ketidakpastian kedalaman Bearing Layer belum tervalidasi untuk proyek ini."
+    relativeUncertaintyText: String? = nil,
+    highUncertaintyAreaPercentText: String = "—",
+    highUncertaintyDescription: String? = nil
   ) {
     self.shallowestDepthText = shallowestDepthText
     self.deepestDepthText = deepestDepthText
     self.variationDepthText = variationDepthText
     self.relativeUncertaintyText = relativeUncertaintyText
-    self.depthErrorBoundText = depthErrorBoundText
     self.highUncertaintyAreaPercentText = highUncertaintyAreaPercentText
     self.highUncertaintyDescription = highUncertaintyDescription
   }
 
   var body: some View {
     ScrollView(.vertical, showsIndicators: false) {
-      VStack(alignment: .leading, spacing: 20) {
+      VStack(alignment: .leading, spacing: 18) {
         // Sheet Header Title & Subtitle
         VStack(alignment: .leading, spacing: 4) {
           Text("Bearing Layer")
@@ -41,7 +36,7 @@ struct ResultBearingLayerSheetView: View {
             .accessibilityAddTraits(.isHeader)
 
           Text("Predicted bearing-layer depth across the investigation area")
-            .font(.subheadline)
+            .font(.footnote)
             .foregroundStyle(Color.secondary)
             .fixedSize(horizontal: false, vertical: true)
         }
@@ -72,7 +67,7 @@ struct ResultBearingLayerSheetView: View {
           .accessibilityAddTraits(.isHeader)
 
         Text("Overview of predicted bearing layer depths across the site.")
-          .font(.subheadline)
+          .font(.footnote)
           .foregroundStyle(Color.secondary)
           .fixedSize(horizontal: false, vertical: true)
       }
@@ -88,20 +83,20 @@ struct ResultBearingLayerSheetView: View {
   private func depthStatCard(title: String, value: String) -> some View {
     VStack(alignment: .leading, spacing: 6) {
       Text(title)
-        .font(.subheadline)
+        .font(.subheadline.weight(.bold))
         .foregroundStyle(Color.secondary)
         .lineLimit(1)
         .minimumScaleFactor(0.8)
 
       Text(value)
-        .font(.title3.weight(.bold))
+        .font(.title2.weight(.bold))
         .foregroundStyle(Color.primary)
         .lineLimit(1)
         .minimumScaleFactor(0.8)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
-    .padding(.horizontal, 12)
-    .padding(.vertical, 14)
+    .padding(.horizontal, 16)
+    .padding(.vertical, 16)
     .background(cardBackground)
     .overlay(cardStroke)
     .accessibilityElement(children: .combine)
@@ -118,75 +113,66 @@ struct ResultBearingLayerSheetView: View {
           .foregroundStyle(Color.primary)
           .accessibilityAddTraits(.isHeader)
 
-        Text("Experimental candidate identification risk across the valid area.")
-          .font(.subheadline)
+        Text("Shows uncertainty in bearing-layer identification.")
+          .font(.footnote)
           .foregroundStyle(Color.secondary)
           .fixedSize(horizontal: false, vertical: true)
       }
 
-      // Relative Prediction Uncertainty Card
+      // The bound value is identification uncertainty, not a relative depth error.
       VStack(alignment: .leading, spacing: 4) {
-        Text(depthErrorBoundText)
-          .font(.title3.weight(.bold))
+        Text(relativeUncertaintyText ?? "—")
+          .font(.title2.weight(.bold))
           .foregroundStyle(Color.primary)
 
-        Text("Estimated Depth Error P90 (m) — Experimental · mean across candidates, conditional on overlapping layer")
-          .font(.caption)
-          .foregroundStyle(Color.secondary)
-
-        Text(relativeUncertaintyText)
-          .font(.title3.weight(.bold))
-          .foregroundStyle(Color.primary)
-
-        Text("Mean candidate error risk across valid area · Experimental")
-          .font(.caption)
+        Text("Bearing-layer identification uncertainty")
+          .font(.footnote)
           .foregroundStyle(Color.secondary)
       }
       .frame(maxWidth: .infinity, alignment: .leading)
-      .padding(.horizontal, 16)
-      .padding(.vertical, 14)
+      .padding(16)
       .background(cardBackground)
       .overlay(cardStroke)
       .accessibilityElement(children: .combine)
-      .accessibilityLabel("Mean candidate error risk: \(relativeUncertaintyText)")
+      .accessibilityLabel("Prediction Uncertainty: \(relativeUncertaintyText ?? "—")")
 
       // High Uncertainty Area Card
       VStack(alignment: .leading, spacing: 12) {
         VStack(alignment: .leading, spacing: 4) {
           Text("High Uncertainty Area")
-            .font(.caption.weight(.medium))
+            .font(.footnote)
             .foregroundStyle(Color.primary)
 
           Text(highUncertaintyAreaPercentText)
-            .font(.title3.weight(.bold))
+            .font(.title2.weight(.bold))
             .foregroundStyle(Color.primary)
 
-          Text(highUncertaintyAreaPercentText == "Belum dapat ditentukan"
-               ? "Estimasi luas area belum tersedia"
-               : "of valid area · risk ≥ 20%")
-            .font(.caption)
+          Text("of total investigation area")
+            .font(.footnote)
             .foregroundStyle(Color.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 14)
+        .padding(.horizontal, 8)
         .padding(.vertical, 12)
         .background(
-          RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .fill(Color(.tertiarySystemGroupedBackground).opacity(0.65))
+          RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .fill(Color(.systemGroupedBackground))
         )
 
-        Text(highUncertaintyDescription)
-          .font(.caption)
-          .foregroundStyle(Color.secondary)
-          .fixedSize(horizontal: false, vertical: true)
+        if let highUncertaintyDescription {
+          Text(highUncertaintyDescription)
+            .font(.footnote)
+            .foregroundStyle(Color.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
       }
       .frame(maxWidth: .infinity, alignment: .leading)
-      .padding(14)
+      .padding(16)
       .background(cardBackground)
       .overlay(cardStroke)
       .accessibilityElement(children: .combine)
       .accessibilityLabel(
-        "High Uncertainty Area: \(highUncertaintyAreaPercentText). \(highUncertaintyDescription)"
+        "High Uncertainty Area: \(highUncertaintyAreaPercentText). \(highUncertaintyDescription ?? "")"
       )
     }
   }
@@ -209,5 +195,4 @@ struct ResultBearingLayerSheetView: View {
 
 #Preview {
   ResultBearingLayerSheetView()
-    .frame(width: 340)
 }

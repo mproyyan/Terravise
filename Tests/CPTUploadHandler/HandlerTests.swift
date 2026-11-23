@@ -15,6 +15,7 @@ import CoreLocation
  func first(_ vm:CPTRecommendationViewModel) {
   vm.presentUploadSheet(); vm.uploadCoordinatesText="-6.2418, 106.8315"; input(vm); vm.submitCPTUpload()
   XCTAssertEqual(vm.cptPoints.count,1); XCTAssertNil(vm.uploadValidationError)
+  vm.finalizeInitialCPTSetup()
  }
  func testInitialAndAcceptedAndStorage() throws {
   let (vm,projects,url)=make(); first(vm); let initial=try XCTUnwrap(vm.project.cptInitialObservation); XCTAssertEqual(initial.cptID,vm.cptPoints[0].id); XCTAssertEqual(initial.stateAfter,CPTSufficiencyHistory.stateID(projectID:vm.project.id,gridPolicy:vm.project.gridPolicy,distancePolicy:vm.project.cptDistancePolicy,boundary:vm.project.boundaryPoints,points:vm.cptPoints))

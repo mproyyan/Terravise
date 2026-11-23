@@ -23,6 +23,8 @@ struct UncertaintySufficiencyEvaluation: Sendable {
   let consecutiveSufficientCount: Int
   let isSufficient: Bool
   let assessmentStatus: CPTAssessmentStatus
+  var spatialBounds: [[[Double]]]? = nil
+  var spatialEvidenceValid: Bool = false
 }
 
 enum UncertaintySufficiencyService {
@@ -132,7 +134,8 @@ enum UncertaintySufficiencyService {
   static func evaluate(
     reconstruction: SchemaGANReconstructionOutput,
     grid: CPTGridConfig,
-    previousConsecutiveSufficientCount: Int
+    previousConsecutiveSufficientCount: Int,
+    stratigraphicMode: Bool = false
   ) -> UncertaintySufficiencyEvaluation {
     let nx = grid.nx
     let ny = grid.ny
@@ -178,7 +181,8 @@ enum UncertaintySufficiencyService {
       nz: nz,
       dx: dx,
       dy: dy,
-      dz: dz
+      dz: dz,
+      valid: stratigraphicMode ? valid : nil
     )
 
     // 3. Collect hidden valid voxels (valid & ~observed)
@@ -261,11 +265,11 @@ enum UncertaintySufficiencyService {
     let predictedCoverage = featureVector?.first ?? 0
 
     let pSufficient: Double
-    let modelInputsValid = reconstruction.inferenceSource == "SchemaGAN V4.2 Flexible Core ML" &&
+    let uncertaintyInputsValid = reconstruction.inferenceSource == "SchemaGAN V4.2 Flexible Core ML" &&
       !sites.isEmpty && uncertaintyFeaturesFinite && uncertaintyModel?.featureNames == uncertaintyFeatureNames &&
       uncertaintyModel?.modelType == "histGradientBoostingRegressor" &&
-      uncertaintyModel?.calibrationCorrection != nil && errorBounds.allSatisfy(\.isFinite) &&
-      sufficiencyModel?.featureNames == sufficiencyFeatureNames &&
+      uncertaintyModel?.calibrationCorrection != nil && errorBounds.allSatisfy(\.isFinite)
+    let modelInputsValid = uncertaintyInputsValid && sufficiencyModel?.featureNames == sufficiencyFeatureNames &&
       sufficiencyModel?.modelType == "histGradientBoostingBinaryClassifier" &&
       sufficiencyModel?.probabilityThreshold == frozenExportThreshold &&
       sufficiencyModel?.persistence == frozenExportPersistence && featureVector != nil && sufficiencyFeatures.allSatisfy(\.isFinite)
@@ -296,6 +300,8 @@ enum UncertaintySufficiencyService {
     let blendedConfidence = max(predictedCoverage, pSufficient * 0.95)
     let confidencePercent = min(max(Int((blendedConfidence * 100.0).rounded()), 15), 99)
 
+    var spatialBounds = Array(repeating: Array(repeating: Array(repeating: 0.0, count: nz), count: ny), count: nx)
+    for (i, c) in sampledCoords.enumerated() { spatialBounds[c.ix][c.iy][c.iz] = errorBounds[i] }
     return UncertaintySufficiencyEvaluation(
       inferenceSource: !modelInputsValid
         ? "Sufficiency V3.2 unavailable: model or reconstruction invalid" : "Sufficiency V3.2 experimental; STOP unavailable: DQN trajectory not verified",
@@ -305,7 +311,9 @@ enum UncertaintySufficiencyService {
       confidenceLevelPercent: isSufficient ? max(confidencePercent, 98) : confidencePercent,
       consecutiveSufficientCount: updatedConsecutive,
       isSufficient: isSufficient,
-      assessmentStatus: assessmentStatus
+      assessmentStatus: assessmentStatus,
+      spatialBounds: spatialBounds,
+      spatialEvidenceValid: uncertaintyInputsValid && !hiddenCoords.isEmpty
     )
   }
 
@@ -453,7 +461,8 @@ enum UncertaintySufficiencyService {
     nz: Int,
     dx: Double,
     dy: Double,
-    dz: Double
+    dz: Double,
+    valid: [[[Bool]]]? = nil
   ) -> (lateral: [[[Double]]], vertical: [[[Double]]]) {
     var lateral = Array(
       repeating: Array(repeating: Array(repeating: 0.0, count: nz), count: ny),
@@ -467,6 +476,22 @@ enum UncertaintySufficiencyService {
     for ix in 0 ..< nx {
       for iy in 0 ..< ny {
         for iz in 0 ..< nz {
+          if let mask = valid {
+            guard mask[ix][iy][iz] else { continue }
+            func derivative(_ axis: Int, _ step: Double) -> Double {
+              var plus=[ix,iy,iz], minus=plus; plus[axis]+=1; minus[axis]-=1
+              let dims=[nx,ny,nz]
+              let p=plus[axis]<dims[axis] && mask[plus[0]][plus[1]][plus[2]]
+              let m=minus[axis]>=0 && mask[minus[0]][minus[1]][minus[2]]
+              let center=rec[ix][iy][iz]
+              if p && m { return (rec[plus[0]][plus[1]][plus[2]]-rec[minus[0]][minus[1]][minus[2]])/(2*step) }
+              if p { return (rec[plus[0]][plus[1]][plus[2]]-center)/step }
+              if m { return (center-rec[minus[0]][minus[1]][minus[2]])/step }
+              return 0
+            }
+            lateral[ix][iy][iz]=hypot(derivative(0,dx),derivative(1,dy)); vertical[ix][iy][iz]=abs(derivative(2,dz))
+            continue
+          }
           let gx: Double
           if nx == 1 {
             gx = 0.0

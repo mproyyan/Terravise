@@ -389,6 +389,15 @@ struct CPTPointEntry: Identifiable, Hashable, Codable, Sendable {
   }
 }
 
+struct CPTCandidateSpacing: Codable, Hashable, Sendable {
+  var normalMinimumM: Double
+  var physicalMinimumM: Double
+  var attemptedMinimumM: [Double]
+  var legalCandidateCounts: [Int]
+  var usedMinimumM: Double
+  var relaxed: Bool { usedMinimumM < normalMinimumM }
+}
+
 struct CPTRecommendationResult: Hashable, Codable, Sendable {
   var coordinate: CLLocationCoordinate2D
   var rmse: Double
@@ -408,7 +417,32 @@ struct CPTRecommendationResult: Hashable, Codable, Sendable {
   var reconstructionSource: String
   var recommendationSource: String
   var assessmentSource: String
+  var stratigraphicDecision: StratigraphicDecision? = nil
+  var stratigraphicEvidence: StratigraphicEvidence? = nil
   var qcfsInferenceSource: String
+  var candidateSpacing: CPTCandidateSpacing? = nil
+
+  var predictionUncertaintyPercent: Int {
+    guard predictedCoverage.isFinite else { return 100 }
+    return max(1,Int(((1-min(max(predictedCoverage,0.01),0.99))*100).rounded()))
+  }
+  var recommendationAvailabilityExplanation: String {
+    if isSufficient { return "Exploratory STOP criteria are met; no further point is requested." }
+    switch recommendationSource {
+    case "DQN_NO_CANDIDATES_WITHIN_PHYSICAL_CONSTRAINTS":
+      return "CONTINUE: no valid unobserved grid location satisfies the boundary and physical constraints. Spacing relaxation cannot establish a permitted location or investigation sufficiency."
+    case "DQN_NO_CANDIDATES_AFTER_SPACING_RELAXATION":
+      return "CONTINUE: no valid grid location satisfies the remaining physical and boundary constraints after spacing relaxation. This does not establish sufficiency."
+    case "DQN_NO_LEGAL_CANDIDATES":
+      return "CONTINUE: no grid location satisfies the existing boundary and separation constraints. This does not establish sufficiency."
+    case "DQN_INFERENCE_UNAVAILABLE":
+      return "CONTINUE: DQN inference is unavailable. This does not establish sufficiency."
+    case "DQN_INVALID_CANDIDATE_INPUTS":
+      return "CONTINUE: candidate inputs are invalid. This does not establish sufficiency."
+    default:
+      return "CONTINUE: no CPT recommendation is available. This does not establish sufficiency."
+    }
+  }
 
   private enum CodingKeys: String, CodingKey {
     case latitude
@@ -422,11 +456,11 @@ struct CPTRecommendationResult: Hashable, Codable, Sendable {
     case deepSoilType
     case lateralIcDifference
     case qValue
-    case predictedCoverage
+    case predictedCoverage, candidateSpacing
     case sufficiencyProbability
     case consecutiveSufficientCount
     case isSufficient, hasRecommendation
-    case reconstructionSource, recommendationSource, assessmentSource, qcfsInferenceSource
+    case reconstructionSource, recommendationSource, assessmentSource, qcfsInferenceSource, stratigraphicDecision, stratigraphicEvidence
   }
 
   init(
@@ -486,6 +520,7 @@ struct CPTRecommendationResult: Hashable, Codable, Sendable {
     deepSoilType = try container.decodeIfPresent(String.self, forKey: .deepSoilType) ?? "soft clay"
     lateralIcDifference = try container.decodeIfPresent(Double.self, forKey: .lateralIcDifference) ?? 0.15
     qValue = try container.decodeIfPresent(Double.self, forKey: .qValue) ?? 0.0
+    candidateSpacing = try container.decodeIfPresent(CPTCandidateSpacing.self, forKey: .candidateSpacing)
     predictedCoverage = try container.decodeIfPresent(Double.self, forKey: .predictedCoverage) ?? 0.90
     sufficiencyProbability = try container.decodeIfPresent(Double.self, forKey: .sufficiencyProbability) ?? 0.0
     consecutiveSufficientCount = try container.decodeIfPresent(Int.self, forKey: .consecutiveSufficientCount) ?? 0
@@ -494,6 +529,8 @@ struct CPTRecommendationResult: Hashable, Codable, Sendable {
     reconstructionSource = try container.decodeIfPresent(String.self, forKey: .reconstructionSource) ?? "Riwayat lama; sumber tidak tercatat"
     recommendationSource = try container.decodeIfPresent(String.self, forKey: .recommendationSource) ?? "Riwayat lama; sumber tidak tercatat"
     assessmentSource = try container.decodeIfPresent(String.self, forKey: .assessmentSource) ?? "Riwayat lama; sumber tidak tercatat"
+    stratigraphicDecision = try? container.decodeIfPresent(StratigraphicDecision.self, forKey: .stratigraphicDecision)
+    stratigraphicEvidence = try? container.decodeIfPresent(StratigraphicEvidence.self, forKey: .stratigraphicEvidence)
     qcfsInferenceSource = try container.decodeIfPresent(String.self, forKey: .qcfsInferenceSource) ?? "Riwayat lama; QC-FS belum dievaluasi"
   }
 
@@ -510,6 +547,7 @@ struct CPTRecommendationResult: Hashable, Codable, Sendable {
     try container.encode(deepSoilType, forKey: .deepSoilType)
     try container.encode(lateralIcDifference, forKey: .lateralIcDifference)
     try container.encode(qValue, forKey: .qValue)
+    try container.encodeIfPresent(candidateSpacing, forKey: .candidateSpacing)
     try container.encode(predictedCoverage, forKey: .predictedCoverage)
     try container.encode(sufficiencyProbability, forKey: .sufficiencyProbability)
     try container.encode(consecutiveSufficientCount, forKey: .consecutiveSufficientCount)
@@ -519,6 +557,8 @@ struct CPTRecommendationResult: Hashable, Codable, Sendable {
     try container.encode(recommendationSource, forKey: .recommendationSource)
     try container.encode(assessmentSource, forKey: .assessmentSource)
     try container.encode(qcfsInferenceSource, forKey: .qcfsInferenceSource)
+    try container.encodeIfPresent(stratigraphicDecision, forKey: .stratigraphicDecision)
+    try container.encodeIfPresent(stratigraphicEvidence, forKey: .stratigraphicEvidence)
   }
 
   var formattedCoordinate: String {
@@ -548,9 +588,19 @@ struct CPTRecommendationResult: Hashable, Codable, Sendable {
     hasher.combine(coordinate.longitude)
     hasher.combine(rmse)
     hasher.combine(confidenceLevel)
+    hasher.combine(candidateSpacing)
+    hasher.combine(predictedCoverage)
+    hasher.combine(assessmentSource)
+    hasher.combine(recommendationSource)
     hasher.combine(isSufficient)
     hasher.combine(hasRecommendation)
     hasher.combine(spotName)
+    hasher.combine(stratigraphicDecision)
+    hasher.combine(stratigraphicEvidence?.frame.stateID)
+    hasher.combine(stratigraphicEvidence?.frame.count)
+    hasher.combine(stratigraphicEvidence?.implementationID)
+    hasher.combine(stratigraphicEvidence?.contextID)
+    hasher.combine(stratigraphicEvidence?.cptStateID)
   }
 
   static func == (lhs: CPTRecommendationResult, rhs: CPTRecommendationResult) -> Bool {
@@ -558,8 +608,18 @@ struct CPTRecommendationResult: Hashable, Codable, Sendable {
       lhs.coordinate.longitude == rhs.coordinate.longitude &&
       lhs.rmse == rhs.rmse &&
       lhs.confidenceLevel == rhs.confidenceLevel &&
+      lhs.candidateSpacing == rhs.candidateSpacing &&
+      lhs.predictedCoverage == rhs.predictedCoverage &&
+      lhs.assessmentSource == rhs.assessmentSource &&
+      lhs.recommendationSource == rhs.recommendationSource &&
       lhs.isSufficient == rhs.isSufficient &&
       lhs.hasRecommendation == rhs.hasRecommendation &&
-      lhs.spotName == rhs.spotName
+      lhs.spotName == rhs.spotName &&
+      lhs.stratigraphicDecision == rhs.stratigraphicDecision &&
+      lhs.stratigraphicEvidence?.frame.stateID == rhs.stratigraphicEvidence?.frame.stateID &&
+      lhs.stratigraphicEvidence?.frame.count == rhs.stratigraphicEvidence?.frame.count &&
+      lhs.stratigraphicEvidence?.implementationID == rhs.stratigraphicEvidence?.implementationID &&
+      lhs.stratigraphicEvidence?.contextID == rhs.stratigraphicEvidence?.contextID &&
+      lhs.stratigraphicEvidence?.cptStateID == rhs.stratigraphicEvidence?.cptStateID
   }
 }

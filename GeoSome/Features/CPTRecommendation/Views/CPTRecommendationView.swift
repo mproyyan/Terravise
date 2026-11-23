@@ -66,6 +66,27 @@ struct CPTRecommendationView: View {
     return viewModel.hasUploadedCPTData ? .recommendedPoint : .emptyState
   }
 
+  private var isPracticalStop: Bool {
+    CPTRecommendedPointSheetView.isStopped(viewModel.recommendation)
+  }
+
+  // Map only the recommended STOP presentation; existing upload/list detents stay intact.
+  private var activeSheetDetentBinding: Binding<PresentationDetent> {
+    Binding(
+      get: {
+        if activeSheetDestination == .recommendedPoint, isPracticalStop,
+           viewModel.selectedSheetDetent == CPTRecommendationViewModel.sufficientSheetDetent {
+          return CPTRecommendedPointSheetView.stopSheetDetent
+        }
+        return viewModel.selectedSheetDetent
+      },
+      set: { detent in
+        viewModel.selectedSheetDetent = detent == CPTRecommendedPointSheetView.stopSheetDetent
+          ? CPTRecommendationViewModel.sufficientSheetDetent : detent
+      }
+    )
+  }
+
   private var activeSheetDetents: Set<PresentationDetent> {
     switch activeSheetDestination {
     case .emptyState:
@@ -87,7 +108,7 @@ struct CPTRecommendationView: View {
       return [
         CPTRecommendationViewModel.collapsedSheetDetent,
         CPTRecommendationViewModel.populatedSheetDetent,
-        CPTRecommendationViewModel.sufficientSheetDetent,
+        isPracticalStop ? CPTRecommendedPointSheetView.stopSheetDetent : CPTRecommendationViewModel.sufficientSheetDetent,
         CPTRecommendationViewModel.recommendationSheetDetent,
         .large
       ]
@@ -195,7 +216,7 @@ struct CPTRecommendationView: View {
         case .recommendedPoint:
           CPTRecommendedPointSheetView(
             recommendation: viewModel.recommendation,
-            cptPointsCount: max(viewModel.cptPoints.count, 1),
+            cptPointsCount: viewModel.cptPoints.count,
             onUploadTap: {
               viewModel.uploadCPTData()
             },
@@ -238,7 +259,7 @@ struct CPTRecommendationView: View {
       .presentationPlacement(.leading)
       .presentationDetents(
         activeSheetDetents,
-        selection: $viewModel.selectedSheetDetent
+        selection: activeSheetDetentBinding
       )
       .presentationDragIndicator(.visible)
       .presentationBackgroundInteraction(.enabled)

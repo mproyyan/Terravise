@@ -38,7 +38,8 @@ enum CPTPipelineCoordinator {
     gridPolicy: CPTGridPolicy = .legacyDynamic,
     distancePolicy: CPTDistancePolicy = .legacyCellDiagonal,
     minimumSeparationMeters: Double? = nil,
-    assessmentProject: Project? = nil
+    assessmentProject: Project? = nil,
+    onEvaluation: ((SchemaGANReconstructionOutput, QCFSInferenceResult, CPTRecommendationResult) -> Void)? = nil
   ) -> CPTRecommendationResult {
 #if DEBUG && CPT_SYNTHETIC_REPLAY
     let grid = researchTestGrid ?? CPTGridConfig.build(
@@ -81,7 +82,8 @@ enum CPTPipelineCoordinator {
     let uncertaintyEval = UncertaintySufficiencyService.evaluate(
       reconstruction: reconstruction,
       grid: grid,
-      previousConsecutiveSufficientCount: previousConsecutiveSufficientCount
+      previousConsecutiveSufficientCount: previousConsecutiveSufficientCount,
+      stratigraphicMode: true
     )
 
     var history: [CPTSufficiencyObservation] = []
@@ -103,19 +105,31 @@ enum CPTPipelineCoordinator {
     let filterCoordinates = distancePolicy == .sufficiencyV32SiteDiagonal
       ? reconstruction.observedSitesXY.map { grid.coordinate(ix: $0.ix, iy: $0.iy) }
       : cptPoints.map(\.coordinate)
-    let decision = CPTSufficiencyDispatch.decide(project: assessmentProject, points: cptPoints, grid: grid, history: history,
-      modelInputsValid: uncertaintyEval.inferenceSource == "Sufficiency V3.2 experimental; STOP unavailable: DQN trajectory not verified") {
-      DQNFeatureBuilder.recommendNextCandidate(
-      reconstruction: reconstruction,
-      grid: grid,
-      cptCoordinates: filterCoordinates,
-      boundaryCoordinates: boundaryCoordinates,
-      minimumSeparationMeters: minimumSeparationMeters ?? distancePolicy.minimumMeters(grid: grid)
-      )
+    let (stratigraphic, evidence) = StratigraphicService.assess(project: assessmentProject, points: cptPoints,
+      grid: grid, reconstruction: reconstruction, uncertainty: uncertaintyEval)
+    var unavailableReason = "DQN_RECOMMENDATION_UNAVAILABLE"
+    var candidateSpacing:CPTCandidateSpacing?
+    let decision = CPTSufficiencyDispatch.stratigraphic(stratigraphic) {
+      DQNFeatureBuilder.recommendWithAdaptiveSpacing(reconstruction:reconstruction,grid:grid,
+        cptCoordinates:filterCoordinates,physicalCPTCoordinates:cptPoints.map(\.coordinate),
+        boundaryCoordinates:boundaryCoordinates,
+        normalMinimumM:minimumSeparationMeters ?? distancePolicy.minimumMeters(grid:grid),
+        physicalMinimumM:max(hypot(grid.dxM,grid.dyM),minimumSeparationMeters ?? 0),
+        allowRelaxation:uncertaintyEval.spatialEvidenceValid && reconstruction.inferenceSource=="SchemaGAN V4.2 Flexible Core ML",
+        unavailableReason:{unavailableReason=$0},spacingEvidence:{candidateSpacing=$0})
     }
     let candidateEval = decision.candidate
     let stopCandidate = decision.stop
-    let positiveCount = decision.positives
+    let positiveCount = 0 // V3.2 probability persistence is diagnostic only; not the active stratigraphic policy.
+    func decorate(_ value: CPTRecommendationResult) -> CPTRecommendationResult {
+      var r = value
+      r.candidateSpacing=candidateSpacing
+      r.stratigraphicDecision = stratigraphic
+      r.stratigraphicEvidence = evidence
+      r.assessmentSource = stratigraphic.uiStatus + ": " + stratigraphic.reasons.joined(separator: ", ")
+      onEvaluation?(reconstruction, qcfsResult, r)
+      return r
+    }
 
     let spotName = spotLabel(forNextIndex: cptPoints.count)
     let isSufficient = stopCandidate
@@ -128,7 +142,7 @@ enum CPTPipelineCoordinator {
         ix: candidate.ix,
         iy: candidate.iy
       )
-      return CPTRecommendationResult(
+      return decorate(CPTRecommendationResult(
         coordinate: recommendedCoord,
         rmse: uncertaintyEval.estimatedRMSE,
         confidenceLevel: isSufficient ? max(uncertaintyEval.confidenceLevelPercent, 98) : spotConfidence,
@@ -141,15 +155,15 @@ enum CPTPipelineCoordinator {
         qValue: candidate.qValue,
         predictedCoverage: uncertaintyEval.predictedCoverage,
         sufficiencyProbability: uncertaintyEval.sufficiencyProbability,
-        consecutiveSufficientCount: decision.compatible ? positiveCount : 0,
+        consecutiveSufficientCount: positiveCount,
         isSufficient: isSufficient,
         reconstructionSource: reconstruction.inferenceSource,
         recommendationSource: candidate.inferenceSource,
         assessmentSource: uncertaintyEval.inferenceSource,
         qcfsInferenceSource: qcfsSource
-      )
+      ))
     } else {
-      return CPTRecommendationResult(
+      return decorate(CPTRecommendationResult(
         // Coordinate is ignored when hasRecommendation is false; retain a finite
         // value only for compatibility with existing saved-project encoding.
         coordinate: CLLocationCoordinate2D(latitude: 0, longitude: 0),
@@ -164,14 +178,14 @@ enum CPTPipelineCoordinator {
         qValue: 0.0,
         predictedCoverage: uncertaintyEval.predictedCoverage,
         sufficiencyProbability: uncertaintyEval.sufficiencyProbability,
-        consecutiveSufficientCount: decision.compatible ? positiveCount : 0,
+        consecutiveSufficientCount: positiveCount,
         isSufficient: isSufficient,
         hasRecommendation: false,
         reconstructionSource: reconstruction.inferenceSource,
-        recommendationSource: "Tidak ada kandidat legal; DQN tidak menghasilkan titik",
+        recommendationSource: stopCandidate ? "Stratigraphic STOP CANDIDATE; DQN not requested" : unavailableReason,
         assessmentSource: uncertaintyEval.inferenceSource,
         qcfsInferenceSource: qcfsSource
-      )
+      ))
     }
   }
 

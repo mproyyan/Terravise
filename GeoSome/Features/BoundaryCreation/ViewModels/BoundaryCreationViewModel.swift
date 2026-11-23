@@ -666,6 +666,7 @@ final class BoundaryCreationViewModel {
 
     if var existing = editingProject {
       existing.name = finalName
+      if existing.boundaryPoints != points { existing.stratigraphicEvidence=nil }
       existing.boundaryPoints = points
       existing.sufficiencyObservations = CPTSufficiencyHistory.retainValidPrefixes(existing.sufficiencyObservations,
         projectID: existing.id, gridPolicy: existing.gridPolicy, distancePolicy: existing.cptDistancePolicy, boundary: points, points: existing.cptPoints)
@@ -679,6 +680,7 @@ final class BoundaryCreationViewModel {
           assessmentProject: existing
         )
         existing.latestRecommendation = recomputed
+        existing.stratigraphicEvidence=recomputed.stratigraphicEvidence
         existing.consecutiveSufficientCount = recomputed.consecutiveSufficientCount
       }
       return existing

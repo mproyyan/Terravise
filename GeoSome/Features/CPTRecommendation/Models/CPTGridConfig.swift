@@ -171,7 +171,7 @@ struct CPTGridConfig: Sendable {
       let p2 = polyXY[(i + 1) % polyXY.count]
       shoelace += (p1.x * p2.y) - (p2.x * p1.y)
     }
-    let polygonAreaM2 = max(abs(shoelace) * 0.5, rawWidthM * rawHeightM * 0.5)
+    let polygonAreaM2 = abs(shoelace) * 0.5
 
     // Build 2D valid mask inside polygon
     var mask2D = Array(repeating: Array(repeating: false, count: finalNy), count: finalNx)
@@ -183,15 +183,6 @@ struct CPTGridConfig: Sendable {
         if isPointInPolygon(x: x, y: y, polygon: polyXY) {
           mask2D[ix][iy] = true
           validCount += 1
-        }
-      }
-    }
-
-    // Fallback if polygon is very narrow ordegenerate
-    if validCount < 4, policy == .legacyDynamic {
-      for ix in 0 ..< finalNx {
-        for iy in 0 ..< finalNy {
-          mask2D[ix][iy] = true
         }
       }
     }
@@ -252,6 +243,24 @@ struct CPTGridConfig: Sendable {
     return hypot(p1.x - p2.x, p1.y - p2.y)
   }
 
+  func hasValidBoundary(_ boundary: [CLLocationCoordinate2D]) -> Bool {
+    guard boundary.count>=3, boundary.allSatisfy({$0.latitude.isFinite && $0.longitude.isFinite}) else { return false }
+    let p=boundary.map{xyMeters(for:$0)},n=boundary.count
+    func cross(_ a:(x:Double,y:Double),_ b:(x:Double,y:Double),_ c:(x:Double,y:Double)) -> Double { (b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x) }
+    for i in 0..<n {
+      let a=p[i],b=p[(i+1)%n]
+      if a.x==b.x && a.y==b.y { return false }
+      for j in (i+1)..<n {
+        if j==i+1 || (i==0 && j==n-1) { continue }
+        let c=p[j],d=p[(j+1)%n]
+        if cross(a,b,c)*cross(a,b,d)<=0 && cross(c,d,a)*cross(c,d,b)<=0 &&
+          max(min(a.x,b.x),min(c.x,d.x))<=min(max(a.x,b.x),max(c.x,d.x)) &&
+          max(min(a.y,b.y),min(c.y,d.y))<=min(max(a.y,b.y),max(c.y,d.y)) { return false }
+      }
+    }
+    return siteAreaM2>0
+  }
+
   func contains(_ coordinate: CLLocationCoordinate2D, in boundary: [CLLocationCoordinate2D]) -> Bool {
     guard boundary.count >= 3 else { return false }
     let point = xyMeters(for: coordinate)
@@ -265,6 +274,14 @@ struct CPTGridConfig: Sendable {
     polygon: [(x: Double, y: Double)]
   ) -> Bool {
     guard polygon.count >= 3 else { return true }
+    let scale = max(1.0, polygon.flatMap { [abs($0.x),abs($0.y)] }.max() ?? 1)
+    let eps = 1e-10 * scale
+    for i in polygon.indices {
+      let a = polygon[i], b = polygon[(i+1)%polygon.count]
+      let length = hypot(b.x-a.x,b.y-a.y)
+      if length > 0 && abs((x-a.x)*(b.y-a.y)-(y-a.y)*(b.x-a.x)) <= eps*length &&
+        x >= min(a.x,b.x)-eps && x <= max(a.x,b.x)+eps && y >= min(a.y,b.y)-eps && y <= max(a.y,b.y)+eps { return true }
+    }
     var inside = false
     var j = polygon.count - 1
     for i in 0 ..< polygon.count {
