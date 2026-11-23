@@ -77,6 +77,11 @@ final class ResultAnalysisViewModel {
     return nil
   }
 
+  var hasBearingLayer: Bool {
+    guard let output = bearingRuleOutput else { return false }
+    return output.summary.candidateVoxels > 0 && output.summary.shallowestTopDepthM != nil && !output.intervals.isEmpty
+  }
+
   var bearingStatusText: String {
     if case .coreML(let qcfs) = qcfsResult, qcfs.inputProvenance == "Demo CPT" {
       return "Simulasi/demo — hasil bukan pengukuran lapangan. " + (bearingRuleEvaluation?.statusText ?? "Analisis belum tersedia.")
@@ -172,6 +177,9 @@ final class ResultAnalysisViewModel {
   // Left Sheet State & Subsurface Conditions Content
   var isLeftSheetPresented: Bool = false
   var selectedSheetDetent: PresentationDetent = ResultAnalysisViewModel.collapsedSheetDetent
+  var isLeftSheetCollapsed: Bool {
+    selectedSheetDetent == Self.collapsedSheetDetent
+  }
   var isSubsurfaceConditionsEmpty: Bool = false
   // var isGeotechnicalConcernsEmpty: Bool = false
   var groundConditionsSummary: String =
@@ -256,6 +264,11 @@ final class ResultAnalysisViewModel {
   var selectedCPTPointLongitude: String = "106.845321"
   var selectedPopoverLayers: [SBTProfileLayerItem] = CPTPointProfilePopoverView.defaultLayers
 
+  // Popover State for Tapping the Side of the 3D Object (Subsurface Layers)
+  var isSideLayerPopoverPresented: Bool = false
+  var sideLayerPopoverLocation: CGPoint?
+  var selectedSideSoilType: SoilLayerType?
+
   var displayedCPTPointsCount: Int {
     project.cptPoints.count
   }
@@ -302,8 +315,13 @@ final class ResultAnalysisViewModel {
     self.slicingYMeters = Double(builtVolume.lengthZM)
     self.cameraController.configure(for: builtVolume, resetState: true)
     self.cameraController.onCameraMoved = { [weak self] in
-      guard let self, self.isProfilePopoverPresented else { return }
-      self.isProfilePopoverPresented = false
+      guard let self else { return }
+      if self.isProfilePopoverPresented {
+        self.isProfilePopoverPresented = false
+      }
+      if self.isSideLayerPopoverPresented {
+        self.isSideLayerPopoverPresented = false
+      }
     }
     self.bearingCameraController.configureForBearingLayer(for: builtVolume, resetState: true)
     self.bearingCameraController.onCameraMoved = { [weak self] in
@@ -447,6 +465,9 @@ final class ResultAnalysisViewModel {
       isSlicingCardExpanded = false
     }
     isProfilePopoverPresented = false
+    isSideLayerPopoverPresented = false
+    sideLayerPopoverLocation = nil
+    selectedSideSoilType = nil
     isBearingPopoverPresented = false
     bearingPopoverLocation = nil
     if isCompareDataSheetActive {
@@ -482,6 +503,9 @@ final class ResultAnalysisViewModel {
     // selectedConcernID = nil
     selectedPipePosition3D = nil
     isProfilePopoverPresented = false
+    isSideLayerPopoverPresented = false
+    sideLayerPopoverLocation = nil
+    selectedSideSoilType = nil
     isBearingPopoverPresented = false
     bearingPopoverLocation = nil
     comparedBearingPoints = []
@@ -669,7 +693,21 @@ final class ResultAnalysisViewModel {
     selectedCPTPointLongitude = String(format: "%.6f", longitude)
   }
 
+  func handleSideLayerTap(at screenPoint: CGPoint, voxel: SoilVoxel) {
+    isProfilePopoverPresented = false
+    profilePopoverLocation = nil
+    selectedPipePosition3D = nil
+    selectedSideSoilType = voxel.soilClassification
+    sideLayerPopoverLocation = screenPoint
+    isSideLayerPopoverPresented = true
+    AccessibilityCaptionCenter.shared.announce("Soil layer: \(voxel.soilClassification.displayName)")
+  }
+
   func handleTopSurfaceTap(at screenPoint: CGPoint, local3DPoint: SIMD3<Float>?, voxel: SoilVoxel?) {
+    isSideLayerPopoverPresented = false
+    sideLayerPopoverLocation = nil
+    selectedSideSoilType = nil
+
     guard !project.cptPoints.isEmpty else {
       isProfilePopoverPresented = false
       AccessibilityCaptionCenter.shared.announce("No CPT data available for this project yet.")

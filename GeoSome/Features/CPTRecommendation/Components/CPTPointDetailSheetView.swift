@@ -204,8 +204,8 @@ struct CPTPointDetailSheetView: View {
 struct CPTDetailRow: View {
   var title: String
   var value: String
-  var titleColor: Color = .primary
-  var valueColor: Color = .secondary
+  var titleColor: Color = .secondary
+  var valueColor: Color = .primary
 
   var body: some View {
     HStack(spacing: 12) {

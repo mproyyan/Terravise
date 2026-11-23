@@ -105,6 +105,7 @@ struct ResultLeftPlaceholderSheetView: View {
   var legendItems: [LegendMapItem]
   var predictionUncertaintyPercent: Int
   var cptPointsCount: Int
+  var isCollapsed: Bool = false
 
   @Environment(\.colorSchemeContrast) private var contrast
 
@@ -120,7 +121,8 @@ struct ResultLeftPlaceholderSheetView: View {
     // isGeotechnicalConcernsEmpty: Bool = false,
     legendItems: [LegendMapItem] = Self.defaultLegendItems,
     predictionUncertaintyPercent: Int = 12,
-    cptPointsCount: Int = 12
+    cptPointsCount: Int = 12,
+    isCollapsed: Bool = false
   ) {
     self.groundConditionsSummary = groundConditionsSummary
     // self.concerns = concerns
@@ -129,6 +131,7 @@ struct ResultLeftPlaceholderSheetView: View {
     self.legendItems = legendItems
     self.predictionUncertaintyPercent = predictionUncertaintyPercent
     self.cptPointsCount = cptPointsCount
+    self.isCollapsed = isCollapsed
   }
 
   private var shouldShowSubsurfaceEmpty: Bool {
@@ -150,44 +153,47 @@ struct ResultLeftPlaceholderSheetView: View {
           .foregroundStyle(Color.primary)
           .accessibilityAddTraits(.isHeader)
 
-        // 1. Ground Conditions Card (or Empty State)
-        if shouldShowSubsurfaceEmpty {
-          subsurfaceConditionsEmptyCard
-        } else {
-          groundConditionsCard
+        if !isCollapsed {
+          // 1. Ground Conditions Card (or Empty State)
+          if shouldShowSubsurfaceEmpty {
+            subsurfaceConditionsEmptyCard
+          } else {
+            groundConditionsCard
+          }
+
+          /*
+          // 2. Potential Geotechnical Concerns Section
+          concernsSectionHeader
+
+          if shouldShowConcernsEmpty {
+            geotechnicalConcernsEmptyCard
+          } else {
+            concernsListCard
+          }
+          */
+
+          // 3. Legend Map Section
+          legendMapSectionHeader
+
+          legendMapCard
+
+          // 4. Model Reliability Section
+          Text("Model Reliability")
+            .font(.headline.weight(.bold))
+            .foregroundStyle(Color.primary)
+            .padding(.top, 2)
+            .accessibilityAddTraits(.isHeader)
+
+          predictionUncertaintyCard
+
+          dataCoverageCard
         }
-
-        /*
-        // 2. Potential Geotechnical Concerns Section
-        concernsSectionHeader
-
-        if shouldShowConcernsEmpty {
-          geotechnicalConcernsEmptyCard
-        } else {
-          concernsListCard
-        }
-        */
-
-        // 3. Legend Map Section
-        legendMapSectionHeader
-
-        legendMapCard
-
-        // 4. Model Reliability Section
-        Text("Model Reliability")
-          .font(.headline.weight(.bold))
-          .foregroundStyle(Color.primary)
-          .padding(.top, 2)
-          .accessibilityAddTraits(.isHeader)
-
-        predictionUncertaintyCard
-
-        dataCoverageCard
       }
       .padding(.horizontal, 18)
-      .padding(.top, 20)
-      .padding(.bottom, 28)
+      .padding(.top, 14)
+      .padding(.bottom, isCollapsed ? 14 : 28)
     }
+    .scrollDisabled(isCollapsed)
     .scrollBounceBehavior(.basedOnSize)
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     .accessibilityLabel("Subsurface Conditions sheet")

@@ -4,6 +4,7 @@ import SwiftUI
 struct CPTRecommendedPointSheetView: View {
   var recommendation: CPTRecommendationResult
   var cptPointsCount: Int
+  var isCollapsed: Bool = false
   var onUploadTap: (() -> Void)?
   var onRMSEInfoTap: (() -> Void)?
   var onConfidenceInfoTap: (() -> Void)?
@@ -17,6 +18,7 @@ struct CPTRecommendedPointSheetView: View {
   init(
     recommendation: CPTRecommendationResult = CPTRecommendationResult(),
     cptPointsCount: Int = 1,
+    isCollapsed: Bool = false,
     onUploadTap: (() -> Void)? = nil,
     onRMSEInfoTap: (() -> Void)? = nil,
     onConfidenceInfoTap: (() -> Void)? = nil,
@@ -25,6 +27,7 @@ struct CPTRecommendedPointSheetView: View {
   ) {
     self.recommendation = recommendation
     self.cptPointsCount = cptPointsCount
+    self.isCollapsed = isCollapsed
     self.onUploadTap = onUploadTap
     self.onRMSEInfoTap = onRMSEInfoTap
     self.onConfidenceInfoTap = onConfidenceInfoTap
@@ -62,35 +65,40 @@ struct CPTRecommendedPointSheetView: View {
       VStack(alignment: .leading, spacing: isStopped ? 16 : 18) {
         if isStopped || isRecommendationActive {
           VStack(alignment: .leading, spacing: isStopped ? 10 : 18) {
-            Text("Recommended Point")
+            Text(isStopped ? "Recommended Point" : "Recommendation Point")
               .font(isStopped ? .title3.weight(.bold) : .title2.weight(.bold))
               .foregroundStyle(Color.primary)
               .accessibilityAddTraits(.isHeader)
 
-            topRecommendationCard
+            if !isCollapsed {
+              topRecommendationCard
+            }
           }
         }
 
-        // Current Ground Certainty Metric Card
-        if isRecommendationActive { metricsSection }
+        if !isCollapsed {
+          // Current Ground Certainty Metric Card
+          if isRecommendationActive { metricsSection }
 
-        // Action Buttons: View Analysis 3D and/or Upload Data CPT
-        actionButtonsSection
+          // Action Buttons: View Analysis 3D and/or Upload Data CPT
+          actionButtonsSection
 
-        // "Why this point?" Section
-        if isRecommendationActive { whyThisPointSection }
+          // "Why this point?" Section
+          if isRecommendationActive { whyThisPointSection }
 
-        // Reasons & Supporting Data Card
-        if isRecommendationActive { reasonsCard }
+          // Reasons & Supporting Data Card
+          if isRecommendationActive { reasonsCard }
 
-        // Bottom Navigation Card: CPT Data entered
-        cptDataListCard
-          .padding(.top, isStopped ? 8 : 0)
+          // Bottom Navigation Card: CPT Data entered
+          cptDataListCard
+            .padding(.top, isStopped ? 8 : 0)
+        }
       }
       .padding(.horizontal, isStopped ? 14 : 20)
-      .padding(.top, isStopped ? 24 : 16)
-      .padding(.bottom, isStopped ? 14 : 24)
+      .padding(.top, isCollapsed ? 12 : (isStopped ? 24 : 16))
+      .padding(.bottom, isCollapsed ? 12 : (isStopped ? 14 : 24))
     }
+    .scrollDisabled(isCollapsed)
     .scrollBounceBehavior(.basedOnSize)
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
   }
@@ -135,7 +143,7 @@ struct CPTRecommendedPointSheetView: View {
           .accessibilityHidden(true)
 
           VStack(alignment: .leading, spacing: 2) {
-            Text("CPT Point Recommendation")
+            Text(isStopped ? "CPT Point Recommendation" : "Recommendation Point \(cptPointsCount + 1)")
               .font(.caption.weight(.medium))
               .foregroundStyle(Color.secondary)
 
@@ -230,7 +238,7 @@ struct CPTRecommendedPointSheetView: View {
     // Single Ground Certainty Metric Card
     VStack(alignment: .leading, spacing: 6) {
       HStack {
-        Text("Current Ground Certainty")
+        Text("Current Spot Certainty")
           .font(.caption.weight(.medium))
           .foregroundStyle(Color.secondary)
 
@@ -252,7 +260,7 @@ struct CPTRecommendedPointSheetView: View {
           VStack(alignment: .leading, spacing: 0) {
             Text("Shows how well the ground is understood here. A lower percentage indicates an untested blind spot, making this location a priority to test.")
               .font(.subheadline)
-              .foregroundStyle(Color.secondary)
+              .foregroundStyle(Color.primary)
               .lineSpacing(4)
               .fixedSize(horizontal: false, vertical: true)
           }

@@ -4,6 +4,7 @@ import SwiftUI
 struct BoundaryMapContentLayer: View {
   @Binding var cameraPosition: MapCameraPosition
   var points: [BoundaryPoint]
+  var pendingCoordinate: CLLocationCoordinate2D? = nil
   var isSatelliteStyle: Bool
   var onMapTap: ((CLLocationCoordinate2D) -> Void)?
   var onBeginMovePoint: (() -> Void)?
@@ -24,6 +25,7 @@ struct BoundaryMapContentLayer: View {
   init(
     cameraPosition: Binding<MapCameraPosition>,
     points: [BoundaryPoint] = [],
+    pendingCoordinate: CLLocationCoordinate2D? = nil,
     isSatelliteStyle: Bool = false,
     onMapTap: ((CLLocationCoordinate2D) -> Void)? = nil,
     onBeginMovePoint: (() -> Void)? = nil,
@@ -33,6 +35,7 @@ struct BoundaryMapContentLayer: View {
   ) {
     _cameraPosition = cameraPosition
     self.points = points
+    self.pendingCoordinate = pendingCoordinate
     self.isSatelliteStyle = isSatelliteStyle
     self.onMapTap = onMapTap
     self.onBeginMovePoint = onBeginMovePoint
@@ -99,6 +102,24 @@ struct BoundaryMapContentLayer: View {
             anchor: .center
           ) {
             pointBadgeLabel(index: draggedIndex, isDragging: true)
+              .allowsHitTesting(false)
+              .accessibilityHidden(true)
+          }
+          .annotationTitles(.hidden)
+        }
+
+        if let pendingCoordinate {
+          Annotation(
+            "New Point Preview",
+            coordinate: pendingCoordinate,
+            anchor: .center
+          ) {
+            pointBadgeLabel(index: points.count, isDragging: false)
+              .opacity(0.85)
+              .overlay(
+                Circle()
+                  .stroke(Color.white, lineWidth: 2)
+              )
               .allowsHitTesting(false)
               .accessibilityHidden(true)
           }

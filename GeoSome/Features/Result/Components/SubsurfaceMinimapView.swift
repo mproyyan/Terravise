@@ -136,6 +136,8 @@ struct SubsurfaceMinimapView: View {
   let cptPoints: [CPTPointEntry]
   var cameraController: SubsurfaceCameraController
   var virtualCPTPosition3D: SIMD3<Float>?
+  var maxSliceX: Int = .max
+  var maxSliceZ: Int = .max
   @Binding var isInteracting: Bool
   var onTapCreateVirtualCPT: (() -> Void)?
 
@@ -157,6 +159,8 @@ struct SubsurfaceMinimapView: View {
     cptPoints: [CPTPointEntry] = [],
     cameraController: SubsurfaceCameraController,
     virtualCPTPosition3D: SIMD3<Float>? = nil,
+    maxSliceX: Int = .max,
+    maxSliceZ: Int = .max,
     isInteracting: Binding<Bool> = .constant(false),
     onTapCreateVirtualCPT: (() -> Void)? = nil
   ) {
@@ -165,6 +169,8 @@ struct SubsurfaceMinimapView: View {
     self.cptPoints = cptPoints
     self.cameraController = cameraController
     self.virtualCPTPosition3D = virtualCPTPosition3D
+    self.maxSliceX = maxSliceX
+    self.maxSliceZ = maxSliceZ
     self._isInteracting = isInteracting
     self.onTapCreateVirtualCPT = onTapCreateVirtualCPT
 
@@ -197,6 +203,23 @@ struct SubsurfaceMinimapView: View {
     return volume.cptMetricSurfacePositions.map { pos in
       converter.coordinate(forMetricX: Double(pos.x), zM: Double(pos.z))
     }
+  }
+
+  /// Whether the 3D volume is currently being sliced along the X or Z planes.
+  private var isSliced: Bool {
+    let limitX = volume.nx - 1
+    let limitZ = volume.nz - 1
+    return maxSliceX < limitX || maxSliceZ < limitZ
+  }
+
+  /// Dynamically clipped geofencing boundary polygon synchronized with 3D Slicing X & Y.
+  private var activeBoundaryCoordinates: [CLLocationCoordinate2D] {
+    VoxelMeshSynthesizer.clippedPolygonCoordinates(
+      boundaryCoordinates: boundaryCoordinates,
+      volume: volume,
+      maxSliceX: maxSliceX,
+      maxSliceZ: maxSliceZ
+    )
   }
 
   var body: some View {
@@ -263,9 +286,23 @@ struct SubsurfaceMinimapView: View {
       // Interactive Zoom & Rotate Minimap Container
       ZStack {
         Map(position: $mapCameraPosition, interactionModes: []) {
-          // 1. Drawn Site Boundary Polygon (reusing BoundaryMapContentLayer styling)
-          if boundaryCoordinates.count == 2 {
-            MapPolyline(coordinates: boundaryCoordinates)
+          // 0. Faint dashed outline of the original property boundary when sliced
+          if isSliced && boundaryCoordinates.count >= 3 {
+            MapPolyline(coordinates: boundaryCoordinates + [boundaryCoordinates[0]])
+              .stroke(
+                (isSatelliteStyle ? Color.cyan : Color.blue).opacity(contrast == .increased ? 0.55 : 0.3),
+                style: StrokeStyle(
+                  lineWidth: contrast == .increased ? 2.0 : 1.4,
+                  lineCap: .round,
+                  lineJoin: .round,
+                  dash: [5, 4]
+                )
+              )
+          }
+
+          // 1. Drawn Site Boundary Polygon (active geofence, dynamic with slicing)
+          if activeBoundaryCoordinates.count == 2 {
+            MapPolyline(coordinates: activeBoundaryCoordinates)
               .stroke(
                 isSatelliteStyle ? Color.cyan : Color.blue,
                 style: StrokeStyle(
@@ -275,8 +312,8 @@ struct SubsurfaceMinimapView: View {
                   dash: [6, 4]
                 )
               )
-          } else if boundaryCoordinates.count >= 3 {
-            MapPolygon(coordinates: boundaryCoordinates)
+          } else if activeBoundaryCoordinates.count >= 3 {
+            MapPolygon(coordinates: activeBoundaryCoordinates)
               .foregroundStyle(
                 (isSatelliteStyle ? Color.cyan : Color.blue)
                   .opacity(contrast == .increased ? 0.35 : (isSatelliteStyle ? 0.28 : 0.22))
@@ -317,6 +354,8 @@ struct SubsurfaceMinimapView: View {
                   .frame(width: 12, height: 12)
                 Circle()
                   .fill(Color.white)
+                Circle()
+                  .fill(Color.white)
                   .frame(width: 4.5, height: 4.5)
               }
               .overlay(
@@ -345,6 +384,8 @@ struct SubsurfaceMinimapView: View {
           cameraController: cameraController,
           converter: converter,
           volume: volume,
+          maxSliceX: maxSliceX,
+          maxSliceZ: maxSliceZ,
           isInteracting: $isInteracting,
           onCameraChanged: {
             syncMapCameraImmediately()
@@ -532,7 +573,9 @@ struct SubsurfaceMinimapView: View {
   private var isCenterInsideActiveBoundary: Bool {
     volume.isMetricPointInsideActiveArea(
       xM: syncedSnapshot.targetX,
-      zM: syncedSnapshot.targetZ
+      zM: syncedSnapshot.targetZ,
+      maxSliceX: maxSliceX,
+      maxSliceZ: maxSliceZ
     )
   }
 
@@ -590,6 +633,8 @@ private struct MinimapDirectGestureOverlay: UIViewRepresentable {
   let cameraController: SubsurfaceCameraController
   let converter: SubsurfaceCoordinateConverter
   let volume: SubsurfaceVoxelVolume
+  var maxSliceX: Int = .max
+  var maxSliceZ: Int = .max
   @Binding var isInteracting: Bool
   var onCameraChanged: () -> Void
   var onSingleTap: () -> Void
@@ -599,6 +644,8 @@ private struct MinimapDirectGestureOverlay: UIViewRepresentable {
       cameraController: cameraController,
       converter: converter,
       volume: volume,
+      maxSliceX: maxSliceX,
+      maxSliceZ: maxSliceZ,
       isInteracting: $isInteracting,
       onCameraChanged: onCameraChanged,
       onSingleTap: onSingleTap
@@ -620,6 +667,8 @@ private struct MinimapDirectGestureOverlay: UIViewRepresentable {
     context.coordinator.cameraController = cameraController
     context.coordinator.converter = converter
     context.coordinator.volume = volume
+    context.coordinator.maxSliceX = maxSliceX
+    context.coordinator.maxSliceZ = maxSliceZ
     context.coordinator.isInteracting = $isInteracting
     context.coordinator.onCameraChanged = onCameraChanged
     context.coordinator.onSingleTap = onSingleTap
@@ -653,6 +702,8 @@ private struct MinimapDirectGestureOverlay: UIViewRepresentable {
     var cameraController: SubsurfaceCameraController
     var converter: SubsurfaceCoordinateConverter
     var volume: SubsurfaceVoxelVolume
+    var maxSliceX: Int
+    var maxSliceZ: Int
     var isInteracting: Binding<Bool>
     var onCameraChanged: () -> Void
     var onSingleTap: () -> Void
@@ -672,6 +723,8 @@ private struct MinimapDirectGestureOverlay: UIViewRepresentable {
       cameraController: SubsurfaceCameraController,
       converter: SubsurfaceCoordinateConverter,
       volume: SubsurfaceVoxelVolume,
+      maxSliceX: Int = .max,
+      maxSliceZ: Int = .max,
       isInteracting: Binding<Bool>,
       onCameraChanged: @escaping () -> Void,
       onSingleTap: @escaping () -> Void
@@ -679,6 +732,8 @@ private struct MinimapDirectGestureOverlay: UIViewRepresentable {
       self.cameraController = cameraController
       self.converter = converter
       self.volume = volume
+      self.maxSliceX = maxSliceX
+      self.maxSliceZ = maxSliceZ
       self.isInteracting = isInteracting
       self.onCameraChanged = onCameraChanged
       self.onSingleTap = onSingleTap
@@ -844,7 +899,12 @@ private struct MinimapDirectGestureOverlay: UIViewRepresentable {
 
       // 1. Ensure the minimap center point (`cameraController.target`) lies strictly inside the active site polygon
       let centerTarget = cameraController.target
-      guard volume.isMetricPointInsideActiveArea(xM: centerTarget.x, zM: centerTarget.z) else {
+      guard volume.isMetricPointInsideActiveArea(
+        xM: centerTarget.x,
+        zM: centerTarget.z,
+        maxSliceX: maxSliceX,
+        maxSliceZ: maxSliceZ
+      ) else {
         return
       }
 
@@ -865,7 +925,12 @@ private struct MinimapDirectGestureOverlay: UIViewRepresentable {
         cameraController.rightVector * (dxPt * metersPerPt) +
         cameraController.groundForwardVector * (-dyPt * metersPerPt)
 
-      guard volume.isMetricPointInsideActiveArea(xM: tappedMetric.x, zM: tappedMetric.z) else {
+      guard volume.isMetricPointInsideActiveArea(
+        xM: tappedMetric.x,
+        zM: tappedMetric.z,
+        maxSliceX: maxSliceX,
+        maxSliceZ: maxSliceZ
+      ) else {
         return
       }
 

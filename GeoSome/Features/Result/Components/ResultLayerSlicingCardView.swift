@@ -22,11 +22,27 @@ struct ResultLayerSlicingCardView: View {
   var maxXMeters: Double
   var minYMeters: Double
   var maxYMeters: Double
+  var maxSliceX: Int? = nil
+  var maxSliceZ: Int? = nil
   var onResetView: () -> Void
 
   @Environment(\.colorSchemeContrast) private var contrast
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var isMinimapInteracting: Bool = false
+
+  private var activeSliceX: Int {
+    if let maxSliceX { return maxSliceX }
+    guard let volume, maxXMeters > 0 else { return .max }
+    let ratio = min(max(slicingXMeters / maxXMeters, 0.05), 1.0)
+    return min(max(Int((ratio * Double(volume.nx - 1)).rounded()), 1), volume.nx - 1)
+  }
+
+  private var activeSliceZ: Int {
+    if let maxSliceZ { return maxSliceZ }
+    guard let volume, maxYMeters > 0 else { return .max }
+    let ratio = min(max(slicingYMeters / maxYMeters, 0.05), 1.0)
+    return min(max(Int((ratio * Double(volume.nz - 1)).rounded()), 1), volume.nz - 1)
+  }
 
   init(
     cardWidth: CGFloat = 360,
@@ -49,6 +65,8 @@ struct ResultLayerSlicingCardView: View {
     maxXMeters: Double = 25.0,
     minYMeters: Double = 2.0,
     maxYMeters: Double = 25.0,
+    maxSliceX: Int? = nil,
+    maxSliceZ: Int? = nil,
     onResetView: @escaping () -> Void = {}
   ) {
     self.cardWidth = cardWidth
@@ -71,6 +89,8 @@ struct ResultLayerSlicingCardView: View {
     self.maxXMeters = maxXMeters
     self.minYMeters = minYMeters
     self.maxYMeters = maxYMeters
+    self.maxSliceX = maxSliceX
+    self.maxSliceZ = maxSliceZ
     self.onResetView = onResetView
   }
 
@@ -150,6 +170,8 @@ struct ResultLayerSlicingCardView: View {
           cptPoints: cptPoints,
           cameraController: cameraController,
           virtualCPTPosition3D: virtualCPTPosition3D,
+          maxSliceX: activeSliceX,
+          maxSliceZ: activeSliceZ,
           isInteracting: $isMinimapInteracting,
           onTapCreateVirtualCPT: onTapCreateVirtualCPT
         )

@@ -217,6 +217,7 @@ struct CPTRecommendationView: View {
           CPTRecommendedPointSheetView(
             recommendation: viewModel.recommendation,
             cptPointsCount: viewModel.cptPoints.count,
+            isCollapsed: viewModel.isRecommendationSheetCollapsed,
             onUploadTap: {
               viewModel.uploadCPTData()
             },
@@ -263,8 +264,19 @@ struct CPTRecommendationView: View {
       )
       .presentationDragIndicator(.visible)
       .presentationBackgroundInteraction(.enabled)
-      .presentationContentInteraction(.scrolls)
+      .presentationContentInteraction(
+        (activeSheetDestination == .recommendedPoint && viewModel.isRecommendationSheetCollapsed)
+          ? .resizes
+          : .scrolls
+      )
       .interactiveDismissDisabled(isInteractiveSheetDismissDisabled)
+      .onTapGesture {
+        if activeSheetDestination == .recommendedPoint && viewModel.isRecommendationSheetCollapsed {
+          withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) {
+            viewModel.selectedSheetDetent = viewModel.targetRecommendationSheetDetent
+          }
+        }
+      }
     }
     .toolbar {
       CPTRecommendationToolbarContent(

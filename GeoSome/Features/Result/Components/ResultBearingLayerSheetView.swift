@@ -7,6 +7,8 @@ struct ResultBearingLayerSheetView: View {
   var relativeUncertaintyText: String?
   var highUncertaintyAreaPercentText: String
   var highUncertaintyDescription: String?
+  var hasBearingLayer: Bool = true
+  var isCollapsed: Bool = false
   @Environment(\.colorSchemeContrast) private var contrast
 
   init(
@@ -15,7 +17,9 @@ struct ResultBearingLayerSheetView: View {
     variationDepthText: String = "—",
     relativeUncertaintyText: String? = nil,
     highUncertaintyAreaPercentText: String = "—",
-    highUncertaintyDescription: String? = nil
+    highUncertaintyDescription: String? = nil,
+    hasBearingLayer: Bool = true,
+    isCollapsed: Bool = false
   ) {
     self.shallowestDepthText = shallowestDepthText
     self.deepestDepthText = deepestDepthText
@@ -23,6 +27,8 @@ struct ResultBearingLayerSheetView: View {
     self.relativeUncertaintyText = relativeUncertaintyText
     self.highUncertaintyAreaPercentText = highUncertaintyAreaPercentText
     self.highUncertaintyDescription = highUncertaintyDescription
+    self.hasBearingLayer = hasBearingLayer
+    self.isCollapsed = isCollapsed
   }
 
   var body: some View {
@@ -35,22 +41,27 @@ struct ResultBearingLayerSheetView: View {
             .foregroundStyle(Color.primary)
             .accessibilityAddTraits(.isHeader)
 
-          Text("Predicted bearing-layer depth across the investigation area")
-            .font(.footnote)
-            .foregroundStyle(Color.secondary)
-            .fixedSize(horizontal: false, vertical: true)
+          if !isCollapsed {
+            Text("Predicted bearing-layer depth across the investigation area")
+              .font(.footnote)
+              .foregroundStyle(Color.secondary)
+              .fixedSize(horizontal: false, vertical: true)
+          }
         }
 
-        // 1. Depth Summary Section
-        depthSummarySection
+        if !isCollapsed {
+          // 1. Depth Summary Section
+          depthSummarySection
 
-        // 2. Prediction Uncertainty Section
-        predictionUncertaintySection
+          // 2. Prediction Uncertainty Section
+          predictionUncertaintySection
+        }
       }
       .padding(.horizontal, 18)
-      .padding(.top, 20)
-      .padding(.bottom, 28)
+      .padding(.top, 14)
+      .padding(.bottom, isCollapsed ? 14 : 28)
     }
+    .scrollDisabled(isCollapsed)
     .scrollBounceBehavior(.basedOnSize)
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     .accessibilityLabel("Bearing Layer sheet")
@@ -70,6 +81,23 @@ struct ResultBearingLayerSheetView: View {
           .font(.footnote)
           .foregroundStyle(Color.secondary)
           .fixedSize(horizontal: false, vertical: true)
+      }
+
+      if !hasBearingLayer {
+        HStack(spacing: 8) {
+          Image(systemName: "info.circle.fill")
+            .foregroundStyle(.orange)
+          Text("No soil strata meet current criteria.")
+            .font(.footnote)
+            .foregroundStyle(Color.secondary)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+          RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .fill(Color.orange.opacity(0.12))
+        )
       }
 
       HStack(spacing: 10) {

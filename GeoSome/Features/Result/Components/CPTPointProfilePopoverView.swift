@@ -99,25 +99,11 @@ struct CPTPointProfilePopoverView: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 14) {
-      // Header: Point Title + Close Button
-      HStack {
-        Text(pointTitle)
-          .font(.title3.weight(.bold))
-          .foregroundStyle(Color.primary)
-          .accessibilityAddTraits(.isHeader)
-
-        Spacer()
-
-        if let onClose {
-          Button(action: onClose) {
-            Image(systemName: "xmark.circle.fill")
-              .font(.title3)
-              .foregroundStyle(Color.secondary.opacity(0.8))
-          }
-          .buttonStyle(.plain)
-          .accessibilityLabel("Close profile popover")
-        }
-      }
+      // Header: Point Title
+      Text(pointTitle)
+        .font(.title3.weight(.bold))
+        .foregroundStyle(Color.primary)
+        .accessibilityAddTraits(.isHeader)
 
       // Easting & Northing Coordinate Cards
       HStack(spacing: 12) {
