@@ -42,26 +42,51 @@ enum StratigraphicService {
     let shape=[grid.nx,grid.ny,grid.nz]
     guard [reconstruction.reconstructedIc,reconstruction.observedIc,bounds].allSatisfy({ a in a.count==shape[0] && a.allSatisfy{$0.count==shape[1] && $0.allSatisfy{$0.count==shape[2]}} }),
       [reconstruction.validMask,reconstruction.observedMask].allSatisfy({a in a.count==shape[0] && a.allSatisfy{$0.count==shape[1] && $0.allSatisfy{$0.count==shape[2]}}}) else { return (.unavailable("VOLUME_SHAPE_MISMATCH"),nil) }
+    // STOP measurement evidence uses only the uploaded depth intervals. The
+    // reconstruction's half-cell endpoint mapping remains unchanged for ML.
+    var depthRanges:[Int:ClosedRange<Double>]=[:]
+    for (point,site) in zip(points,sites) {
+      let depths=point.rows.map(\.depth)
+      guard let first=depths.min(),let last=depths.max(),first.isFinite,last.isFinite else {
+        return (.unavailable("DEPTH_OBSERVATION_SUPPORT_UNAVAILABLE",stateID:cptID),nil)
+      }
+      depthRanges[site.ix*grid.ny+site.iy]=first...last
+    }
+    var supportedDepths=Array(repeating:false,count:grid.nz)
+    var validDepths=Array(repeating:false,count:grid.nz)
+    var uncertaintyHiddenIndices:[Int]=[]
     var valid:[Bool]=[],classes:[UInt8]=[],measured:[UInt8]=[],ambiguity:[Bool]=[]
     for x in 0..<grid.nx { for y in 0..<grid.ny { for z in 0..<grid.nz {
       let v=reconstruction.validMask[x][y][z],o=reconstruction.observedMask[x][y][z]
       let p=reconstruction.reconstructedIc[x][y][z],m=reconstruction.observedIc[x][y][z],b=bounds[x][y][z]
       guard v==grid.validXYMask[x][y],!o || v,!v || p.isFinite,!o || m.isFinite,!o || abs(p-m)<=1e-6,
         !v || o || (b.isFinite && b>=0) else { return (.unavailable("NONFINITE_OR_MASK_INVALID_EVIDENCE"),nil) }
-      valid.append(v);classes.append(v ? StratigraphicStop.band(p):255);measured.append(o ? StratigraphicStop.band(m):255)
+      let depth=Double(z)*grid.dzM
+      // Reuse SchemaGAN's 1e-6 m round-off tolerance, not its half-cell halo.
+      let range=depthRanges[x*grid.ny+y]
+      let measuredAtDepth=o && range.map { depth >= $0.lowerBound-1e-6 && depth <= $0.upperBound+1e-6 }==true
+      if v { validDepths[z]=true }
+      if measuredAtDepth { supportedDepths[z]=true }
+      if v && !o { uncertaintyHiddenIndices.append(valid.count) }
+      valid.append(v);classes.append(v ? StratigraphicStop.band(p):255);measured.append(measuredAtDepth ? StratigraphicStop.band(m):255)
       ambiguity.append(v && !o && StratigraphicStop.cuts.contains { p-b <= $0 && p+b >= $0 })
     } } }
     // Consume the existing scalar. Count its calibrated hidden bounds only to
     // validate domain/value consistency; do not replace or recalculate uncertainty.
-    let hiddenIndices=valid.indices.filter { valid[$0] && measured[$0]==255 }
+    // Coverage retains Uncertainty V3's original observed-mask domain, even
+    // when STOP excludes a model-rounded endpoint from measured evidence.
     let flatBounds=bounds.flatMap{$0.flatMap{$0}}
-    guard !hiddenIndices.isEmpty,uncertainty.predictedCoverage.isFinite,
+    guard !uncertaintyHiddenIndices.isEmpty,uncertainty.predictedCoverage.isFinite,
       (0...1).contains(uncertainty.predictedCoverage),
-      abs(uncertainty.predictedCoverage - Double(hiddenIndices.filter{flatBounds[$0]<=0.15}.count)/Double(hiddenIndices.count))<=1e-12 else {
+      abs(uncertainty.predictedCoverage - Double(uncertaintyHiddenIndices.filter{flatBounds[$0]<=0.15}.count)/Double(uncertaintyHiddenIndices.count))<=1e-12 else {
       return (.unavailable("COVERAGE_DOMAIN_OR_VALUE_MISMATCH"),nil)
     }
-    // The frozen acquisition pipeline observes full-depth profiles; partial profiles are outside its demonstrated contract.
-    guard sites.allSatisfy({s in (0..<grid.nz).allSatisfy{ reconstruction.observedMask[s.ix][s.iy][$0] }}) else { return (.unavailable("PARTIAL_DEPTH_OBSERVATION_UNVERIFIED"),nil) }
+    // A short CPT cannot veto depths actually observed by other CPTs. This is
+    // an availability check, not a new count, spatial, or uncertainty threshold;
+    // the three existing STOP conditions still determine sufficiency.
+    guard (0..<grid.nz).allSatisfy({ !validDepths[$0] || supportedDepths[$0] }) else {
+      return (.unavailable("DEPTH_OBSERVATION_SUPPORT_UNAVAILABLE",stateID:cptID),nil)
+    }
     let context=hash(canonical([String(grid.nx),String(grid.ny),String(grid.nz),String(grid.dxM),String(grid.dyM),String(grid.dzM),String(grid.originLatitude),String(grid.originLongitude),String(grid.siteAreaM2),implementationID]))
     var frame=StratigraphicFrame(nx:grid.nx,ny:grid.ny,nz:grid.nz,dx:grid.dxM,dy:grid.dyM,dz:grid.dzM,area:grid.siteAreaM2,valid:valid,classes:classes,measured:measured,ambiguity:ambiguity,sites:sites.map{[$0.ix,$0.iy]},stateID:cptID,count:points.count,predictedIc:reconstruction.reconstructedIc.flatMap{$0.flatMap{$0}},halfWidthIc:flatBounds,predictedCoverage:uncertainty.predictedCoverage)
     // Bind immutable state to both measured input and actual model outputs.

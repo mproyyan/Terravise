@@ -18,6 +18,12 @@ in your local test invocation if that device is unavailable.
   captured prefix states. Requires the existing capture at
   `/tmp/terravise-practical-integration/fixtures.jsonl`, sibling research artifacts,
   and its Python environment. This does not generate new geology or train a model.
+- `bash Tests/PartialDepthObservation/run.sh [/path/to/projects.json /tmp/partial-depth.json]`:
+  native depth-evidence adapter and genuine-history regression fixtures, including
+  partial/latest-partial CPTs, unsupported depths, rounded endpoints, save/reopen,
+  invalidation and STOP dispatch. An optional existing 127-CPT snapshot verifies
+  baseline capture without reconstructing a predecessor. Uses the same built app
+  resources and native wrapper as the adaptive-spacing check below.
 - `bash Tests/AdaptiveCandidateSpacing/run.sh /path/to/projects.json /tmp/adaptive.json`:
   native SchemaGAN/Uncertainty/DQN checks, normal and relaxed candidate pools,
   physical limits, current snapshot and save/reopen on existing project snapshots.
