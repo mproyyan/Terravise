@@ -614,8 +614,13 @@ final class BoundaryCreationViewModel {
   }
 
   func focusLocation() {
-    cameraPosition = .region(BoundaryMapConfiguration.defaultRegion)
-    AccessibilityCaptionCenter.shared.announce("Map centered on default anchor location.")
+    if !points.isEmpty {
+      focusOnCoordinates(points.map(\.coordinate))
+      AccessibilityCaptionCenter.shared.announce("Map centered on boundary location.")
+    } else {
+      cameraPosition = .region(BoundaryMapConfiguration.defaultRegion)
+      AccessibilityCaptionCenter.shared.announce("Map centered on default anchor location.")
+    }
   }
 
   func beginEditingProjectName() {

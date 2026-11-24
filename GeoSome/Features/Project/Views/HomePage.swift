@@ -7,6 +7,7 @@ struct HomePage: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var viewModel: ProjectViewModel
   @State private var captionCenter = AccessibilityCaptionCenter.shared
+  @State private var isLaunchingDemo = false
   @AccessibilityFocusState private var isStartButtonFocused: Bool
 
   @ScaledMetric(relativeTo: .largeTitle) private var logoWidth: CGFloat = 100
@@ -29,11 +30,16 @@ struct HomePage: View {
 
     GeometryReader { geometry in
       ZStack(alignment: .top) {
-        // Fullscreen Hero Background
+        // Fullscreen Hero Background with secret multi-finger demo gesture
         TopographyBackground(
           darkOverlayOpacity: contrast == .increased ? 0.75 : 0.7,
           alignment: .center
         )
+        .overlay {
+          MultiFingerTapDetector(numberOfTouches: [3, 4]) {
+            triggerDemoProject()
+          }
+        }
 
         // Hero Content placed in the upper portion above the sheet resting line
         ScrollView(.vertical, showsIndicators: false) {
@@ -160,6 +166,38 @@ struct HomePage: View {
       .scaledToFit()
       .frame(width: logoWidth, height: logoHeight)
       .accessibilityHidden(true)
+      .contentShape(Rectangle())
+      .onTapGesture(count: 3) {
+        triggerDemoProject()
+      }
+      .onLongPressGesture(minimumDuration: 1.5) {
+        triggerDemoProject()
+      }
+  }
+
+  // MARK: - Secret Demo Action
+
+  private func triggerDemoProject() {
+    guard !isLaunchingDemo else { return }
+    isLaunchingDemo = true
+
+    viewModel.dismissProjectSheet()
+    let demoProject = DemoShowcaseData.makeDemoProject()
+    viewModel.addProject(demoProject)
+    viewModel.selectProject(demoProject)
+    captionCenter.announce("Demo project loaded: \(demoProject.name)")
+
+    #if canImport(UIKit)
+    let generator = UINotificationFeedbackGenerator()
+    generator.notificationOccurred(.success)
+    #endif
+
+    Task { @MainActor in
+      try? await Task.sleep(for: .milliseconds(220))
+      router.navigate(to: .projectDetail(id: demoProject.id))
+      try? await Task.sleep(for: .milliseconds(1200))
+      isLaunchingDemo = false
+    }
   }
 }
 

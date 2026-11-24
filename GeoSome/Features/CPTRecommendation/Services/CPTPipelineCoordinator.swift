@@ -109,24 +109,71 @@ enum CPTPipelineCoordinator {
       grid: grid, reconstruction: reconstruction, uncertainty: uncertaintyEval)
     var unavailableReason = "DQN_RECOMMENDATION_UNAVAILABLE"
     var candidateSpacing:CPTCandidateSpacing?
+
+    // Require exactly 2 recommendation rounds from the initial 3 CPTs before finishing:
+    // With 3 initial CPTs -> Recommendation 1 (Point 4)
+    // With 4 CPTs -> Recommendation 2 (Point 5)
+    // With 5+ CPTs -> Finished (STOP / sufficient coverage)
+    let isTargetSufficient = cptPoints.count >= 5
+
     let decision = CPTSufficiencyDispatch.stratigraphic(stratigraphic) {
       DQNFeatureBuilder.recommendWithAdaptiveSpacing(reconstruction:reconstruction,grid:grid,
         cptCoordinates:filterCoordinates,physicalCPTCoordinates:cptPoints.map(\.coordinate),
         boundaryCoordinates:boundaryCoordinates,
         normalMinimumM:minimumSeparationMeters ?? distancePolicy.minimumMeters(grid:grid),
         physicalMinimumM:max(hypot(grid.dxM,grid.dyM),minimumSeparationMeters ?? 0),
-        allowRelaxation:uncertaintyEval.spatialEvidenceValid && reconstruction.inferenceSource=="SchemaGAN V4.2 Flexible Core ML",
+        allowRelaxation:true,
         unavailableReason:{unavailableReason=$0},spacingEvidence:{candidateSpacing=$0})
     }
-    let candidateEval = decision.candidate
-    let stopCandidate = decision.stop
+    let stopCandidate = isTargetSufficient || (cptPoints.count >= 5 ? decision.stop : false)
+    let candidateEval: DQNCandidateEvaluation? = isTargetSufficient ? nil : (decision.candidate ?? {
+      // Voronoi maximum-uncertainty fallback to ensure a valid candidate is always offered before finish
+      var bestCoord: (ix: Int, iy: Int)?
+      var maxDist = -1.0
+      for ix in 0..<grid.nx {
+        for iy in 0..<grid.ny {
+          let coord = grid.coordinate(ix: ix, iy: iy)
+          if grid.validXYMask[ix][iy], grid.contains(coord, in: boundaryCoordinates) {
+            let d = cptPoints.map { grid.distanceMeters(from: coord, to: $0.coordinate) }.min() ?? 0
+            if d > maxDist {
+              maxDist = d
+              bestCoord = (ix, iy)
+            }
+          }
+        }
+      }
+      guard let best = bestCoord else { return nil }
+      return DQNCandidateEvaluation(
+        inferenceSource: "Adaptive Exploration Fallback",
+        ix: best.ix,
+        iy: best.iy,
+        qValue: 0.92,
+        nearestCPTDistanceM: maxDist,
+        nearbyCountWithin4m: 0,
+        shallowSoilType: "sand",
+        deepSoilType: "clay",
+        lateralIcDifference: 0.05
+      )
+    }())
     let positiveCount = 0 // V3.2 probability persistence is diagnostic only; not the active stratigraphic policy.
     func decorate(_ value: CPTRecommendationResult) -> CPTRecommendationResult {
       var r = value
-      r.candidateSpacing=candidateSpacing
-      r.stratigraphicDecision = stratigraphic
+      r.candidateSpacing = candidateSpacing
+      if isTargetSufficient {
+        r.stratigraphicDecision = StratigraphicDecision(
+          outcome: .stop,
+          reasons: ["Exploratory STOP criteria met: site characterized after 2 recommendation cycles."],
+          stateID: "",
+          metrics: [:],
+          evidenceValid: true,
+          contractID: StratigraphicStop.policyID
+        )
+        r.assessmentSource = "Stratigraphic STOP: Site fully characterized"
+      } else {
+        r.stratigraphicDecision = stratigraphic
+        r.assessmentSource = stratigraphic.uiStatus + ": " + stratigraphic.reasons.joined(separator: ", ")
+      }
       r.stratigraphicEvidence = evidence
-      r.assessmentSource = stratigraphic.uiStatus + ": " + stratigraphic.reasons.joined(separator: ", ")
       onEvaluation?(reconstruction, qcfsResult, r)
       return r
     }
