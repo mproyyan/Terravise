@@ -170,8 +170,10 @@ enum CPTPipelineCoordinator {
         )
         r.assessmentSource = "Stratigraphic STOP: Site fully characterized"
       } else {
-        r.stratigraphicDecision = stratigraphic
-        r.assessmentSource = stratigraphic.uiStatus + ": " + stratigraphic.reasons.joined(separator: ", ")
+        var contDecision = stratigraphic
+        contDecision.outcome = .continue
+        r.stratigraphicDecision = contDecision
+        r.assessmentSource = "CONTINUE: Recommendation cycle active"
       }
       r.stratigraphicEvidence = evidence
       onEvaluation?(reconstruction, qcfsResult, r)

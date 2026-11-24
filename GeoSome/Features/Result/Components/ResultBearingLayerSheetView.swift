@@ -165,33 +165,21 @@ struct ResultBearingLayerSheetView: View {
       .accessibilityLabel("Prediction Uncertainty: \(relativeUncertaintyText ?? "—")")
 
       // High Uncertainty Area Card
-      VStack(alignment: .leading, spacing: 12) {
-        VStack(alignment: .leading, spacing: 4) {
-          Text("High Uncertainty Area")
-            .font(.footnote)
-            .foregroundStyle(Color.primary)
+      VStack(alignment: .leading, spacing: 4) {
+        Text(highUncertaintyAreaPercentText)
+          .font(.title2.weight(.bold))
+          .foregroundStyle(Color.primary)
 
-          Text(highUncertaintyAreaPercentText)
-            .font(.title2.weight(.bold))
-            .foregroundStyle(Color.primary)
-
-          Text("of total investigation area")
-            .font(.footnote)
-            .foregroundStyle(Color.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 12)
-        .background(
-          RoundedRectangle(cornerRadius: 8, style: .continuous)
-            .fill(Color(.systemGroupedBackground))
-        )
+        Text("High uncertainty area of total investigation area")
+          .font(.footnote)
+          .foregroundStyle(Color.secondary)
 
         if let highUncertaintyDescription {
           Text(highUncertaintyDescription)
             .font(.footnote)
             .foregroundStyle(Color.secondary)
             .fixedSize(horizontal: false, vertical: true)
+            .padding(.top, 4)
         }
       }
       .frame(maxWidth: .infinity, alignment: .leading)

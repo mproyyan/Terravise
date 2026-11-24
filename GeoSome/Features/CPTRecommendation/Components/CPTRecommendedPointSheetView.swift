@@ -42,8 +42,7 @@ struct CPTRecommendedPointSheetView: View {
       return true
     }
     guard let decision = recommendation.stratigraphicDecision else { return false }
-    // Consume the active Practical STOP dispatch; legacy sufficiency flags are not evidence.
-    return StratigraphicStop.dispatch(decision) { Optional<Bool>.none }.stop
+    return decision.outcome == .stop
   }
 
   private var isStopped: Bool { Self.isStopped(recommendation) }
